@@ -13,8 +13,9 @@ def get_workflow_doc() -> str:
 | Multi-provider discovery | web_search | query, research_goal, rewrite, domain_boost |
 | Web + X/Twitter | grok_search | query, research_goal, allowed_domains, excluded_domains |
 | Scholarly papers | academic_search | query, sources, year_from, year_to, fields_of_study, venue, sort |
-| Read one or many URLs | fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (known URL contents, including GitHub file URLs) |
-| Read a GitHub file | fetch | url (raw.githubusercontent.com or github.com blob URL), offset |
+| Read one or many known URLs | web-search:fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (known URL contents, including GitHub file URLs) |
+| Bounded site crawl or browser rendering | web-search:crawl_web | request={urls, max_depth (0..2), max_pages (1..100), include_external, targets, interaction, response_format} |
+| Read a GitHub file | web-search:fetch | url (raw.githubusercontent.com or github.com blob URL), offset |
 | Cross-repo code discovery | code_search | query, repositories, language, path, filename, regexp, mode, deep |
 | Extract captions | youtube_transcript | video_id_or_url, language, translate_to, output_format, backend |
 | Site map | generate_sitemap | url, instructions, max_depth, max_breadth, limit, select_paths, exclude_paths, allow_external |
@@ -24,11 +25,12 @@ def get_workflow_doc() -> str:
 - rewrite=false: exact literal search (errors, hashes, URLs, quoted phrases)
 
 ## Pagination
-- fetch: single results use window.next_offset; bulk results use cursor when has_more
-- GitHub files: pass the file URL to fetch; page long files with offset.
+- web-search:fetch: single results use window.next_offset; bulk results use cursor when has_more.
+- GitHub files: pass the file URL to web-search:fetch; page long files with offset.
+- web-search:crawl_web: traversal is bounded by max_depth/max_pages; summary omits Markdown and links, detailed includes them, and both formats return deterministic output_path values.
 
 ## Code Tool Boundary
-- Known file URL, contents only → fetch (including GitHub file URLs). Cross-repo discovery → code_search, then follow `next` (repository hits route to fetch).
+- Known file URL, contents only → web-search:fetch (including GitHub file URLs). Cross-repo discovery → web-search:code_search, then follow `next` (repository hits route to web-search:fetch).
 
 ## AI Summaries
 - ai_summary=false: return raw page content only (default)

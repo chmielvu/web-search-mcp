@@ -9,9 +9,11 @@ P2 Pattern: Typed Pydantic output schemas from Brave/Tavily MCP
 from __future__ import annotations
 
 from typing import Any, Literal, Sequence
+from urllib.parse import urlsplit
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from .content.models import MarkdownStructure
 from .utils.entity import EntityRelation, EntitySpan  # always available (pure python)
 
 
@@ -375,6 +377,175 @@ class FetchError(BaseModel):
     retryable: bool = False
     http_status: int | None = None
     stage: str | None = None
+
+
+class _PublicCrawlModel(BaseModel):
+    """Crawl response model that omits optional fields from compact output."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(**kwargs)
+
+    def model_dump_json(self, **kwargs: Any) -> str:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump_json(**kwargs)
+
+
+class CrawlTargets(_PublicCrawlModel):
+    """Optional page, domain, and URL-pattern boundaries for a crawl."""
+
+    css_selector: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="CSS selector that limits extraction to matching page content.",
+    )
+    allowed_domains: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description="Domains that seeds and discovered URLs may use, including subdomains.",
+    )
+    excluded_domains: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description="Domains to reject even when another crawl boundary would allow them.",
+    )
+    include_patterns: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description="URL glob patterns a seed or discovered URL must match.",
+    )
+    exclude_patterns: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description="URL glob patterns that reject matching seeds and discovered URLs.",
+    )
+
+
+class CrawlInteraction(_PublicCrawlModel):
+    """Bounded browser interaction controls accepted by Crawl4AI."""
+
+    javascript_before_wait: list[str] | None = Field(
+        default=None,
+        max_length=10,
+        description="JavaScript snippets to run before evaluating wait_for.",
+    )
+    wait_for: str | None = Field(
+        default=None,
+        max_length=2048,
+        description="Crawl4AI wait condition, such as css:.loaded or js:() => window.ready.",
+    )
+    javascript: list[str] | None = Field(
+        default=None,
+        max_length=10,
+        description="JavaScript snippets to run before content extraction.",
+    )
+    scan_full_page: bool | None = Field(
+        default=None,
+        description="Scroll through the page before extraction when true.",
+    )
+
+    @model_validator(mode="after")
+    def _check_script_limits(self) -> "CrawlInteraction":
+        scripts = [*(self.javascript_before_wait or ()), *(self.javascript or ())]
+        if len(scripts) > 10:
+            raise ValueError("interaction accepts at most 10 JavaScript snippets")
+        if sum(len(script.encode("utf-8")) for script in scripts) > 32 * 1024:
+            raise ValueError("interaction JavaScript is limited to 32768 UTF-8 bytes")
+        return self
+
+
+class CrawlWebRequest(_PublicCrawlModel):
+    """Validated request for bounded Crawl4AI browser-backed traversal."""
+
+    urls: list[str] = Field(
+        min_length=1,
+        max_length=20,
+        description="One to twenty absolute HTTP(S) seed URLs.",
+    )
+    max_depth: int = Field(
+        default=0,
+        ge=0,
+        le=2,
+        description="Maximum discovered-link depth; 0 processes only the seed URLs.",
+    )
+    max_pages: int = Field(
+        default=20,
+        ge=1,
+        le=100,
+        description="Maximum number of attempted pages, including seeds.",
+    )
+    include_external: bool = Field(
+        default=False,
+        description="Allow discovered URLs outside the seed sites when true.",
+    )
+    targets: CrawlTargets | None = Field(
+        default=None,
+        description="Optional CSS, domain, and URL-pattern boundaries.",
+    )
+    interaction: CrawlInteraction | None = Field(
+        default=None,
+        description="Optional bounded browser interaction controls.",
+    )
+    response_format: Literal["summary", "detailed"] = Field(
+        default="summary",
+        description="Summary omits page Markdown and links; detailed includes them.",
+    )
+
+    @field_validator("urls")
+    @classmethod
+    def _check_seed_urls(cls, urls: list[str]) -> list[str]:
+        for url in urls:
+            parsed = urlsplit(url)
+            if parsed.scheme.lower() not in {"http", "https"} or not parsed.hostname:
+                raise ValueError(
+                    f"urls contains {url!r}; expected an absolute public HTTP(S) URL, "
+                    "for example https://example.com"
+                )
+        return urls
+
+    @model_validator(mode="after")
+    def _check_seed_page_budget(self) -> "CrawlWebRequest":
+        if self.max_pages < len(self.urls):
+            raise ValueError("max_pages cannot be smaller than the number of seed URLs")
+        return self
+
+
+class CrawlWebResult(_PublicCrawlModel):
+    """One finalized page artifact from a Crawl4AI traversal."""
+
+    url: str
+    status: PublicStatus
+    depth: int = 0
+    title: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    output_path: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    word_count: int = 0
+    structure: MarkdownStructure = Field(default_factory=MarkdownStructure)
+    error: FetchError | None = Field(default=None, exclude_if=lambda value: value is None)
+    diagnostics: list[dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    content: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    links: list[ContentLink] | None = Field(default=None, exclude_if=lambda value: value is None)
+
+
+class CrawlWebResponse(_PublicCrawlModel):
+    """Compact summary or detailed page artifacts from ``crawl_web``."""
+
+    response_format: Literal["summary", "detailed"]
+    results: list[CrawlWebResult] = Field(default_factory=list)
+    total_requested: int = 0
+    total_returned: int = 0
+    status_counts: dict[str, int] = Field(default_factory=dict)
+    max_depth_reached: int = 0
+    capabilities: dict[str, Any] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    diagnostics: list[dict[str, Any]] | None = Field(
+        default=None, exclude_if=lambda value: value is None
+    )
+    duration_ms: int = 0
 
 
 class FetchWindow(BaseModel):

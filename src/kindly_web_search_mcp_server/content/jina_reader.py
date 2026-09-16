@@ -523,6 +523,8 @@ async def fetch_raw_document(
         route=route,
         timeout_seconds=ceiling,
         remove_selector=remove_selector,
+        target_selector=decision.target_selector,
+        wait_for_selector=decision.wait_for_selector,
     )
 
     markdown = response.content

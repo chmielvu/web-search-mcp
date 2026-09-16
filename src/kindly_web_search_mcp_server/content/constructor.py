@@ -19,6 +19,7 @@ from kindly_web_search_mcp_server.content.models import (
     ContentStatus,
     Diagnostic,
     FetchOptions,
+    MarkdownStructure,
     ProcessingMode,
     QualityReport,
 )
@@ -48,6 +49,7 @@ class ContentArtifact:
     title: str | None = None
     metadata: dict[str, Any] | None = None
     links: tuple[dict[str, Any], ...] = ()
+    structure: MarkdownStructure = field(default_factory=MarkdownStructure)
     diagnostics: tuple[Diagnostic, ...] = ()
     transforms: tuple[str, ...] = ()
     entities: tuple[EntitySpan, ...] | None = None
@@ -274,6 +276,7 @@ async def finalize_artifact(
             "title": document.title if document else None,
             "metadata": document.metadata if document else None,
             "links": processed.links if processed else (),
+            "structure": processed.structure if processed else MarkdownStructure(),
             "diagnostics": tuple(diagnostics),
             "transforms": processed.transforms if processed else (),
             "entities": entities,
@@ -327,6 +330,13 @@ def rehydrate_cached_artifact(
         malformed_tables=int(quality_payload.get("malformed_tables", 0)),
         fence_errors=int(quality_payload.get("fence_errors", 0)),
         flags=tuple(quality_payload.get("flags") or ()),
+    )
+    structure_payload = payload.get("structure") or {}
+    structure = MarkdownStructure(
+        tables=int(structure_payload.get("tables", 0)),
+        code_blocks=int(structure_payload.get("code_blocks", 0)),
+        images=int(structure_payload.get("images", 0)),
+        text_regions=int(structure_payload.get("text_regions", 0)),
     )
     error_payload = payload.get("error")
     error_obj = None
@@ -393,6 +403,7 @@ def rehydrate_cached_artifact(
             "links": tuple(links_raw) if isinstance(links_raw, (list, tuple)) else (),
             "diagnostics": tuple(restored_diagnostics),
             "transforms": tuple(payload.get("transforms") or ()),
+            "structure": structure,
             "entities": entities,
             "error": error_obj,
             "cached": True,

@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-14 | Last verified: 2026-09-14 -->
+<!-- Last updated: 2026-09-15 | Last verified: 2026-09-15 -->
 
 # AGENTS.md - Content
 
@@ -13,6 +13,7 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 - **Producers** (`resolver_registry.py`, `resolvers/`, `jina_reader.py`,
   `remote_clients.py`) return `RawDocument` (or raise `AcquisitionError`);
   no sanitizing, classifying, scoring, or artifact construction inside.
+- **Bounded crawl** (`crawl_pipeline.py`): validates public seeds and discovered links (per-seed `SafeFetchError` → typed failure artifact, other seeds continue), traverses breadth-first within typed domain/glob/page/depth limits, canonicalizes fetch targets with `fold_slug=False` (dedup folding is identity-only, never a request URL), and sends only typed browser/crawler parameters to Crawl4AI. Pages Crawl4AI cannot acquire fall back once to the single-URL ladder (`fetch_content_artifact`).
 - **Shared evaluation** (`markdown_processor.py`): source-range cleanup on
   the original text, rumdl stdin diagnostics (`MD056,MD075,MD070,MD031,MD058`,
   never `--fix`), measured `QualityReport`, index-only mdformat+GFM with a
@@ -29,12 +30,13 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 | File | Role |
 |---|---|
 | `fetch_pipeline.py` | Single-URL orchestrator: registry → Jina → Crawl4AI → browser/archive; candidate selection only |
+| `crawl_pipeline.py` | Bounded BFS over Crawl4AI results; validates public links and delegates all page evaluation/finalization |
 | `resolver_registry.py` | Ordered `ResolverSpec` list; every spec owns its `match_*` + `fetch_*_raw` |
 | `constructor.py` | Sole `ContentArtifact` constructor (`finalize_artifact` + `rehydrate_cached_artifact`), atomic index writer to `outputs/` |
-| `markdown_processor.py` | Shared evaluator: source-range cleanup, rumdl diagnostics, `QualityReport`, index-only mdformat+GFM |
+| `markdown_processor.py` | Shared evaluator: MarkdownChef structure audit plus source-range cleanup, rumdl diagnostics, `QualityReport`, index-only mdformat+GFM |
 | `models.py` | Provider-neutral contracts: `RawDocument`, `Candidate`, `FetchOptions`, `ResolverSpec`, `QualityReport` |
 | `jina_reader.py` | DOM-routed Jina Reader transport: per-route engines/presets/timeouts from `dom_detector`, JSON/SSE/frontmatter decode, RawDocument adapter |
-| `dom_detector.py` | Static-HTML DOM classifier: bounded preflight → `RouteDecision` (agent/research/readerlm-v2/readerlm-research/research+browser-timing/browser) with evidence trail |
+| `dom_detector.py` | Static-HTML DOM classifier on a primary turbohtml WHATWG parse plus its C scoring pass (`main_content`/`boilerplate`, hidden-subtree filtering, structured-data page types): bounded preflight → `RouteDecision` (agent/research/readerlm-v2/readerlm-research/research+browser-timing/browser) with evidence trail, Lighthouse body-node shape, repeated-item detection, target/wait selector suggestions, and Ketch-style shell corroboration |
 | `http_utils.py` | Transport, two deliberate layers: borrowed-context (`request_with_redirect_validation`, `fetch_json`, `fetch_text`, `raise_for_status`, `bytes_with_cap`; raises `AcquisitionError`) and standalone SSRF-guarded `safe_fetch_url` (curl_cffi→httpx, raises `SafeFetchError`) |
 | `html_tools.py` | HTML tooling: `soup_from_html`, `url_hostname`, `html_to_markdown` (markdownify only), `extract_metadata`, `extract_links` |
 | `documents.py` | Shared builders for neutral contracts: thread reducers (`build_thread_document`, `thread_messages_from_dict/flat`), `build_package_document`, `build_repository_document` |
@@ -60,6 +62,46 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 - The shared `MarkdownProcessor` owns all markdown evaluation. Producers
   return source text; the processor decides whether mdformat+GFM runs, and
   only in index mode.
+- `crawl_pipeline.py` is the only multi-page traversal path. It validates each seed
+  independently — a seed that fails `validate_public_url` (including transient
+  `dns_resolution_failed`) is recorded as a typed failure artifact while the
+  remaining seeds proceed. It sends batches to Crawl4AI, filters links before
+  enqueueing, canonicalizes all crawl URLs with `canonicalize_url(..., fold_slug=False)`
+  so date-as-path sites resolve, and routes both fit/raw
+  variants through `evaluate_candidate`, `select_candidate`, and
+  `finalize_artifact`. `crawl_web` always uses index mode so output paths are
+  content-addressed and deterministic.
+- Response items pair back to requests by URL in request space
+  (`fold_slug=False`): Crawl4AI returns batch results in completion order,
+  and the folded dedup identity never equals the URL that was sent, so a
+  folded key would silently degrade to positional pairing and pair one page
+  with another page's result.
+- A page whose Crawl4AI result is a typed failure, blocked, or otherwise not
+  accepted content is retried once through the single-URL ladder
+  (`fetch_content_artifact`: registry → Jina → Crawl4AI Markdown → Camoufox →
+  archive). The Crawl4AI container's untrusted-request policy forbids
+  `js_code`, `magic`, `simulate_user`, `override_navigator`, `cdp_url`,
+  `proxy_config`, `cookies`, and `headers`, and its Chromium cannot pass
+  challenge walls, so hard sites only resolve through this second path;
+  accepted Crawl4AI pages never trigger the fallback.
+- `crawl_pipeline._crawler_params` always sends an explicit
+  `markdown_generator` (DefaultMarkdownGenerator + PruningContentFilter
+  0.3/fixed/min 0), `word_count_threshold=2`, `target_elements=["article"]`,
+  and `excluded_selector` for share/nav divs. Without the explicit filter the
+  Crawl4AI server returns `fit_markdown=None` (fit/raw selection degenerates
+  to raw-only and div boilerplate survives); with the filter, boilerplate is
+  gone and every code fence survives — verified A/B against the live server
+  on 2026-09-15 (see wiki `crawl4ai-pruning-config-tuning` for the tuning
+  matrix; thresholds ≥0.48 with higher word thresholds destroy code fences).
+- `MarkdownProcessor` runs two repair passes ahead of validation:
+  `inferred-fence-languages` (deterministic language tags on language-less
+  fences; body never edited) and `deduped-h1-headings` (later H1s duplicating
+  the first title under Unicode/whitespace normalization). Both apply to the
+  shared `fetch` and `crawl` paths. `QualityReport.boilerplate_hits` counts
+  junk-rule rumdl findings (MD033/MD036/MD042/MD045/MD059).
+- `MarkdownChef` is an additive structure audit. Its counts and source spans
+  are attached to `ProcessedMarkdown` but the existing markdown-it sanitizer,
+  rumdl diagnostics, and mdformat defect gate remain authoritative.
 - `utils/content_classify.py` and `utils/text_clean.py` markdown hygiene are
   deleted. Status is derived from finalizer evidence
   (`artifact.quality.flags` + `artifact.error.code`) and from
@@ -120,7 +162,10 @@ from pathlib import Path
 
 assert Path(a.output_path).read_text(encoding="utf-8") == a.markdown
 
-envelope = {"policy_version": "markdown-source-v2", "artifact": art.artifact_to_dict(a)}
+envelope = {
+    "policy_version": "markdown-source-v3-markdownchef",
+    "artifact": art.artifact_to_dict(a),
+}
 rehydrated = art.rehydrate_cached_artifact(envelope, "https://example.com/x")
 assert rehydrated is not None and rehydrated.markdown == a.markdown
 ```
@@ -165,8 +210,11 @@ assert rehydrated is not None and rehydrated.markdown == a.markdown
   into the analytics CHECK domain (`success|partial|blocked|unsupported|error|skipped`).
 - `RawDocument.coverage`, `ContentArtifact.coverage`, `Candidate.failure`, and
   `ContentError.status` added; failure status flows to public mapping unchanged.
-- `PROCESSING_POLICY_VERSION` bumped to `markdown-source-v2` (cache keys and
-  envelopes from v1 reject as misses).
+- `MarkdownChef` structure counts and source-region spans are additive evidence
+  on every processed Markdown result; `crawl_web` uses the same evaluator and
+  finalizer as `fetch`.
+- `PROCESSING_POLICY_VERSION` bumped to `markdown-source-v3-markdownchef`
+  (cache keys and envelopes from earlier policies reject as misses).
 - Deleted dead code: `utils/content_classify.py` and `utils/text_clean.py`
   markdown-hygiene block (`sanitize_markdown`, `strip_boilerplate`,
   `polish_prose`, `strip_jina_frontmatter`, `parse_jina_frontmatter`).

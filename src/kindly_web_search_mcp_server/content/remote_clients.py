@@ -17,10 +17,11 @@ Camoufox usage::
 
 from __future__ import annotations
 
-import json
 import asyncio
+import json
 import logging
 import time
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -41,8 +42,39 @@ class Crawl4AIClientError(RuntimeError):
         self.retryable = retryable
 
 
+class Crawl4AIConfigError(Crawl4AIClientError):
+    """Raised when the Crawl4AI endpoint is not configured."""
+
+
+def extract_crawl_markdown_candidates(item: Mapping[str, Any]) -> list[dict[str, str]]:
+    """Return ordered fit/raw Markdown variants from one Crawl4AI result."""
+    markdown = item.get("markdown")
+    candidates: list[dict[str, str]] = []
+    seen: set[str] = set()
+    if isinstance(markdown, Mapping):
+        values = (
+            ("fit_markdown", "fit"),
+            ("fit", "fit"),
+            ("raw_markdown", "raw"),
+            ("raw", "raw"),
+        )
+        for key, variant in values:
+            value = markdown.get(key)
+            if isinstance(value, str) and value.strip() and variant not in seen:
+                candidates.append({"variant": variant, "markdown": value})
+                seen.add(variant)
+    elif isinstance(markdown, str) and markdown.strip():
+        candidates.append({"variant": "fit", "markdown": markdown})
+    for key, variant in (("fit_markdown", "fit"), ("raw_markdown", "raw")):
+        value = item.get(key)
+        if isinstance(value, str) and value.strip() and variant not in seen:
+            candidates.append({"variant": variant, "markdown": value})
+            seen.add(variant)
+    return candidates
+
+
 class Crawl4AIClient:
-    """HTTP client for remote Crawl4AI Docker server (POST /md only — non-browser cloud markdown)."""
+    """HTTP client for Crawl4AI markdown and browser-backed crawl endpoints."""
 
     def __init__(
         self,
@@ -63,6 +95,7 @@ class Crawl4AIClient:
             headers=headers,
         )
         self._health_cache: tuple[float, bool] | None = None
+        self._capability_cache: tuple[float, dict[str, Any]] | None = None
 
     async def fetch_markdown(
         self,
@@ -91,6 +124,46 @@ class Crawl4AIClient:
             raise Crawl4AIClientError("Crawl4AI /md returned empty content")
         return markdown
 
+    async def crawl(
+        self,
+        urls: list[str],
+        *,
+        browser_params: Mapping[str, Any],
+        crawler_params: Mapping[str, Any],
+    ) -> list[dict[str, Any]]:
+        """POST /crawl with typed BrowserConfig and CrawlerRunConfig wrappers."""
+        payload = {
+            "urls": list(urls),
+            "browser_config": {
+                "type": "BrowserConfig",
+                "params": dict(browser_params),
+            },
+            "crawler_config": {
+                "type": "CrawlerRunConfig",
+                "params": dict(crawler_params),
+            },
+        }
+        data = await self._post_json("/crawl", payload)
+        if isinstance(data, list):
+            if not all(isinstance(item, Mapping) for item in data):
+                raise Crawl4AIClientError(
+                    "Crawl4AI /crawl returned a non-object result", retryable=False
+                )
+            return [dict(item) for item in data]
+        if isinstance(data, dict):
+            results = data.get("results")
+            if isinstance(results, list):
+                if not all(isinstance(item, Mapping) for item in results):
+                    raise Crawl4AIClientError(
+                        "Crawl4AI /crawl returned a non-object result",
+                        retryable=False,
+                    )
+                return [dict(item) for item in results]
+            if data.get("success") is False:
+                message = str(data.get("error") or data.get("message") or "Crawl4AI crawl failed")
+                return [{"url": url, "success": False, "error": message} for url in urls]
+        raise Crawl4AIClientError("Crawl4AI /crawl returned an invalid response", retryable=False)
+
     async def health_check(self) -> bool:
         """GET /health — check VPS availability (cached)."""
         now = time.monotonic()
@@ -106,9 +179,62 @@ class Crawl4AIClient:
         self._health_cache = (now, healthy)
         return healthy
 
+    async def capability_summary(self) -> dict[str, Any]:
+        """Return compact health/schema evidence for detailed crawl responses."""
+        now = time.monotonic()
+        if self._capability_cache is not None:
+            cached_time, cached_summary = self._capability_cache
+            if now - cached_time < self._health_cache_seconds:
+                return cached_summary
+        diagnostics: list[dict[str, str]] = []
+        summary: dict[str, Any] = {}
+        try:
+            health = await self._get_json("/health")
+        except Crawl4AIClientError as exc:
+            summary["health"] = {"available": False}
+            diagnostics.append({"endpoint": "/health", "message": str(exc)[:200]})
+        else:
+            summary["health"] = {"available": True, **_compact_capability_data(health)}
+        try:
+            schema = await self._get_json("/schema")
+        except Crawl4AIClientError as exc:
+            summary["schema"] = {"available": False}
+            diagnostics.append({"endpoint": "/schema", "message": str(exc)[:200]})
+        else:
+            summary["schema"] = {"available": True, **_compact_capability_data(schema)}
+        if diagnostics:
+            summary["diagnostics"] = diagnostics
+        self._capability_cache = (now, summary)
+        return summary
+
     async def close(self) -> None:
         """Close the underlying HTTP client."""
         await self._http.aclose()
+
+    async def _get_json(self, path: str) -> Any:
+        """GET JSON from a Crawl4AI endpoint."""
+        try:
+            resp = await self._http.get(path)
+            resp.raise_for_status()
+        except httpx.TimeoutException as exc:
+            raise Crawl4AIClientError(f"Crawl4AI {path} timed out: {exc}", retryable=True) from exc
+        except httpx.HTTPStatusError as exc:
+            raise Crawl4AIClientError(
+                f"Crawl4AI {path} returned HTTP {exc.response.status_code}: "
+                f"{exc.response.text[:200]}",
+                retryable=exc.response.status_code >= 500,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise Crawl4AIClientError(
+                f"Crawl4AI {path} connection failed: {exc}",
+                retryable=True,
+            ) from exc
+        try:
+            return resp.json()
+        except ValueError as exc:
+            raise Crawl4AIClientError(
+                f"Crawl4AI {path} returned non-JSON data", retryable=False
+            ) from exc
 
     async def _post_json(self, path: str, payload: dict[str, Any]) -> Any:
         """POST JSON to a Crawl4AI endpoint and return parsed response."""
@@ -125,12 +251,31 @@ class Crawl4AIClient:
             ) from exc
         except httpx.RequestError as exc:
             raise Crawl4AIClientError(
-                f"Crawl4AI {path} connection failed: {exc}", retryable=True
+                f"Crawl4AI {path} connection failed: {exc}",
+                retryable=True,
             ) from exc
         try:
             return resp.json()
         except ValueError:
             return resp.text
+
+
+def _compact_capability_data(value: Any) -> dict[str, Any]:
+    """Keep health/schema payloads bounded and free of raw server documents."""
+    if isinstance(value, Mapping):
+        compact: dict[str, Any] = {}
+        for key in ("status", "version", "service", "name"):
+            item = value.get(key)
+            if isinstance(item, (str, int, float, bool)):
+                compact[key] = item
+        if not compact:
+            compact["keys"] = sorted(str(key) for key in value)[:32]
+        return compact
+    if isinstance(value, list):
+        return {"item_count": len(value)}
+    if isinstance(value, (str, int, float, bool)):
+        return {"value": value}
+    return {}
 
 
 # ------------------------------------------------------------------

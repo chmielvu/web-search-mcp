@@ -73,6 +73,7 @@ mcp-server --http --port 8000
 |------|-------------|
 | `web_search` | Multi-provider web search with RRF merge and rerank |
 | `fetch` | Fetch one or many URLs with typed routing, metadata, links, summaries, and bounded continuation |
+| `crawl_web` | Bounded Crawl4AI site traversal with typed targets, browser interactions, Markdown structure counts, and persisted outputs |
 | `discover_links` | Discover and categorize links from a page |
 | `gemini_search` | AI-synthesized answers via Gemini + Google Search |
 | `code_search` | Search public source code, implementation examples, technical documentation, and GitHub repositories with automatic backend selection |

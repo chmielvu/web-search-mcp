@@ -1,0 +1,990 @@
+Each Markdown file has YAML front matter containing source, title, UTC crawl time, content family,
+chosen extractor, cleaner, score and signal breakdown, counts, SHA-256 content hash, headings,
+links, edits, warnings, and publication state. Filenames include a URL hash to prevent collisions.
+
+## Cleaner modes
+
+* `native` (default) preserves code and tables, normalizes Unicode/mojibake, removes dangerous HTML,
+  repairs headings/fences, canonicalizes links and tracking parameters, applies content-family junk
+  rules, removes short link-heavy blocks and repeated site blocks, then scores the result.
+* `native+markdownchef` performs the same cleaning and adds Chonkie MarkdownChef structural counts.
+  **MarkdownChef is a parser/preprocessor, not a sanitizer**: current Chonkie returns a
+  `MarkdownDocument` describing tables, code, images, and text regions without rewriting content.
+  Treating it as the cleaner would be both ineffective and version-fragile.
+
+Trafilatura is used only when the `extract` extra is installed and Crawl4AI returns HTML. Every
+candidate is cleaned and independently scored; score wins, with length only as a tie-breaker.
+
+## Security and operations
+
+Use Crawl4AI 0.9+ authentication and its upstream SSRF controls. `execute_js` and declarative hooks
+are still governed by the instance feature flags. The gateway follows no HTTP redirects itself,
+redacts tokens from errors, bounds a scrape to 100 URLs, restricts generic operations to a fixed
+endpoint map, and never accepts arbitrary endpoint paths. Output writes are atomic.
+
+crawl4ai_rag_mcp/__init__.py
+crawl4ai_rag_mcp/__init__.py
+New
++3
+-0
+
+"""Crawl4AI RAG Markdown MCP."""
+
+__version__ = "0.1.0"
+crawl4ai_rag_mcp/chef.py
+crawl4ai_rag_mcp/chef.py
+New
++21
+-0
+
+"""Optional Chonkie MarkdownChef structural analysis (not a cleaner)."""
+
+from __future__ import annotations
+from typing import Any
+
+
+def analyze(markdown: str) -> dict[str, Any]:
+    """Return MarkdownChef's structural counts without claiming it sanitizes text."""
+    try:
+        from chonkie import MarkdownChef
+    except ImportError as exc:
+        raise RuntimeError(
+            "Install the 'chef' extra: pip install 'crawl4ai-rag-mcp[chef]'"
+        ) from exc
+    document = MarkdownChef(tokenizer="character").parse(markdown)
+    return {
+        "tables": len(document.tables),
+        "code_blocks": len(document.code),
+        "images": len(document.images),
+        "text_regions": len(document.chunks),
+    }
+crawl4ai_rag_mcp/cleaner.py
+crawl4ai_rag_mcp/cleaner.py
+New
++254
+-0
+
+"""Fence-aware, non-reflowing Markdown cleaning and explainable quality scoring."""
+
+from __future__ import annotations
+import hashlib
+import html
+import re
+import unicodedata
+from dataclasses import dataclass, field
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
+
+from markdown_it import MarkdownIt
+from .profiles import detect
+
+_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+_LINK = re.compile(r"(?<!!)\[([^]\n]+)\]\(([^)\s]+)(?:\s+['\"][^)]*['\"])?\)")
+_IMAGE = re.compile(r"!\[([^]]*)\]\(([^)]+)\)")
+_CITE = re.compile(r"\[(?:\d{1,3}(?:\s*[,–-]\s*\d{1,3})*|edit|citation needed)\]", re.I)
+_TAG = re.compile(
+    r"</?(?:div|span|font|nav|aside|script|style|iframe|noscript)\b[^>]*>", re.I
+)
+_HTML_BLOCK = re.compile(
+    r"<(script|style|iframe|noscript)\b[^>]*>.*?</\1\s*>", re.I | re.S
+)
+_ZERO = re.compile(r"[\u200b-\u200d\u2060\ufeff]|[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+_TRACKING = {"gclid", "fbclid", "mc_cid", "mc_eid", "ref", "ref_src", "spm"}
+_MOJIBAKE = {
+    "â€™": "’",
+    "â€œ": "“",
+    "â€\x9d": "”",
+    "â€“": "–",
+    "â€”": "—",
+    "â€¦": "…",
+    "Â ": " ",
+}
+
+
+@dataclass(slots=True)
+class CleaningOptions:
+    source_url: str
+    content_type: str = "auto"
+    link_mode: str = "keep"  # keep | text | drop
+    image_policy: str = "alt"  # keep | alt | drop
+    citations: str = "auto"  # auto | keep | strip
+    repeated_hashes: set[str] = field(default_factory=set)
+
+
+@dataclass(slots=True)
+class CleanResult:
+    text: str
+    content_type: str
+    type_confidence: float
+    edits: dict[str, int]
+    block_hashes: list[str]
+    warnings: list[str]
+
+
+def block_hash(text: str) -> str:
+    normalized = re.sub(r"\W+", " ", text.casefold()).strip()
+    return hashlib.sha256(normalized.encode()).hexdigest()[:20]
+
+
+def _url(value: str, base: str) -> str:
+    absolute = urljoin(base, html.unescape(value))
+    parts = urlsplit(absolute)
+    if parts.scheme not in {"http", "https", "mailto"}:
+        return ""
+    query = [
+        (k, v)
+        for k, v in parse_qsl(parts.query, keep_blank_values=True)
+        if not k.lower().startswith("utm_") and k.lower() not in _TRACKING
+    ]
+    return urlunsplit(
+        (parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment)
+    )
+
+
+def _outside_fences(lines: list[str]):
+    opened: tuple[str, int] | None = None
+    for index, line in enumerate(lines):
+        match = _FENCE.match(line)
+        inside = opened is not None
+        yield index, line, inside
+        if match:
+            marker = match.group(1)
+            if opened is None:
+                opened = (marker[0], len(marker))
+            elif marker[0] == opened[0] and len(marker) >= opened[1]:
+                opened = None
+
+
+def clean_markdown(markdown: str, options: CleaningOptions) -> CleanResult:
+    if options.link_mode not in {
+        "keep",
+        "text",
+        "drop",
+    } or options.image_policy not in {"keep", "alt", "drop"}:
+        raise ValueError("invalid link_mode or image_policy")
+    edits: dict[str, int] = {}
+    text = markdown.replace("\r\n", "\n").replace("\r", "\n")
+    for bad, good in _MOJIBAKE.items():
+        if bad in text:
+            edits["mojibake"] = edits.get("mojibake", 0) + text.count(bad)
+            text = text.replace(bad, good)
+    text = unicodedata.normalize("NFC", _ZERO.sub("", text)).replace("\u00a0", " ")
+    text, count = _HTML_BLOCK.subn("", text)
+    edits["html_blocks"] = count
+    profile, confidence = detect(text, options.content_type)
+    lines = text.splitlines()
+    output: list[str] = []
+    hashes: list[str] = []
+    heading_seen = False
+    last_level = 0
+    fence_open = False
+    for _, original, inside in _outside_fences(lines):
+        line = original
+        marker = _FENCE.match(line)
+        if marker:
+            fence_open = not fence_open
+            output.append(line.rstrip())
+            continue
+        if inside:
+            output.append(line.rstrip())
+            continue
+        line = html.unescape(line)
+        line, n = _TAG.subn("", line)
+        edits["html_tags"] = edits.get("html_tags", 0) + n
+        heading = re.match(r"^(#{1,6})\s+(.*)$", line)
+        if heading:
+            level = len(heading.group(1))
+            if level == 1 and heading_seen:
+                level = 2
+                edits["extra_h1"] = edits.get("extra_h1", 0) + 1
+            if last_level and level > last_level + 1:
+                level = last_level + 1
+                edits["heading_gaps"] = edits.get("heading_gaps", 0) + 1
+            heading_seen |= level == 1
+            last_level = level
+            line = "#" * level + " " + heading.group(2).strip(" #")
+
+        def image_replace(match: re.Match[str]) -> str:
+            alt, target = match.groups()
+            if options.image_policy == "drop":
+                return ""
+            if options.image_policy == "alt":
+                return alt
+            safe = _url(target.split()[0], options.source_url)
+            return f"![{alt}]({safe})" if safe else alt
+
+        line = _IMAGE.sub(image_replace, line)
+
+        def link_replace(match: re.Match[str]) -> str:
+            label, target = match.groups()
+            if options.link_mode == "drop":
+                return ""
+            if options.link_mode == "text" or target.startswith("#"):
+                return label
+            safe = _url(target, options.source_url)
+            return f"[{label}]({safe})" if safe else label
+
+        line = _LINK.sub(link_replace, line)
+        if options.citations == "strip" or (
+            options.citations == "auto" and profile.name == "wiki"
+        ):
+            line, n = _CITE.subn("", line)
+            edits["citations"] = edits.get("citations", 0) + n
+        stripped = line.strip()
+        words = re.findall(r"\b[\w'-]+\b", stripped)
+        line_links = list(_LINK.finditer(stripped))
+        link_chars = sum(len(m.group(0)) for m in line_links)
+        link_density = link_chars / max(1, len(stripped))
+        digest = block_hash(stripped) if stripped else ""
+        if stripped and len(words) <= 80:
+            hashes.append(digest)
+        junk = any(pattern.fullmatch(stripped) for pattern in profile.patterns)
+        # A lone reference link is content. Link-density becomes a useful nav
+        # signal only for link lists or lines containing several destinations.
+        link_junk = (
+            (len(line_links) >= 2 or bool(re.match(r"^\s*[-*+]\s+", line)))
+            and len(words) <= 12
+            and link_density > profile.link_tolerance
+        )
+        repeated = digest in options.repeated_hashes and len(words) <= 80
+        if junk or link_junk or repeated:
+            reason = (
+                "pattern"
+                if junk
+                else "link_density"
+                if link_junk
+                else "site_repetition"
+            )
+            edits[reason] = edits.get(reason, 0) + 1
+            continue
+        if output and stripped and stripped == output[-1].strip():
+            edits["duplicates"] = edits.get("duplicates", 0) + 1
+            continue
+        output.append(line.rstrip())
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(output)).strip()
+    warnings: list[str] = []
+    # Parse as a safety oracle; preserve source formatting rather than re-rendering tokens.
+    try:
+        MarkdownIt("commonmark").parse(cleaned)
+    except Exception as exc:  # pragma: no cover
+        warnings.append(f"markdown_parse: {exc}")
+    if fence_open:
+        cleaned += "\n```"
+        edits["fence_repairs"] = 1
+        warnings.append("closed an unterminated fence")
+    return CleanResult(
+        cleaned + "\n", profile.name, confidence, edits, hashes, warnings
+    )
+
+
+def score_markdown(result: CleanResult) -> dict[str, object]:
+    text = result.text
+    profile, _ = detect(text, result.content_type)
+    words = re.findall(r"\b[\w'-]+\b", re.sub(r"[`#*_[\]()]", " ", text))
+    links = list(_LINK.finditer(text))
+    headings = re.findall(r"^(#{1,6})\s+", text, re.M)
+    word_signal = min(1.0, len(words) / profile.target_words)
+    sentence_count = max(1, len(re.findall(r"[.!?](?:\s|$)", text)))
+    prose = min(1.0, (len(words) / sentence_count) / 16)
+    link_density = sum(len(x.group(0)) for x in links) / max(1, len(text))
+    link_signal = max(0.0, 1 - link_density / profile.link_tolerance)
+    structure = (
+        0.4
+        + (0.35 if headings else 0)
+        + (0.25 if sum(h == "#" for h in headings) <= 1 else 0)
+    )
+    hygiene = 1.0 - min(1.0, len(_TAG.findall(text)) / 5)
+    value = round(
+        100
+        * (
+            0.28 * word_signal
+            + 0.25 * prose
+            + 0.17 * link_signal
+            + 0.15 * structure
+            + 0.15 * hygiene
+        )
+    )
+    if len(words) < profile.min_words:
+        value = min(value, 69)
+    return {
+        "value": value,
+        "band": "publish" if value >= 70 else "review" if value >= 45 else "reject",
+        "signals": {
+            "words": round(word_signal, 3),
+            "prose": round(prose, 3),
+            "links": round(link_signal, 3),
+            "structure": round(structure, 3),
+            "hygiene": round(hygiene, 3),
+        },
+        "word_count": len(words),
+        "link_density": round(link_density, 4),
+    }
+crawl4ai_rag_mcp/client.py
+crawl4ai_rag_mcp/client.py
+New
++118
+-0
+
+"""Typed asynchronous client for the Crawl4AI Docker REST surface."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+from urllib.parse import quote
+
+import httpx
+
+
+class Crawl4AIError(RuntimeError):
+    """An actionable upstream error with no credential leakage."""
+
+
+@dataclass(slots=True)
+class Crawl4AIClient:
+    base_url: str
+    token: str | None = None
+    timeout: float = 120.0
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.token}"} if self.token else {}
+
+    async def request(
+        self,
+        method: str,
+        path: str,
+        *,
+        json: dict[str, Any] | None = None,
+        params: dict[str, Any] | None = None,
+    ) -> Any:
+        try:
+            async with httpx.AsyncClient(
+                base_url=self.base_url.rstrip("/"),
+                headers=self._headers(),
+                timeout=httpx.Timeout(self.timeout, connect=10),
+                follow_redirects=False,
+            ) as client:
+                response = await client.request(method, path, json=json, params=params)
+                response.raise_for_status()
+                content_type = response.headers.get("content-type", "")
+                return response.json() if "json" in content_type else response.content
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:1000]
+            raise Crawl4AIError(
+                f"Crawl4AI {exc.response.status_code} at {path}: {detail}"
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise Crawl4AIError(
+                f"Crawl4AI unavailable at {self.base_url}: {exc}"
+            ) from exc
+
+    async def crawl(
+        self,
+        urls: list[str],
+        *,
+        browser_config: dict[str, Any] | None = None,
+        crawler_config: dict[str, Any] | None = None,
+        crawler_configs: list[dict[str, Any]] | None = None,
+        hooks: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        payload: dict[str, Any] = {
+            "urls": urls,
+            "browser_config": browser_config or {},
+            "crawler_config": crawler_config or {},
+        }
+        if crawler_configs is not None:
+            payload["crawler_configs"] = crawler_configs
+        if hooks is not None:
+            payload["hooks"] = hooks
+        data = await self.request("POST", "/crawl", json=payload)
+        results = data.get("results", data) if isinstance(data, dict) else data
+        return results if isinstance(results, list) else [results]
+
+    async def inspect(self) -> dict[str, Any]:
+        health = await self.request("GET", "/health")
+        schema = await self.request("GET", "/schema")
+        try:
+            hooks = await self.request("GET", "/hooks/info")
+        except Crawl4AIError as exc:
+            hooks = {"unavailable": str(exc)}
+        return {"health": health, "config_schema": schema, "hooks": hooks}
+
+    async def operation(self, operation: str, arguments: dict[str, Any]) -> Any:
+        """Expose bounded ancillary endpoints without an arbitrary URL proxy."""
+        table: dict[str, tuple[str, str, str]] = {
+            "markdown": ("POST", "/md", "json"),
+            "html": ("POST", "/html", "json"),
+            "screenshot": ("POST", "/screenshot", "json"),
+            "pdf": ("POST", "/pdf", "json"),
+            "execute_js": ("POST", "/execute_js", "json"),
+            "config_dump": ("POST", "/config/dump", "json"),
+            "crawl_job": ("POST", "/crawl/job", "json"),
+            "llm_job": ("POST", "/llm/job", "json"),
+            "crawl_stream": ("POST", "/crawl/stream", "json"),
+        }
+        if operation in {"crawl_job_status", "llm_job_status", "artifact"}:
+            ident = quote(str(arguments.get("id", "")), safe="")
+            if not ident:
+                raise ValueError("arguments.id is required")
+            prefix = {
+                "crawl_job_status": "/crawl/job/",
+                "llm_job_status": "/llm/job/",
+                "artifact": "/artifacts/",
+            }[operation]
+            return await self.request("GET", prefix + ident)
+        if operation == "ask":
+            return await self.request("GET", "/ask", params=arguments)
+        if operation == "llm":
+            url = quote(str(arguments.pop("url", "")), safe="")
+            return await self.request("GET", f"/llm/{url}", params=arguments)
+        if operation not in table:
+            raise ValueError(
+                f"Unknown operation {operation!r}; allowed: {sorted([*table, 'ask', 'llm', 'crawl_job_status', 'llm_job_status', 'artifact'])}"
+            )
+        method, path, _ = table[operation]
+        return await self.request(method, path, json=arguments)
+crawl4ai_rag_mcp/pipeline.py
+crawl4ai_rag_mcp/pipeline.py
+New
++194
+-0
+
+"""Acquire, arbitrate, clean, score, and persist; chunking deliberately excluded."""
+
+from __future__ import annotations
+import hashlib
+import re
+from collections import Counter, defaultdict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+
+from .chef import analyze as chef_analyze
+from .cleaner import CleaningOptions, CleanResult, clean_markdown, score_markdown
+from .client import Crawl4AIClient
+from .storage import DocumentStore
+
+
+def _markdown_fields(result: dict[str, Any]) -> dict[str, str]:
+    value = result.get("markdown") or result.get("_markdown") or {}
+    if isinstance(value, str):
+        return {"raw": value}
+    if not isinstance(value, dict):
+        return {}
+    return {
+        "fit": value.get("fit_markdown") or "",
+        "raw": value.get("raw_markdown") or "",
+    }
+
+
+def _trafilatura(html: str, url: str) -> str | None:
+    try:
+        import trafilatura
+    except ImportError:
+        return None
+    return trafilatura.extract(
+        html,
+        url=url,
+        output_format="markdown",
+        include_links=True,
+        include_images=True,
+        include_tables=True,
+        favor_precision=True,
+    )
+
+
+def _headings(text: str) -> list[dict[str, Any]]:
+    return [
+        {"level": len(m.group(1)), "text": m.group(2).strip()}
+        for m in re.finditer(r"^(#{1,6})\s+(.+)$", text, re.M)
+    ]
+
+
+async def scrape_to_documents(
+    client: Crawl4AIClient,
+    urls: list[str],
+    output_dir: str | Path,
+    *,
+    browser_config: dict[str, Any] | None = None,
+    crawler_config: dict[str, Any] | None = None,
+    crawler_configs: list[dict[str, Any]] | None = None,
+    hooks: dict[str, Any] | None = None,
+    content_type: str = "auto",
+    cleaner: str = "native",
+    link_mode: str = "keep",
+    image_policy: str = "alt",
+    two_pass: bool = True,
+    quarantine_below: int = 45,
+) -> dict[str, Any]:
+    if not urls or len(urls) > 100:
+        raise ValueError("Provide 1 to 100 URLs")
+    if cleaner not in {"native", "native+markdownchef"}:
+        raise ValueError("cleaner must be native or native+markdownchef")
+    results = await client.crawl(
+        urls,
+        browser_config=browser_config,
+        crawler_config=crawler_config,
+        crawler_configs=crawler_configs,
+        hooks=hooks,
+    )
+    candidates: list[
+        tuple[str, dict[str, Any], list[tuple[str, CleanResult, dict[str, object]]]]
+    ] = []
+    domain_hashes: dict[str, Counter[str]] = defaultdict(Counter)
+    for index, url in enumerate(urls):
+        upstream = (
+            results[index]
+            if index < len(results)
+            else {"success": False, "error_message": "missing result"}
+        )
+        choices = _markdown_fields(upstream)
+        extracted = _trafilatura(str(upstream.get("html") or ""), url)
+        if extracted:
+            choices["trafilatura"] = extracted
+        assessed = []
+        for extractor, value in choices.items():
+            if not value:
+                continue
+            cleaned = clean_markdown(
+                value, CleaningOptions(url, content_type, link_mode, image_policy)
+            )
+            quality = score_markdown(cleaned)
+            assessed.append((extractor, cleaned, quality))
+        candidates.append((url, upstream, assessed))
+        host = re.sub(r"^www\.", "", urlsplit(url).netloc.lower())
+        for digest in set(
+            h for _, cleaned, _ in assessed for h in cleaned.block_hashes
+        ):
+            domain_hashes[host][digest] += 1
+    repeated: dict[str, set[str]] = {}
+    if two_pass:
+        host_pages = Counter(
+            re.sub(r"^www\.", "", urlsplit(u).netloc.lower()) for u in urls
+        )
+        repeated = {
+            host: {
+                h
+                for h, count in counts.items()
+                if count >= 3 and count / host_pages[host] >= 0.5
+            }
+            for host, counts in domain_hashes.items()
+        }
+    store = DocumentStore(output_dir)
+    decisions: list[dict[str, Any]] = []
+    for url, upstream, assessed in candidates:
+        host = re.sub(r"^www\.", "", urlsplit(url).netloc.lower())
+        if repeated.get(host):
+            reassessed = []
+            for extractor, clean, _ in assessed:
+                reclean = clean_markdown(
+                    clean.text,
+                    CleaningOptions(
+                        url,
+                        clean.content_type,
+                        link_mode,
+                        image_policy,
+                        repeated_hashes=repeated[host],
+                    ),
+                )
+                reassessed.append((extractor, reclean, score_markdown(reclean)))
+            assessed = reassessed
+        if not assessed:
+            decisions.append(
+                {
+                    "url": url,
+                    "status": "failed",
+                    "error": upstream.get("error_message", "no markdown returned"),
+                }
+            )
+            continue
+        extractor, cleaned, quality = max(
+            assessed, key=lambda item: (int(item[2]["value"]), len(item[1].text))
+        )
+        digest = hashlib.sha256(cleaned.text.encode()).hexdigest()
+        metadata: dict[str, Any] = {
+            "source_url": url,
+            "title": (upstream.get("metadata") or {}).get("title")
+            or (_headings(cleaned.text) or [{}])[0].get("text"),
+            "content_type": cleaned.content_type,
+            "crawled_at": datetime.now(timezone.utc).isoformat(),
+            "extractor": extractor,
+            "cleaner": cleaner,
+            "score": quality,
+            "words": quality["word_count"],
+            "tokens_est": round(int(quality["word_count"]) * 1.33),
+            "content_hash": f"sha256:{digest}",
+            "headings": _headings(cleaned.text),
+            "links": upstream.get("links") or {},
+            "cleaning_edits": cleaned.edits,
+            "notes": cleaned.warnings,
+            "status": "quarantined"
+            if int(quality["value"]) < quarantine_below
+            else "published",
+        }
+        if cleaner == "native+markdownchef":
+            metadata["markdownchef"] = chef_analyze(cleaned.text)
+        path = store.write(
+            url, cleaned.text, metadata, metadata["status"] == "quarantined"
+        )
+        decisions.append(
+            {
+                "url": url,
+                "status": metadata["status"],
+                "file": str(path),
+                "score": quality,
+                "extractor": extractor,
+            }
+        )
+    report = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "requested": len(urls),
+        "documents": decisions,
+    }
+    store.finish(report)
+    return report
+crawl4ai_rag_mcp/profiles.py
+crawl4ai_rag_mcp/profiles.py
+New
++94
+-0
+
+"""Conservative content-family classification and family-specific boilerplate."""
+
+from __future__ import annotations
+import re
+from dataclasses import dataclass
+
+PATTERNS = {
+    "generic": [
+        r"skip to (main )?content",
+        r"accept all cookies",
+        r"back to top",
+        r"all rights reserved",
+        r"privacy policy",
+        r"was this (page|article) helpful",
+    ],
+    "docs": [
+        r"edit this page",
+        r"on this page",
+        r"view source",
+        r"previous\s+next",
+        r"copy (code|to clipboard)",
+    ],
+    "wiki": [
+        r"jump to navigation",
+        r"from wikipedia",
+        r"\[edit\]",
+        r"citation needed",
+        r"this page was last edited",
+        r"categories?:",
+    ],
+    "blog": [
+        r"leave a (comment|reply)",
+        r"about the author",
+        r"related posts",
+        r"you might also like",
+        r"subscribe",
+    ],
+    "news": [
+        r"read more",
+        r"top stories",
+        r"most read",
+        r"photo:\s*(ap|reuters|getty)",
+        r"originally published",
+    ],
+}
+SIGNALS = {
+    "docs": ["api reference", "getting started", "installation", "parameters", "```"],
+    "wiki": ["[edit]", "citation needed", "from wikipedia", "retrieved from"],
+    "blog": ["min read", "leave a comment", "posted by", "related posts"],
+    "news": ["reuters", "associated press", "published", "updated at", "top stories"],
+}
+
+
+@dataclass(frozen=True, slots=True)
+class Profile:
+    name: str
+    min_words: int
+    target_words: int
+    link_tolerance: float
+    patterns: tuple[re.Pattern[str], ...]
+
+
+_LIMITS = {
+    "docs": (100, 400, 0.45),
+    "wiki": (150, 600, 0.42),
+    "blog": (120, 500, 0.35),
+    "news": (100, 450, 0.30),
+    "generic": (100, 350, 0.38),
+}
+
+
+def detect(text: str, requested: str = "auto") -> tuple[Profile, float]:
+    if requested != "auto" and requested not in _LIMITS:
+        raise ValueError(
+            "content_type must be auto, docs, wiki, blog, news, or generic"
+        )
+    lowered = text[:20_000].lower()
+    scores = {
+        kind: sum(lowered.count(signal) > 0 for signal in signals)
+        for kind, signals in SIGNALS.items()
+    }
+    kind = requested if requested != "auto" else max(scores, key=scores.get)
+    if requested == "auto" and scores[kind] == 0:
+        kind = "generic"
+    confidence = 1.0 if requested != "auto" else min(1.0, scores.get(kind, 0) / 3)
+    minimum, target, tolerance = _LIMITS[kind]
+    raw = PATTERNS["generic"] + PATTERNS.get(kind, [])
+    return Profile(
+        kind,
+        minimum,
+        target,
+        tolerance,
+        tuple(re.compile(rf"^\s*(?:{p})\s*[:?.!]*\s*$", re.I) for p in raw),
+    ), confidence
+crawl4ai_rag_mcp/server.py
+crawl4ai_rag_mcp/server.py
+New
++81
+-0
+
+"""Small agent-facing FastMCP surface over the complete Crawl4AI REST API."""
+
+from __future__ import annotations
+import os
+from typing import Any, Literal
+
+from fastmcp import FastMCP
+from .client import Crawl4AIClient
+from .pipeline import scrape_to_documents
+
+mcp = FastMCP(
+    "Crawl4AI RAG Markdown",
+    instructions=(
+        "Use scrape_documents for corpus acquisition. It writes clean Markdown and returns small decision metadata, "
+        "not page bodies. Use inspect_instance before supplying advanced configs. Use crawl4ai_operation only for "
+        "ancillary Crawl4AI capabilities such as streaming, screenshots, PDF, HTML, LLM jobs, and JavaScript."
+    ),
+)
+
+
+def _client() -> Crawl4AIClient:
+    return Crawl4AIClient(
+        os.getenv("CRAWL4AI_URL", "http://127.0.0.1:11235"),
+        os.getenv("CRAWL4AI_API_TOKEN"),
+        float(os.getenv("CRAWL4AI_TIMEOUT", "120")),
+    )
+
+
+@mcp.tool
+async def scrape_documents(
+    urls: list[str],
+    output_dir: str = "./crawl-output",
+    *,
+    browser_config: dict[str, Any] | None = None,
+    crawler_config: dict[str, Any] | None = None,
+    crawler_configs: list[dict[str, Any]] | None = None,
+    hooks: dict[str, Any] | None = None,
+    content_type: Literal["auto", "docs", "wiki", "blog", "news", "generic"] = "auto",
+    cleaner: Literal["native", "native+markdownchef"] = "native",
+    link_mode: Literal["keep", "text", "drop"] = "keep",
+    image_policy: Literal["keep", "alt", "drop"] = "alt",
+    two_pass: bool = True,
+    quarantine_below: int = 45,
+) -> dict[str, Any]:
+    """Crawl up to 100 URLs, arbitrate available extractors, clean and score Markdown, then atomically write RAG-ready documents. Pass any Crawl4AI BrowserConfig/CrawlerRunConfig knobs verbatim; use inspect_instance for this server's exact schema. crawler_configs enables per-URL url_matcher configuration. Declarative hooks require server support. native+markdownchef adds Chonkie structural analysis; it does not replace cleaning."""
+    return await scrape_to_documents(
+        _client(),
+        urls,
+        output_dir,
+        browser_config=browser_config,
+        crawler_config=crawler_config,
+        crawler_configs=crawler_configs,
+        hooks=hooks,
+        content_type=content_type,
+        cleaner=cleaner,
+        link_mode=link_mode,
+        image_policy=image_policy,
+        two_pass=two_pass,
+        quarantine_below=quarantine_below,
+    )
+
+
+@mcp.tool
+async def inspect_instance() -> dict[str, Any]:
+    """Return live health/version, complete BrowserConfig and CrawlerRunConfig defaults/schema, and allowed declarative hooks from the configured self-hosted instance."""
+    return await _client().inspect()
+
+
+@mcp.tool
+async def crawl4ai_operation(operation: str, arguments: dict[str, Any]) -> Any:
+    """Invoke an ancillary safe-listed REST capability. Operations: markdown, html, screenshot, pdf, execute_js, config_dump, ask, llm, crawl_stream, crawl_job, crawl_job_status, llm_job, llm_job_status, artifact. Prefer scrape_documents for RAG acquisition. Endpoint security and feature flags remain enforced upstream."""
+    return await _client().operation(operation, arguments.copy())
+
+
+def main() -> None:
+    transport = os.getenv("MCP_TRANSPORT", "stdio")
+    mcp.run(transport=transport)
+
+
+if __name__ == "__main__":
+    main()
+crawl4ai_rag_mcp/storage.py
+crawl4ai_rag_mcp/storage.py
+New
++77
+-0
+
+"""Atomic content-address-aware Markdown document store."""
+
+from __future__ import annotations
+import hashlib
+import json
+import os
+import re
+import tempfile
+from pathlib import Path
+from typing import Any
+from urllib.parse import urlsplit
+import yaml
+
+
+def _slug(url: str) -> tuple[str, str]:
+    parsed = urlsplit(url)
+    host = re.sub(r"[^a-z0-9.-]+", "-", parsed.netloc.lower()).strip("-") or "unknown"
+    stem = re.sub(
+        r"[^a-z0-9]+", "-", (parsed.path.strip("/") or "index").lower()
+    ).strip("-")
+    suffix = hashlib.sha256(url.encode()).hexdigest()[:10]
+    return host, f"{stem[:100]}-{suffix}.md"
+
+
+def _atomic_write(path: Path, value: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, temporary = tempfile.mkstemp(dir=path.parent, prefix=".tmp-")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(value)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+
+
+class DocumentStore:
+    def __init__(self, root: str | Path):
+        self.root = Path(root).expanduser().resolve()
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.manifest_path = self.root / "manifest.json"
+        try:
+            self.manifest = json.loads(self.manifest_path.read_text())
+        except (FileNotFoundError, json.JSONDecodeError):
+            self.manifest = {"version": 1, "pages": {}}
+
+    def write(
+        self, url: str, markdown: str, metadata: dict[str, Any], quarantine: bool
+    ) -> Path:
+        host, name = _slug(url)
+        path = self.root / ("quarantine" if quarantine else "pages") / host / name
+        body = (
+            "---\n"
+            + yaml.safe_dump(metadata, sort_keys=False, allow_unicode=True).rstrip()
+            + "\n---\n\n"
+            + markdown
+        )
+        _atomic_write(path, body)
+        self.manifest["pages"][url] = {
+            "status": metadata["status"],
+            "file": str(path.relative_to(self.root)),
+            "score": metadata["score"]["value"],
+            "content_hash": metadata["content_hash"],
+        }
+        return path
+
+    def finish(self, report: dict[str, Any]) -> None:
+        _atomic_write(
+            self.manifest_path,
+            json.dumps(self.manifest, indent=2, ensure_ascii=False) + "\n",
+        )
+        _atomic_write(
+            self.root / "report-latest.json",
+            json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+        )
+docs/research.md
+docs/research.md
+New
++70
+-0
+
+# Research notes and 2026 design decisions
+
+Research was checked against upstream projects on 2026-09-14. The web search service was unavailable,
+so the implementation was verified from current upstream repositories and official documentation.
+
+## Crawl4AI self-hosted surface
+
+Crawl4AI's current Docker server exposes `POST /crawl` and `/crawl/stream`; convenience endpoints
+`/md`, `/html`, `/screenshot`, `/pdf`, and feature-gated `/execute_js`; `/schema`, `/hooks/info`,
+`/health`, `/ask`, `/llm/{url}`; background `/crawl/job` and `/llm/job` enqueue/poll endpoints;
+artifact retrieval; token/config endpoints; and administrative observability routes. The MCP exposes
+acquisition through its specialized tool and safe-lists useful content endpoints in one generic tool.
+Monitor/admin actions are intentionally not agent tools: restarting browsers and resetting server
+stats are operational privileges, not document acquisition capabilities.
+
+Do not mirror hundreds of config properties into a second stale type system. The official server's
+`/schema` response is the source of truth, while opaque config dictionaries preserve access to the
+complete connected-version surface. This also handles mixed-version deployments better than a
+hard-coded model. See the [official self-hosting guide](https://docs.crawl4ai.com/core/self-hosting/),
+[CrawlerRunConfig reference](https://docs.crawl4ai.com/api/parameters/), and
+[markdown generation guide](https://docs.crawl4ai.com/core/markdown-generation/).
+
+## Extraction and cleaning findings
+
+No single postprocessor reliably solves all page families. The robust pattern is layered:
+
+1. DOM/render-aware extraction removes most chrome. Crawl4AI's pruning/BM25 filters belong here.
+2. Independent main-text extraction is a useful candidate, not an unquestioned replacement.
+   Trafilatura exposes precision/recall controls and retains links/tables in Markdown. Its published
+   evaluation reports strong main-text extraction performance; see the
+   [Trafilatura evaluation](https://trafilatura.readthedocs.io/en/latest/evaluation.html) and
+   [Barbaresi 2021 paper](https://aclanthology.org/2021.acl-demo.15/).
+3. Markdown-aware normalization must avoid AST reserialization because serializers can alter code,
+   tables, whitespace, and extensions. This project uses markdown-it-py as a parse oracle and makes
+   fence-aware, line-local edits. See [markdown-it-py](https://markdown-it-py.readthedocs.io/).
+4. Short-block text/link density catches menus; cross-page repetition catches templates that look
+   linguistically valid. These ideas follow boilerplate-removal work such as
+   [Kohlschütter et al.](https://dl.acm.org/doi/10.1145/1718487.1718542) and
+   [jusText](https://corpus.tools/wiki/Justext).
+5. Quality must be multi-signal and explainable. Length alone rewards boilerplate; link density alone
+   punishes documentation and wikis. The score therefore combines calibrated length, prose shape,
+   links, heading structure, and hygiene, records every signal, and quarantines rather than deletes.
+
+Content-family rules address docs navigation/copy controls, wiki chrome/citations, blog subscription
+and related-post elements, and news carousels/credits. Two-pass mode learns blocks present on at least
+three and half of the pages from a host. It is deliberately conservative: short blocks only, hashes
+over normalized exact content, and no fuzzy deletion that might erase recurring API signatures.
+
+## Chonkie/Chunkie correction
+
+The library is **Chonkie**, and its current `MarkdownChef` parses Markdown into tables, code blocks,
+images, and text chunks. It does not expose `clean`, `cook`, `sanitize`, or `transform`, and its
+returned document retains the original content. The supported integration calls its real `parse`
+API after native cleaning and records structural diagnostics. See Chonkie's
+[MarkdownChef documentation](https://docs.chonkie.ai/oss/chefs/markdownchef) and
+[source](https://github.com/chonkie-inc/chonkie/blob/main/src/chonkie/chef/markdown.py).
+
+## Practitioner pipeline and evaluation
+
+Production pipelines commonly separate immutable acquisition/provenance from transformation and
+indexing. This implementation writes content hashes and a URL manifest for incremental comparison,
+keeps low-confidence documents in quarantine, and emits a run report. A downstream system can use
+the hash as an idempotency key and choose its chunker independently.
+
+Before deployment, create a stratified gold set (at least 20 pages for each actual site family), mark
+body spans and boilerplate spans, then measure body-word recall and boilerplate precision. Tune
+thresholds per corpus, inspect score distributions rather than assuming 70/45 universally, and
+regression-test code fences, tables, multilingual prose, link targets, paywalls, empty/error pages,
+and repeated legitimate notices. Treat the heuristic score as triage—not factuality, authority, or a
+substitute for crawl success and HTTP status policy.

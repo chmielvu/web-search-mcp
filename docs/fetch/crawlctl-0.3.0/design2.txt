@@ -1,0 +1,1050 @@
+## Result
+
+The strongest design is a three-tool FastMCP server:
+
+1. `crawl_clean` — crawl one or many URLs, post-process them, score quality, optionally save Markdown and JSON sidecars.
+2. `clean_markdown` — clean supplied Markdown independently of Crawl4AI.
+3. `crawl_job` — submit/poll long Crawl4AI jobs and clean completed results.
+
+Expose Crawl4AI’s live `/schema` and `/hooks/info` as MCP resources so agents can discover the exact knobs supported by the running image.
+
+I used the selected Exa and GitHub integrations for the research. One limitation: this runtime exposes the uploaded path but no local read/write/execute tool, so I could not inspect or modify the prototype file directly or run its tests. The code below is the researched replacement design/reference implementation; I would need the prototype text pasted or local file access to produce an exact patch.
+
+## Crawl4AI endpoint map
+
+The current self-hosted Docker server exposes more than the MCP should expose directly. The MCP should wrap the RAG-relevant routes and keep administrative/binary routes as resources or advanced capabilities.
+
+| Crawl4AI route                       | MCP treatment                                               |
+| ------------------------------------ | ----------------------------------------------------------- |
+| `POST /crawl`                        | Main `crawl_clean` backend                                  |
+| `POST /crawl/stream`                 | Use internally only for future streaming support            |
+| `POST /crawl/job`                    | `crawl_job(action="submit")`                                |
+| `GET /crawl/job/{task_id}`           | `crawl_job(action="status")`                                |
+| `POST /md`                           | Optional explicit `fit`, `raw`, `bm25`, or `llm` extraction |
+| `POST /html`                         | Internal HTML fallback source                               |
+| `GET /llm/{url}`                     | Advanced LLM extraction; not the default                    |
+| `POST /llm/job`                      | Advanced asynchronous extraction                            |
+| `GET /llm/job/{task_id}`             | Job polling                                                 |
+| `GET /schema`                        | MCP resource: `crawl4ai://schema`                           |
+| `GET /hooks/info`                    | MCP resource: `crawl4ai://hooks`                            |
+| `GET /health`                        | MCP resource: `crawl4ai://health`                           |
+| `GET /metrics`                       | Keep administrative; do not expose by default               |
+| `POST /screenshot`, `POST /pdf`      | Outside this Markdown-focused MCP                           |
+| `GET /artifacts/{artifact_id}`       | Outside this MCP unless binary artifacts are added later    |
+| `POST /execute_js`                   | Advanced/disabled by default                                |
+| `/mcp/sse`, `/mcp/ws`, `/mcp/schema` | Do not proxy; FastMCP is the agent-facing MCP layer         |
+| `POST /token`, `/config/dump`        | Keep administrative                                         |
+
+These routes and request schemas are defined in Crawl4AI’s server implementation and Docker schemas. [Crawl4AI server](https://github.com/unclecode/crawl4ai/blob/main/deploy/docker/server.py), [server schemas](https://github.com/unclecode/crawl4ai/blob/main/deploy/docker/schemas.py), [self-hosting documentation](https://docs.crawl4ai.com/core/self-hosting/).
+
+### Browser configuration knobs
+
+Expose these through an `advanced_browser_config` dictionary, with the live `/schema` resource as the authority:
+
+* Browser: `browser_type`, `headless`, `browser_mode`, `use_managed_browser`
+* Connection: `cdp_url`, `debugging_port`, `host`
+* Viewport: `viewport_width`, `viewport_height`, `viewport`, `device_scale_factor`
+* Network: `proxy`, `proxy_config`, `ignore_https_errors`, `headers`, `cookies`
+* Sessions: `use_persistent_context`, `user_data_dir`, `storage_state`
+* Browser identity: `user_agent`, `user_agent_mode`, `user_agent_generator_config`
+* Rendering: `java_script_enabled`, `text_mode`, `light_mode`, `avoid_ads`, `avoid_css`
+* Downloads: `accept_downloads`, `downloads_path`
+* Security/launch: `extra_args`, `enable_stealth`
+* Lifecycle: `sleep_on_close`, `chrome_channel`, `channel`
+
+### Crawler configuration knobs
+
+* Extraction: `word_count_threshold`, `extraction_strategy`, `chunking_strategy`, `markdown_generator`
+* Selectors: `css_selector`, `target_elements`, `excluded_tags`, `excluded_selector`
+* HTML handling: `only_text`, `prettiify`, `keep_data_attributes`, `keep_attrs`, `remove_forms`
+* Parsing: `parser_type`, `scraping_strategy`
+* Locale: `locale`, `timezone_id`, `geolocation`
+* Networking: `fetch_ssl_certificate`, `max_retries`, `fallback_fetch_function`
+* Cache/session: `cache_mode`, `session_id`, `shared_data`
+* Waiting: `wait_until`, `page_timeout`, `wait_for`, `wait_for_timeout`, `wait_for_images`, `delay_before_return_html`
+* JavaScript: `js_code`, `js_code_before_wait`, `js_only`, `c4a_script`
+* DOM: `ignore_body_visibility`, `body_visibility_timeout`, `process_iframes`, `flatten_shadow_dom`
+* Scrolling: `scan_full_page`, `scroll_delay`, `max_scroll_steps`, `adjust_viewport_to_content`, `virtual_scroll_config`
+* Cleanup: `remove_overlay_elements`, `remove_consent_popups`
+* Media/tables: `image_description_min_word_threshold`, `image_score_threshold`, `exclude_external_images`, `exclude_all_images`, `table_score_threshold`, `table_extraction`
+* Links: `exclude_social_media_domains`, `exclude_external_links`, `exclude_social_media_links`, `exclude_domains`, `exclude_internal_links`, `score_links`, `preserve_https_for_internal_links`
+* Crawling: `url_matcher`, `match_mode`, `deep_crawl_strategy`, `link_preview_config`
+* Observability: `verbose`, `log_console`, `capture_network_requests`, `capture_console_messages`
+* HTTP/advanced: `method`, `stream`, `url`, `experimental`
+
+The full parameter list is version-sensitive, so hardcoding an MCP enum for every field would become stale. [Crawl4AI parameter reference](https://github.com/unclecode/crawl4ai/blob/main/docs/md_v2/api/parameters.md).
+
+Important: current Docker deployments intentionally reject or restrict fields such as arbitrary JavaScript, proxy settings, `deep_crawl_strategy`, `cdp_url`, `user_data_dir`, custom headers/cookies, and executable hooks. Hooks are declarative actions only. The MCP must surface those server errors rather than attempt to bypass them. [Crawl4AI Docker migration/security notes](https://github.com/unclecode/crawl4ai/blob/main/deploy/docker/MIGRATION.md).
+
+## Recommended cleaning architecture
+
+Use Crawl4AI’s `fit_markdown` as a candidate, not as unquestioned truth:
+
+1. Crawl with `/crawl`.
+2. Prefer `fit_markdown`.
+3. Fall back to `raw_markdown` when fit output is suspiciously short.
+4. If both are poor and HTML is available, optionally use Trafilatura.
+5. Run deterministic block-level cleaning.
+6. Preserve headings, tables, links, code, blockquotes, and semantic list structure.
+7. Validate the resulting Markdown using `markdown-it-py`.
+8. Optionally normalize formatting with `mdformat`.
+9. Optionally run Chonkie MarkdownChef as a structural audit.
+10. Return Markdown plus metadata, quality score, warnings, and an audit receipt.
+
+This separation matters:
+
+| Component               | Recommendation                                |
+| ----------------------- | --------------------------------------------- |
+| Crawl4AI fit extraction | Primary candidate                             |
+| Custom block cleaner    | Primary boilerplate removal                   |
+| `markdown-it-py`        | Required structural validation                |
+| Trafilatura             | HTML fallback for articles/news               |
+| `mdformat`              | Optional final canonical formatting           |
+| Chonkie MarkdownChef    | Optional structure/code/table/image audit     |
+| Jina Reader             | Optional external fallback, if configured     |
+| `winnow-md`             | Experimental optional cleaner/template memory |
+| `markdowncleaner`       | Do not use generically for web content        |
+
+`markdown-it-py` is a parser/AST validator, not a boilerplate detector. [markdown-it-py](https://github.com/executablebooks/markdown-it-py)
+
+Trafilatura is useful as a second HTML extraction path because it supports Markdown output, metadata, tables, precision/recall modes, and fallback extractors. [Trafilatura core functions](https://trafilatura.readthedocs.io/en/latest/corefunctions.html)
+
+MarkdownChef is best used after cleaning. It extracts tables, code, images, and structural regions; it is not a complete web boilerplate cleaner. [MarkdownChef documentation](https://docs.chonkie.ai/oss/chefs/markdownchef), [MarkdownChef source](https://github.com/chonkie-inc/chonkie/blob/main/src/chonkie/chef/markdown.py)
+
+## Quality scoring
+
+The score should be diagnostic rather than an automatic deletion mechanism:
+
+```text
+quality_score =
+    0.35 * content_score
+  + 0.25 * structure_score
+  + 0.20 * source_extraction_confidence
+  + 0.20 * boilerplate_cleanliness
+```
+
+Return:
+
+* word and character counts before/after
+* reduction ratio
+* heading, table, code, image, and link counts
+* link density
+* repeated-block count
+* extraction confidence
+* residual boilerplate warnings
+* Markdown parser validity
+* `accepted`, `thin`, `blocked`, or `failed` status
+* exact removed-block reasons
+
+Do not discard thin pages automatically. A short API reference, changelog, or wiki stub can be valid.
+
+## Reference FastMCP implementation
+
+This is the core replacement structure. It intentionally has no CLI parser.
+
+````python
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import re
+import unicodedata
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+import httpx
+from fastmcp import Context, FastMCP
+from pydantic import BaseModel, Field
+
+
+mcp = FastMCP("crawl4ai-rag-markdown")
+
+
+# ---------- Models ----------
+
+class OutputOptions(BaseModel):
+    write_files: bool = False
+    include_raw: bool = False
+    format_markdown: bool = False
+    chonkie: bool = False
+    min_words: int = 40
+
+
+class CrawlRequest(BaseModel):
+    urls: list[str] = Field(min_length=1, max_length=100)
+    profile: Literal["balanced", "docs", "article", "news", "raw"] = "balanced"
+    source: Literal["crawl", "fit", "raw", "bm25", "llm"] = "crawl"
+    query: str | None = None
+
+    # Raw pass-through knobs, normalized into Crawl4AI's typed config format.
+    advanced_browser_config: dict[str, Any] = Field(default_factory=dict)
+    advanced_crawler_config: dict[str, Any] = Field(default_factory=dict)
+    per_url_crawler_configs: list[dict[str, Any]] | None = None
+
+    hooks: list[dict[str, Any]] = Field(default_factory=list)
+    output: OutputOptions = Field(default_factory=OutputOptions)
+
+
+class MarkdownRequest(BaseModel):
+    markdown: str
+    url: str | None = None
+    title: str | None = None
+    profile: Literal["balanced", "docs", "article", "news", "raw"] = "balanced"
+    output: OutputOptions = Field(default_factory=OutputOptions)
+
+
+class JobRequest(BaseModel):
+    action: Literal["submit", "status"]
+    task_id: str | None = None
+    crawl: CrawlRequest | None = None
+
+
+# ---------- Crawl4AI HTTP client ----------
+
+class Crawl4AIClient:
+    def __init__(self) -> None:
+        self.base_url = os.environ.get(
+            "CRAWL4AI_BASE_URL",
+            "http://127.0.0.1:11235",
+        ).rstrip("/")
+        self.token = os.environ.get("CRAWL4AI_API_TOKEN")
+        self.http: httpx.AsyncClient | None = None
+
+    async def __aenter__(self) -> "Crawl4AIClient":
+        headers = {}
+        if self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+
+        self.http = httpx.AsyncClient(
+            headers=headers,
+            follow_redirects=True,
+            timeout=httpx.Timeout(180.0, connect=20.0),
+        )
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        if self.http:
+            await self.http.aclose()
+
+    async def get(self, path: str) -> Any:
+        assert self.http is not None
+        response = await self.http.get(self.base_url + path)
+        return self._decode(response)
+
+    async def post(self, path: str, payload: dict[str, Any]) -> Any:
+        assert self.http is not None
+        response = await self.http.post(self.base_url + path, json=payload)
+        return self._decode(response)
+
+    @staticmethod
+    def _decode(response: httpx.Response) -> Any:
+        try:
+            data = response.json()
+        except Exception:
+            data = response.text
+
+        if response.is_error:
+            raise RuntimeError(
+                f"Crawl4AI {response.status_code}: "
+                f"{json.dumps(data, ensure_ascii=False)[:2000]}"
+            )
+        return data
+
+
+# ---------- Config profiles ----------
+
+def _unwrap(config: dict[str, Any]) -> dict[str, Any]:
+    if "params" in config and isinstance(config["params"], dict):
+        return dict(config["params"])
+    return dict(config)
+
+
+def _wrap(type_name: str, config: dict[str, Any]) -> dict[str, Any]:
+    if "type" in config and "params" in config:
+        return config
+    return {"type": type_name, "params": config}
+
+
+def _profile_defaults(profile: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    browser = {
+        "headless": True,
+        "text_mode": True,
+        "light_mode": True,
+        "avoid_ads": True,
+    }
+
+    crawler = {
+        "cache_mode": "bypass",
+        "word_count_threshold": 5,
+        "wait_until": "domcontentloaded",
+        "remove_overlay_elements": True,
+        "remove_consent_popups": True,
+        "excluded_tags": ["script", "style", "noscript", "template"],
+        "exclude_external_images": True,
+    }
+
+    if profile in {"article", "news"}:
+        crawler["excluded_tags"] = [
+            "script", "style", "noscript", "template",
+            "nav", "footer", "form", "menu",
+        ]
+        crawler["word_count_threshold"] = 10
+
+    if profile == "docs":
+        crawler["word_count_threshold"] = 3
+
+    if profile == "raw":
+        crawler = {
+            "cache_mode": "bypass",
+            "word_count_threshold": 1,
+        }
+
+    return browser, crawler
+
+
+_UNSAFE_FIELDS = {
+    "js_code",
+    "js_code_before_wait",
+    "c4a_script",
+    "proxy",
+    "proxy_config",
+    "extra_args",
+    "user_data_dir",
+    "cdp_url",
+    "cookies",
+    "headers",
+    "init_scripts",
+    "deep_crawl_strategy",
+}
+
+
+def _reject_unsafe_fields(config: dict[str, Any]) -> None:
+    if os.environ.get("MCP_ALLOW_UNSAFE_C4A_CONFIG") == "1":
+        return
+
+    found = sorted(_UNSAFE_FIELDS.intersection(_unwrap(config)))
+    if found:
+        raise ValueError(
+            "Unsafe or deployment-restricted Crawl4AI fields supplied: "
+            + ", ".join(found)
+            + ". Set MCP_ALLOW_UNSAFE_C4A_CONFIG=1 only in a trusted deployment."
+        )
+
+
+def _crawl_payload(request: CrawlRequest) -> dict[str, Any]:
+    browser, crawler = _profile_defaults(request.profile)
+
+    browser.update(_unwrap(request.advanced_browser_config))
+    crawler.update(_unwrap(request.advanced_crawler_config))
+
+    _reject_unsafe_fields(browser)
+    _reject_unsafe_fields(crawler)
+
+    payload: dict[str, Any] = {
+        "urls": request.urls,
+        "browser_config": _wrap("BrowserConfig", browser),
+        "crawler_config": _wrap("CrawlerRunConfig", crawler),
+    }
+
+    if request.per_url_crawler_configs:
+        payload["crawler_configs"] = [
+            _wrap("CrawlerRunConfig", item)
+            for item in request.per_url_crawler_configs
+        ]
+
+    if request.hooks:
+        payload["hooks"] = request.hooks
+
+    return payload
+
+
+# ---------- Markdown cleaning ----------
+
+_FENCE = re.compile(r"^\s{0,3}(`{3,}|~{3,})")
+_HEADING = re.compile(r"^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$")
+_LINK = re.compile(r"\]\(([^)\s]+)(?:\s+[^)]*)?\)")
+_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_TRACKING = re.compile(
+    r"^(utm_[^=]+|fbclid|gclid|dclid|mc_cid|mc_eid|ref)$",
+    re.I,
+)
+
+_NOISE_PATTERNS = [
+    r"accept all cookies",
+    r"cookie settings",
+    r"privacy preferences",
+    r"skip to content",
+    r"subscribe to our newsletter",
+    r"sign up for our newsletter",
+    r"share this article",
+    r"follow us on",
+    r"advertisement",
+    r"sponsored content",
+    r"all rights reserved",
+    r"©\s*\d{4}",
+    r"read more",
+]
+
+
+@dataclass
+class Block:
+    text: str
+    kind: str
+    heading_level: int | None = None
+
+
+def _split_blocks(markdown: str) -> list[Block]:
+    lines = markdown.splitlines()
+    result: list[Block] = []
+    buffer: list[str] = []
+    in_fence = False
+    fence_marker = ""
+
+    def flush() -> None:
+        nonlocal buffer
+        if not buffer:
+            return
+
+        text = "\n".join(buffer).strip("\n")
+        first = buffer[0].lstrip()
+        heading = _HEADING.match(first)
+
+        if first.startswith(("```", "~~~")):
+            kind = "fence"
+        elif heading:
+            kind = "heading"
+        elif first.startswith(">"):
+            kind = "quote"
+        elif (
+            len(buffer) >= 2
+            and first.startswith("|")
+            and re.search(r"\|?\s*:?-{3,}:?\s*\|", buffer[1])
+        ):
+            kind = "table"
+        else:
+            kind = "text"
+
+        result.append(
+            Block(
+                text=text,
+                kind=kind,
+                heading_level=len(heading.group(1)) if heading else None,
+            )
+        )
+        buffer = []
+
+    for line in lines:
+        marker = _FENCE.match(line)
+
+        if in_fence:
+            buffer.append(line)
+            if marker and marker.group(2)[0] == fence_marker[0]:
+                in_fence = False
+                flush()
+            continue
+
+        if marker:
+            flush()
+            buffer = [line]
+            fence_marker = marker.group(2)
+            in_fence = True
+        elif not line.strip():
+            flush()
+        elif _HEADING.match(line):
+            flush()
+            buffer = [line]
+            flush()
+        else:
+            buffer.append(line)
+
+    flush()
+    return result
+
+
+def _clean_url(url: str) -> str:
+    parts = urlsplit(url)
+    query = [
+        (key, value)
+        for key, value in parse_qsl(parts.query, keep_blank_values=True)
+        if not _TRACKING.match(key)
+    ]
+    return urlunsplit((
+        parts.scheme,
+        parts.netloc,
+        parts.path,
+        urlencode(query, doseq=True),
+        parts.fragment,
+    ))
+
+
+def _clean_inline(text: str) -> str:
+    text = re.sub(r"!\[[^\]]*\]\(data:[^)]+\)", "", text)
+
+    def replace_link(match: re.Match[str]) -> str:
+        return "](" + _clean_url(match.group(1)) + ")"
+
+    text = _LINK.sub(replace_link, text)
+
+    # Remove empty or data-URI images while retaining useful images.
+    def replace_image(match: re.Match[str]) -> str:
+        alt, url = match.group(1).strip(), match.group(2).strip()
+        if not alt or url.startswith("data:"):
+            return ""
+        return f"![{alt}]({_clean_url(url)})"
+
+    return _IMAGE.sub(replace_image, text)
+
+
+def _noise_reason(block: Block) -> str | None:
+    if block.kind in {"fence", "table", "quote"}:
+        return None
+
+    normalized = re.sub(r"\s+", " ", block.text).strip().lower()
+    words = re.findall(r"\b[\w'-]+\b", normalized)
+    links = len(re.findall(r"\[[^\]]+\]\([^)]+\)", normalized))
+    word_count = len(words)
+
+    if word_count <= 100:
+        for pattern in _NOISE_PATTERNS:
+            if re.search(pattern, normalized):
+                return f"boilerplate:{pattern}"
+
+    if word_count <= 60 and links >= 3 and links / max(word_count, 1) > 0.35:
+        return "high_link_density"
+
+    return None
+
+
+def _validate_markdown(markdown: str) -> dict[str, Any]:
+    try:
+        from markdown_it import MarkdownIt
+
+        parser = MarkdownIt("commonmark").enable("table")
+        tokens = parser.parse(markdown)
+        return {"valid": True, "token_count": len(tokens)}
+    except ImportError:
+        return {"valid": None, "warning": "markdown-it-py is not installed"}
+    except Exception as exc:
+        return {"valid": False, "error": str(exc)}
+
+
+def _chonkie_report(markdown: str) -> dict[str, Any]:
+    try:
+        from chonkie import MarkdownChef
+
+        document = MarkdownChef(tokenizer="character").parse(markdown)
+        return {
+            "available": True,
+            "tables": len(getattr(document, "tables", []) or []),
+            "code_blocks": len(getattr(document, "code", []) or []),
+            "images": len(getattr(document, "images", []) or []),
+            "regions": len(getattr(document, "chunks", []) or []),
+        }
+    except ImportError:
+        return {
+            "available": False,
+            "warning": "Install the optional chonkie dependency.",
+        }
+    except Exception as exc:
+        return {"available": False, "error": str(exc)}
+
+
+def _stats(markdown: str) -> dict[str, int]:
+    return {
+        "words": len(re.findall(r"\b[\w'-]+\b", markdown)),
+        "characters": len(markdown),
+        "headings": len(re.findall(r"(?m)^ {0,3}#{1,6}\s+", markdown)),
+        "code_blocks": len(re.findall(r"(?m)^ {0,3}(```|~~~)", markdown)) // 2,
+        "tables": len(re.findall(r"(?m)^\|.*\n\|[-: ]+\|", markdown)),
+        "links": len(re.findall(r"\[[^\]]+\]\([^)]+\)", markdown)),
+        "images": len(re.findall(r"!\[[^\]]*\]\([^)]+\)", markdown)),
+    }
+
+
+def clean_one(
+    markdown: str,
+    *,
+    source_confidence: float = 0.8,
+    min_words: int = 40,
+    use_chonkie: bool = False,
+    format_markdown: bool = False,
+) -> dict[str, Any]:
+    markdown = unicodedata.normalize("NFC", markdown)
+    markdown = markdown.replace("\r\n", "\n").replace("\r", "\n")
+    markdown = "".join(
+        char for char in markdown
+        if char in "\n\t" or ord(char) >= 32
+    )
+
+    before = _stats(markdown)
+    removed: list[dict[str, Any]] = []
+    output: list[str] = []
+    drop_until_level: int | None = None
+    previous_key: str | None = None
+
+    for block in _split_blocks(markdown):
+        if block.kind == "heading" and drop_until_level is not None:
+            if block.heading_level and block.heading_level <= drop_until_level:
+                drop_until_level = None
+
+        reason = _noise_reason(block)
+
+        if block.kind == "heading" and reason:
+            drop_until_level = block.heading_level or 1
+
+        if drop_until_level is not None and not (
+            block.kind == "heading"
+            and block.heading_level
+            and block.heading_level <= drop_until_level
+            and reason is None
+        ):
+            removed.append({
+                "reason": reason or "inside_boilerplate_section",
+                "text": block.text[:300],
+            })
+            continue
+
+        if reason:
+            removed.append({"reason": reason, "text": block.text[:300]})
+            continue
+
+        cleaned = block.text if block.kind == "fence" else _clean_inline(block.text)
+        cleaned = "\n".join(line.rstrip() for line in cleaned.splitlines()).strip()
+
+        if not cleaned:
+            continue
+
+        key = re.sub(r"\s+", " ", cleaned).strip().lower()
+        if key == previous_key:
+            removed.append({"reason": "consecutive_duplicate", "text": cleaned[:300]})
+            continue
+
+        previous_key = key
+        output.append(cleaned)
+
+    cleaned = "\n\n".join(output).strip()
+
+    if format_markdown and cleaned:
+        try:
+            import mdformat
+            cleaned = mdformat.text(cleaned)
+        except ImportError:
+            pass
+
+    after = _stats(cleaned)
+    residual_noise = sum(
+        1 for block in _split_blocks(cleaned)
+        if _noise_reason(block)
+    )
+
+    content_score = min(1.0, after["words"] / 300.0)
+    structure_score = min(
+        1.0,
+        (0.35 if after["headings"] else 0)
+        + (0.25 if after["tables"] else 0)
+        + (0.25 if after["code_blocks"] else 0)
+        + (0.15 if after["words"] else 0),
+    )
+    boilerplate_score = 1.0 - min(1.0, residual_noise / 3.0)
+
+    quality = round(
+        0.35 * content_score
+        + 0.25 * structure_score
+        + 0.20 * source_confidence
+        + 0.20 * boilerplate_score,
+        4,
+    )
+
+    status = (
+        "accepted"
+        if after["words"] >= min_words and quality >= 0.45
+        else "thin"
+    )
+
+    report = {
+        "status": status,
+        "quality_score": quality,
+        "source_extraction_confidence": round(source_confidence, 4),
+        "before": before,
+        "after": after,
+        "reduction_ratio": round(
+            1 - after["characters"] / max(before["characters"], 1),
+            4,
+        ),
+        "removed_blocks": len(removed),
+        "validation": _validate_markdown(cleaned),
+    }
+
+    result: dict[str, Any] = {
+        "markdown": cleaned,
+        "quality": report,
+        "audit": removed,
+    }
+
+    if use_chonkie:
+        result["chonkie"] = _chonkie_report(cleaned)
+
+    return result
+
+
+# ---------- Candidate selection ----------
+
+def _word_count(text: str) -> int:
+    return len(re.findall(r"\b[\w'-]+\b", text or ""))
+
+
+def _select_candidate(page: dict[str, Any]) -> tuple[str, float, str, str | None]:
+    markdown = page.get("markdown")
+
+    if isinstance(markdown, str):
+        return markdown, 0.9, "upstream_markdown", None
+
+    if not isinstance(markdown, dict):
+        return "", 0.0, "missing", None
+
+    raw = markdown.get("raw_markdown") or ""
+    fit = markdown.get("fit_markdown") or ""
+
+    raw_words = _word_count(raw)
+    fit_words = _word_count(fit)
+
+    if fit and (
+        fit_words >= 30
+        or (raw_words < 100 and fit_words >= 10)
+    ) and fit_words >= max(10, int(raw_words * 0.15)):
+        return fit, 0.9, "fit_markdown", raw
+
+    if raw:
+        return raw, 0.7, "raw_markdown_fallback", fit
+
+    return "", 0.2, "missing", fit
+
+
+def _html_fallback(page: dict[str, Any]) -> str | None:
+    html = page.get("cleaned_html") or page.get("html")
+    if not html:
+        return None
+
+    try:
+        import trafilatura
+
+        return trafilatura.extract(
+            html,
+            url=page.get("url"),
+            output_format="markdown",
+            include_tables=True,
+            include_images=False,
+            include_links=True,
+            favor_recall=True,
+        )
+    except ImportError:
+        return None
+    except Exception:
+        return None
+
+
+def _file_slug(url: str) -> str:
+    digest = hashlib.sha256(url.encode()).hexdigest()[:12]
+    host = urlsplit(url).netloc.replace(".", "_") or "document"
+    return f"{host}_{digest}"
+
+
+def _write_document(url: str, document: dict[str, Any]) -> dict[str, str]:
+    root = Path(
+        os.environ.get("MCP_OUTPUT_DIR", "./crawl_output")
+    ).resolve()
+    root.mkdir(parents=True, exist_ok=True)
+
+    stem = _file_slug(url)
+    markdown_path = root / f"{stem}.md"
+    json_path = root / f"{stem}.json"
+
+    markdown_path.write_text(
+        document["markdown"],
+        encoding="utf-8",
+    )
+    json_path.write_text(
+        json.dumps(document, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+    return {
+        "markdown_file": str(markdown_path),
+        "metadata_file": str(json_path),
+    }
+
+
+def _process_page(
+    page: dict[str, Any],
+    requested_url: str,
+    options: OutputOptions,
+) -> dict[str, Any]:
+    candidate, confidence, source, alternate = _select_candidate(page)
+
+    if _word_count(candidate) < options.min_words:
+        fallback = _html_fallback(page)
+        if fallback and _word_count(fallback) > _word_count(candidate):
+            candidate = fallback
+            confidence = 0.75
+            source = "trafilatura_html_fallback"
+
+    result = clean_one(
+        candidate,
+        source_confidence=confidence,
+        min_words=options.min_words,
+        use_chonkie=options.chonkie,
+        format_markdown=options.format_markdown,
+    )
+
+    metadata = page.get("metadata") or {}
+    document = {
+        "url": page.get("url") or requested_url,
+        "requested_url": requested_url,
+        "source": source,
+        "metadata": metadata,
+        "markdown": result.pop("markdown"),
+        "quality": result.pop("quality"),
+        "audit": result.pop("audit"),
+        **result,
+    }
+
+    if options.include_raw and alternate:
+        document["alternate_markdown"] = alternate
+
+    if options.write_files:
+        document["files"] = _write_document(
+            document["url"],
+            document,
+        )
+
+    return document
+
+
+# ---------- MCP tools ----------
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    }
+)
+async def crawl_clean(
+    request: CrawlRequest,
+    ctx: Context,
+) -> dict[str, Any]:
+    """Crawl URLs with Crawl4AI and return clean, scored Markdown documents."""
+    async with Crawl4AIClient() as client:
+        if request.source == "crawl":
+            upstream = await client.post(
+                "/crawl",
+                _crawl_payload(request),
+            )
+            pages = upstream.get("results", [])
+        else:
+            if request.source in {"bm25", "llm"} and not request.query:
+                raise ValueError(
+                    f"source={request.source} requires query"
+                )
+
+            pages = []
+            for url in request.urls:
+                pages.append(await client.post("/md", {
+                    "url": url,
+                    "f": request.source,
+                    "q": request.query,
+                    "c": "0",
+                }))
+
+        documents = []
+        for index, page in enumerate(pages):
+            requested_url = (
+                request.urls[index]
+                if index < len(request.urls)
+                else page.get("url", "")
+            )
+            documents.append(
+                _process_page(page, requested_url, request.output)
+            )
+            await ctx.report_progress(index + 1, len(pages))
+
+        return {
+            "success": True,
+            "documents": documents,
+            "document_count": len(documents),
+            "chunking_performed": False,
+            "indexing_performed": False,
+        }
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": True,
+        "idempotentHint": True,
+        "openWorldHint": False,
+    }
+)
+async def clean_markdown(
+    request: MarkdownRequest,
+) -> dict[str, Any]:
+    """Clean and score Markdown without performing a network crawl."""
+    result = clean_one(
+        request.markdown,
+        min_words=request.output.min_words,
+        use_chonkie=request.output.chonkie,
+        format_markdown=request.output.format_markdown,
+    )
+    result["url"] = request.url
+    result["title"] = request.title
+    result["profile"] = request.profile
+    return result
+
+
+@mcp.tool(
+    annotations={
+        "readOnlyHint": False,
+        "idempotentHint": True,
+        "openWorldHint": True,
+    }
+)
+async def crawl_job(request: JobRequest) -> dict[str, Any]:
+    """Submit or poll a long-running Crawl4AI crawl job."""
+    async with Crawl4AIClient() as client:
+        if request.action == "submit":
+            if not request.crawl:
+                raise ValueError("crawl is required for submit")
+            return await client.post(
+                "/crawl/job",
+                _crawl_payload(request.crawl),
+            )
+
+        if not request.task_id:
+            raise ValueError("task_id is required for status")
+
+        data = await client.get(
+            f"/crawl/job/{request.task_id}"
+        )
+
+        if isinstance(data, dict) and data.get("results"):
+            options = (
+                request.crawl.output
+                if request.crawl
+                else OutputOptions()
+            )
+            data["documents"] = [
+                _process_page(
+                    page,
+                    page.get("url", ""),
+                    options,
+                )
+                for page in data["results"]
+            ]
+
+        return data
+
+
+# ---------- MCP resources ----------
+
+@mcp.resource("crawl4ai://schema", mime_type="application/json")
+async def crawl4ai_schema() -> dict[str, Any]:
+    """Return the exact BrowserConfig/CrawlerRunConfig schema of the instance."""
+    async with Crawl4AIClient() as client:
+        return await client.get("/schema")
+
+
+@mcp.resource("crawl4ai://hooks", mime_type="application/json")
+async def crawl4ai_hooks() -> dict[str, Any]:
+    """Return declarative hook actions supported by the instance."""
+    async with Crawl4AIClient() as client:
+        return await client.get("/hooks/info")
+
+
+@mcp.resource("crawl4ai://health", mime_type="application/json")
+async def crawl4ai_health() -> dict[str, Any]:
+    """Return Crawl4AI health status."""
+    async with Crawl4AIClient() as client:
+        return await client.get("/health")
+
+
+if __name__ == "__main__":
+    mcp.run(
+        transport=os.environ.get("MCP_TRANSPORT", "http"),
+        host=os.environ.get("MCP_HOST", "127.0.0.1"),
+        port=int(os.environ.get("MCP_PORT", "8000")),
+    )
+````
+
+Suggested dependencies:
+
+```text
+fastmcp
+httpx
+pydantic
+markdown-it-py
+mdformat
+trafilatura
+chonkie        # optional MarkdownChef audit
+```
+
+## Chonkie MarkdownChef variant
+
+The recommended Chonkie version is not a second cleaning algorithm. It is an optional structural audit:
+
+```python
+from chonkie import MarkdownChef
+
+chef = MarkdownChef(tokenizer="character")
+document = chef.parse(cleaned_markdown)
+
+audit = {
+    "tables": len(document.tables),
+    "code_blocks": len(document.code),
+    "images": len(document.images),
+    "regions": len(document.chunks),
+}
+```
+
+This keeps chunking outside the MCP while still verifying that the cleaner preserved structures important for future chunking.
+
+## Practitioner pipeline synthesis
+
+The recurring production pattern is:
+
+```text
+render/fetch
+  → main-content extraction
+  → conservative boilerplate removal
+  → Markdown normalization
+  → structural validation
+  → quality/audit metadata
+  → deduplication and hashing
+  → downstream chunking/indexing
+```
+
+Firecrawl’s open-source workflow emphasizes clean Markdown, metadata, crawling, mapping, and change detection. [Firecrawl](https://github.com/firecrawl/firecrawl)
+
+`winnow-md` is especially relevant conceptually because it uses subtractive block-level cleaning, named removal reasons, and repeated-template memory. Those ideas are worth adopting, but I would not make it a mandatory dependency yet. [winnow-md](https://github.com/Isa1asN/winnow-md)
+
+Jina Reader and Trafilatura are useful fallbacks for pages where browser-rendered extraction is weak. [Jina Reader](https://jina.ai/reader/), [Trafilatura](https://trafilatura.readthedocs.io/en/latest/usage-python.html)
+
+The key architectural conclusion is an inference from these implementations: no single Python Markdown library solves web-content selection. The reliable approach is Crawl4AI/Jina/Trafilatura for extraction, a conservative custom block scorer for boilerplate, `markdown-it-py` for validation, and Chonkie only for post-clean structural inspection.
+
+### Main gaps to check in the prototype
+
+Regardless of its current shape, the overhaul should ensure it does not:
+
+* treat `fit_markdown` as always correct
+* use BM25 output as corpus-cleaning output
+* use an LLM as the default deterministic cleaner
+* remove lines with regexes without protecting fences and tables
+* silently drop short but valid documentation pages
+* discard canonical URL, title, author, dates, language, status, and redirect metadata
+* lack before/after quality metrics
+* lack a removal receipt
+* expose arbitrary Crawl4AI JavaScript/hooks without an explicit trust gate
+* hardcode the entire Crawl4AI schema instead of querying `/schema`
+* perform chunking inside the cleaning layer
+* return Markdown without validation or a stable document hash

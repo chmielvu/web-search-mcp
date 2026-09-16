@@ -68,9 +68,13 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 
 ## Bright Data SERP adapter
 
-- Configure `BRIGHTDATA_SERP_ZONE` explicitly; `BRIGHTDATA_ZONE` remains a compatibility alias, while the implicit `sdk_serp` fallback is rejected.
+- One module: `providers/brightdata.py` holds the Google/Bing/Yandex entry points, the target-URL builders, the response parser, upstream-error detection, and the bounded pagination transport for `POST https://api.brightdata.com/request`.
+- Configure `BRIGHTDATA_SERP_ZONE` explicitly; `BRIGHTDATA_ZONE` remains a compatibility alias, while the implicit `sdk_serp` fallback is rejected. An account whose real SERP zone is named `sdk_serp` must therefore set the variable explicitly — the settings default is not enough.
 - Google uses `data_format=parsed_light` for web searches requesting at most 10 results, and uses bounded `start` pagination for larger result windows. Bing uses `first`; Yandex uses `p` and never assumes the USA region for non-US countries.
 - The parser accepts both the existing URL-based `organic` response and Bright Data's documented Bing `webPages.value` response. HTTP failures retain status, retry, Bright Data error headers, and coarse auth/rate-limit/upstream classification.
+- Destination-link fidelity differs per engine: Bright Data Bing returns real absolute result URLs, while Google can return Google redirect links (`https://www.google.com/goto?url=…`, or a relative `/goto?url=…` under `parsed_light`) even though the documented schema calls `link` the result URL. A redirect link yields `domain=None` under `parsed_light`.
+- Latency: Google commonly answers in ~2-7s, while Bing and Yandex have been measured at 11-36s. All three read `settings.search_retrieve_budget_seconds` (default 20), so Bing and Yandex time out unless that budget is raised for the run.
+- The three catalog names share one adapter function; `_make_adapter` injects `provider_name=<catalog name>` so `brightdata_bing` and `brightdata_yandex` reach their own engines. Without that injection every alias runs the Google path — check the returned links when auditing engine coverage (Google returns `goto?url=` redirects, Bing returns real URLs).
 
 ## Gemma SERP adapter
 

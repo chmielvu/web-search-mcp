@@ -14,7 +14,17 @@ import httpx
 ProcessingMode = Literal["agent", "index"]
 ContentStatus = Literal["success", "partial", "blocked", "unsupported", "error"]
 TextFormat = Literal["markdown", "html", "text"]
-PROCESSING_POLICY_VERSION = "markdown-source-v2"
+PROCESSING_POLICY_VERSION = "markdown-source-v3-markdownchef"
+
+
+@dataclass(frozen=True, slots=True)
+class MarkdownStructure:
+    """Structural Markdown counts and source-region audit."""
+
+    tables: int = 0
+    code_blocks: int = 0
+    images: int = 0
+    text_regions: int = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -174,6 +184,7 @@ class ProcessedMarkdown:
     diagnostics: tuple[Diagnostic, ...]
     transforms: tuple[str, ...]
     links: tuple[dict[str, Any], ...] = ()
+    structure: MarkdownStructure = field(default_factory=MarkdownStructure)
 
 
 @dataclass(frozen=True, slots=True)

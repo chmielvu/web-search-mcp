@@ -77,7 +77,7 @@ from .tools.academic import academic_search
 from .tools.code_search import code_search
 from .tools.code_search.exploration import code_fetch
 from .tools.ai_search import gemini_search, grok_search
-from .tools.content import fetch
+from .tools.content import crawl_web, fetch
 from .tools.profiles import apply_tool_profile
 from .tools.catalog import tool_kwargs
 from .tools.prompts import (
@@ -191,19 +191,20 @@ mcp = FastMCP(
         "concentration. Formulate better queries from what you learned and\n"
         "search again. At least two rounds before concluding.\n"
         "\n"
-        "Deep-read the best sources. After discovery, use fetch on one or more\n"
-        "promising URLs. The tool accepts url or urls and returns ordered\n"
-        "per-source results with metadata, links, quality, and continuation\n"
-        "signals. Judge by domain authority and snippet specificity. Do not trust snippets\n"
-        "alone — read the page.\n"
+        "Deep-read the best sources. After discovery, use web-search:fetch on one or more\n"
+        "promising known URLs. It returns ordered per-source results with metadata,\n"
+        "links, quality, and continuation signals. For bounded multi-page traversal or\n"
+        "browser-rendered pages, use web-search:crawl_web; choose response_format='detailed'\n"
+        "only when the page Markdown is needed. Judge by domain authority and snippet\n"
+        "specificity. Do not trust snippets alone — read the page.\n"
         "\n"
         "Know when enough is enough. Terminate when 3 independent sources\n"
         "agree on key claims, or when 2 consecutive search rounds add nothing\n"
         "new. Announce your verdict: what's well-supported, what's contested,\n"
         "what's unknown.\n"
         "\n"
-        "Tool routing: quick_web_search/gemini_search -> web_search ->\n"
-        "fetch -> iterate.\n"
+        "Tool routing: web-search:quick_web_search/web-search:gemini_search ->\n"
+        "web-search:web_search -> web-search:fetch or web-search:crawl_web -> iterate.\n"
         "Use academic_search for\n"
         "scholarly questions. Use quick_web_search mode='youtube' to find videos,\n"
         "then youtube_transcript for captions. Use quick_web_search mode='docs'\n"
@@ -309,6 +310,7 @@ mcp.add_middleware(
         tools=[
             "web_search",
             "fetch",
+            "crawl_web",
             "gemini_search",
             "grok_search",
             "youtube_transcript",
@@ -335,6 +337,7 @@ mcp.add_transform(ResourcesAsTools(mcp))
 # Register tools
 mcp.tool(**tool_kwargs("web_search"))(web_search)
 mcp.tool(**tool_kwargs("fetch"))(fetch)
+mcp.tool(**tool_kwargs("crawl_web"))(crawl_web)
 mcp.tool(**tool_kwargs("gemini_search"))(gemini_search)
 mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)

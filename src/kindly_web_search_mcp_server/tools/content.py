@@ -24,13 +24,25 @@ from ..content.constructor import (
     rehydrate_cached_artifact,
 )
 from ..content.fetch_pipeline import fetch_content_artifact
+from ..content.crawl_pipeline import CrawlArtifact, crawl_content_artifacts
+from ..content.remote_clients import get_crawl4ai_client
 from ..content.models import (
     PROCESSING_POLICY_VERSION,
     ContentError,
     FetchOptions,
 )
 from ..errors import raise_tool_error
-from ..models import FetchError, FetchResponse, FetchResult, PublicStatus, TokenUsage
+from ..models import (
+    ContentLink,
+    CrawlWebRequest,
+    CrawlWebResponse,
+    CrawlWebResult,
+    FetchError,
+    FetchResponse,
+    FetchResult,
+    PublicStatus,
+    TokenUsage,
+)
 from ..settings import settings
 from ..utils.observability import emit_tool_observability_event
 from ..utils.text_chunking import slice_content
@@ -353,7 +365,7 @@ def _result_from_artifact(
             for entity in artifact.entities
         ]
     result = {
-        "url": artifact.fetched_url or artifact.normalized_url,
+        "url": artifact.fetched_url or artifact.input_url or artifact.normalized_url,
         "status": public_status,
         "content": windowed.content,
         "error": error_obj,
@@ -918,4 +930,182 @@ async def fetch(
             input_url_count=response.total_requested,
             output_result_count=response.total_returned,
         )
+    return response
+
+
+def _crawl_result_from_artifact(
+    outcome: CrawlArtifact,
+    *,
+    detailed: bool,
+) -> CrawlWebResult:
+    """Project one finalized crawl artifact into the public result schema."""
+    artifact = outcome.artifact
+    raw_status = (artifact.status or "").strip().lower()
+    access_signal = _access_signal_from_artifact(artifact)
+    public_status, error_obj = _classify_status(artifact, raw_status, access_signal)
+    if error_obj is not None and error_obj.get("stage") in {None, "none"}:
+        error_obj["stage"] = "crawl4ai"
+    error = FetchError.model_validate(error_obj) if error_obj is not None else None
+    diagnostics = (
+        [dataclasses.asdict(entry) for entry in artifact.diagnostics]
+        if artifact.diagnostics
+        else None
+    )
+    content = artifact.markdown if detailed else None
+    raw_links = _public_links(artifact, artifact.markdown) if detailed else None
+    links = [ContentLink.model_validate(entry) for entry in raw_links] if raw_links else None
+    return CrawlWebResult(
+        url=artifact.fetched_url or artifact.input_url or artifact.normalized_url,
+        status=public_status,
+        depth=outcome.depth,
+        title=artifact.title,
+        output_path=artifact.output_path,
+        word_count=artifact.quality.word_count,
+        structure=artifact.structure,
+        error=error,
+        diagnostics=diagnostics,
+        content=content,
+        links=links,
+    )
+
+
+def _crawl_request_event(request: CrawlWebRequest) -> dict[str, Any]:
+    """Return bounded request telemetry without recording browser scripts."""
+    targets = request.targets
+    interaction = request.interaction
+    return {
+        "url_count": len(request.urls),
+        "max_depth": request.max_depth,
+        "max_pages": request.max_pages,
+        "include_external": request.include_external,
+        "response_format": request.response_format,
+        "has_css_selector": bool(targets and targets.css_selector),
+        "allowed_domain_count": len(targets.allowed_domains or ()) if targets else 0,
+        "excluded_domain_count": len(targets.excluded_domains or ()) if targets else 0,
+        "include_pattern_count": len(targets.include_patterns or ()) if targets else 0,
+        "exclude_pattern_count": len(targets.exclude_patterns or ()) if targets else 0,
+        "script_count": (
+            len(interaction.javascript_before_wait or ()) + len(interaction.javascript or ())
+            if interaction
+            else 0
+        ),
+        "has_wait_for": bool(interaction and interaction.wait_for),
+        "scan_full_page": interaction.scan_full_page if interaction else None,
+    }
+
+
+async def crawl_web(
+    request: CrawlWebRequest,
+    ctx: Context = CurrentContext(),
+) -> CrawlWebResponse:
+    """Crawl bounded public sites through Crawl4AI and return indexed artifacts.
+
+    WHEN TO USE:
+    - Traversing a public site from one or more seed URLs.
+    - Rendering JavaScript-heavy pages with Crawl4AI's browser.
+    - Persisting cleaned Markdown for a bounded set of pages.
+
+    WHEN NOT TO USE:
+    - Fetching one ordinary URL (use ``fetch``).
+    - Repository or code discovery (use ``code_search``).
+
+    REQUEST:
+    - ``urls`` contains one to twenty absolute HTTP(S) seeds.
+    - ``max_depth`` is zero through two; ``max_pages`` is one through one hundred
+      and cannot be smaller than the seed count.
+    - ``targets`` constrains domains and URL globs; without
+      ``include_external``, discovered links stay on the seed site.
+    - ``interaction`` accepts at most ten JavaScript snippets and 32768 UTF-8
+      bytes in total.
+    - ``response_format`` defaults to ``summary``; ``detailed`` includes the
+      same cleaned Markdown that was persisted under ``outputs/``.
+
+    RETURNS:
+    - Every attempted page has a result with status, depth, word count,
+      MarkdownStructure counts, diagnostics, and output_path when persisted.
+    - Summary responses omit page content; detailed responses include it.
+    - The response reports status counts, reached depth, duration, and compact
+      Crawl4AI capability evidence.
+    """
+    started = time.monotonic()
+    detailed = request.response_format == "detailed"
+    event = _crawl_request_event(request)
+    emit_tool_observability_event(LOGGER, "crawl_web", "request", **event)
+    await ctx.info(
+        f"Crawling {len(request.urls)} seed URL(s) with a maximum of {request.max_pages} page(s)..."
+    )
+    await ctx.report_progress(progress=0, total=100, message="Starting Crawl4AI traversal...")
+    try:
+        outcomes = await crawl_content_artifacts(request)
+    except Exception as exc:
+        _record_tool_failure("crawl_web")
+        raise_tool_error(exc, provider="crawl4ai")
+
+    results: list[CrawlWebResult] = []
+    status_counts: dict[str, int] = {}
+    for index, outcome in enumerate(outcomes, start=1):
+        result = _crawl_result_from_artifact(outcome, detailed=detailed)
+        results.append(result)
+        status_counts[result.status] = status_counts.get(result.status, 0) + 1
+        progress = min(99, round(index * 100 / max(1, request.max_pages)))
+        await ctx.report_progress(
+            progress=progress,
+            total=100,
+            message=f"Finalized page {index} of at most {request.max_pages}.",
+        )
+
+    capabilities: dict[str, Any] | None = None
+    response_diagnostics: list[dict[str, Any]] = []
+    if detailed:
+        client = get_crawl4ai_client()
+        if client is not None:
+            try:
+                capabilities = await client.capability_summary()
+            except Exception as exc:
+                response_diagnostics.append(
+                    {
+                        "code": "crawl4ai_capability_failed",
+                        "message": f"Could not read Crawl4AI capability metadata: {type(exc).__name__}",
+                    }
+                )
+
+    response = CrawlWebResponse(
+        response_format=request.response_format,
+        results=results,
+        total_requested=len(request.urls),
+        total_returned=len(results),
+        status_counts=status_counts,
+        max_depth_reached=max((item.depth for item in outcomes), default=0),
+        capabilities=capabilities,
+        diagnostics=response_diagnostics or None,
+        duration_ms=int(round((time.monotonic() - started) * 1000.0)),
+    )
+    emit_tool_observability_event(
+        LOGGER,
+        "crawl_web",
+        "response",
+        duration_ms=(time.monotonic() - started) * 1000.0,
+        response_format=response.response_format,
+        url_count=response.total_requested,
+        result_count=response.total_returned,
+        status_counts=response.status_counts,
+        max_depth_reached=response.max_depth_reached,
+        results=[
+            {
+                "url": result.url,
+                "status": result.status,
+                "depth": result.depth,
+                "word_count": result.word_count,
+                "output_path": result.output_path,
+                "structure": dataclasses.asdict(result.structure),
+            }
+            for result in results
+        ],
+    )
+    await ctx.report_progress(progress=100, total=100, message="Done")
+    _record_tool_success(
+        "crawl_web",
+        input_url_count=response.total_requested,
+        output_result_count=response.total_returned,
+    )
     return response

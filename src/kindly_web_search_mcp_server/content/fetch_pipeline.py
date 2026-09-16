@@ -91,6 +91,7 @@ __all__ = (
     "ProcessingMode",
     "RawDocument",
     "StageAttempt",
+    "evaluate_candidate",
     "fetch_content_artifact",
     "finalize_artifact",
     "select_candidate",
@@ -479,10 +480,11 @@ def _with_originating_diagnostics(
         diagnostics=processed.diagnostics + extras,
         transforms=processed.transforms,
         links=links,
+        structure=processed.structure,
     )
 
 
-async def _evaluate_candidate(
+async def evaluate_candidate(
     document: RawDocument,
     *,
     attempt_index: int,
@@ -718,7 +720,7 @@ async def fetch_content_artifact(
                     error_code=type(exc).__name__,
                 )
                 continue
-            candidate = await _evaluate_candidate(
+            candidate = await evaluate_candidate(
                 document, attempt_index=len(candidates), options=options
             )
             candidates.append(candidate)
@@ -746,6 +748,7 @@ async def fetch_content_artifact(
             for candidate in candidates
         )
         jina_skipped = False
+        decision: RouteDecision | None = None
         if registry_accepted:
             jina_skipped = True
             attempts.record_outcome(
@@ -772,7 +775,7 @@ async def fetch_content_artifact(
                         ctx=ctx,
                         decision=decision,
                     )
-                    jina_candidate = await _evaluate_candidate(
+                    jina_candidate = await evaluate_candidate(
                         jina_document, attempt_index=len(candidates), options=options
                     )
                     candidates.append(jina_candidate)
@@ -807,6 +810,8 @@ async def fetch_content_artifact(
             not jina_skipped
             and not accepted_before
             and not _is_binary_target(input_url)
+            and decision is not None
+            and decision.route != "browser"
             and get_crawl4ai_client() is not None
         ):
             try:
@@ -831,7 +836,7 @@ async def fetch_content_artifact(
                     error_code=type(exc).__name__,
                 )
             else:
-                crawl_candidate = await _evaluate_candidate(
+                crawl_candidate = await evaluate_candidate(
                     crawl_document, attempt_index=len(candidates), options=options
                 )
                 candidates.append(crawl_candidate)
@@ -873,7 +878,7 @@ async def fetch_content_artifact(
                     error_code=type(exc).__name__,
                 )
             else:
-                browser_candidate = await _evaluate_candidate(
+                browser_candidate = await evaluate_candidate(
                     browser_document, attempt_index=len(candidates), options=options
                 )
                 candidates.append(browser_candidate)
@@ -900,7 +905,7 @@ async def fetch_content_artifact(
                 )
             else:
                 if archive_document is not None:
-                    archive_candidate = await _evaluate_candidate(
+                    archive_candidate = await evaluate_candidate(
                         archive_document, attempt_index=len(candidates), options=options
                     )
                     candidates.append(archive_candidate)

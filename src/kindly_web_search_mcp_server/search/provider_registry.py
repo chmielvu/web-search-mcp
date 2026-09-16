@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import os
 import threading
 from enum import Enum
@@ -293,8 +294,13 @@ PROVIDER_DEFINITIONS: Mapping[str, ProviderDefinition] = MappingProxyType(
 )
 
 
-def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
+def _make_adapter(module_name: str, function_name: str, *, catalog_name: str) -> ProviderAdapter:
     """Build an async adapter that calls the already-resolved provider function.
+
+    ``catalog_name`` is passed to providers whose adapter function accepts a
+    ``provider_name`` keyword (the Bright Data family serves Google, Bing and
+    Yandex from one function), so a catalog alias cannot silently run another
+    engine's path.
 
     The module and function are resolved eagerly at module-init time so that
     concurrent ``asyncio.wait_for`` timeouts in ``_call_provider`` are not
@@ -322,6 +328,8 @@ def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
             search_options=options,
             provider_arguments=arguments,
         )
+        if "provider_name" in inspect.signature(resolved_function).parameters:
+            kwargs.setdefault("provider_name", catalog_name)
         if query_embedding is not None and module_name == "providers.qdrant":
             kwargs["query_embedding"] = await asyncio.shield(query_embedding)
         return await resolved_function(
@@ -336,7 +344,11 @@ def _make_adapter(module_name: str, function_name: str) -> ProviderAdapter:
 
 PROVIDER_ADAPTERS: Mapping[str, ProviderAdapter] = MappingProxyType(
     {
-        definition.name: _make_adapter(definition.adapter_module, definition.adapter_function)
+        definition.name: _make_adapter(
+            definition.adapter_module,
+            definition.adapter_function,
+            catalog_name=definition.name,
+        )
         for definition in PROVIDER_DEFINITIONS_LIST
     }
 )

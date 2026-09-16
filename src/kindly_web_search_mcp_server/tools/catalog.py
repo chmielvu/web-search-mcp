@@ -14,6 +14,7 @@ DEFAULT_PROFILE_TOOLS = frozenset(
         "code_fetch",
         "web_search",
         "fetch",
+        "crawl_web",
         "gemini_search",
         "generate_sitemap",
         "youtube_transcript",
@@ -28,6 +29,7 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "grok_search": 60.0,
     "web_search": 120.0,
     "fetch": 120.0,
+    "crawl_web": 120.0,
     "academic_search": 45.0,
     "code_search": 120.0,
     "code_fetch": 180.0,
@@ -112,6 +114,27 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         task=True,
     ),
     "fetch": _entry("fetch", "Fetch", {"regular", "full"}),
+    "crawl_web": _entry(
+        "crawl_web",
+        "Crawl Web",
+        {"regular", "full"},
+        description=(
+            "Crawl one or more public HTTP(S) seed URLs through Crawl4AI with bounded "
+            "breadth-first traversal. Use web-search:crawl_web for multi-page site traversal "
+            "or browser-rendered pages; use web-search:fetch for one or more known URLs without "
+            "link traversal. Pass request={urls:[...], max_depth:0..2, max_pages:1..100, "
+            "include_external:false, targets?:{css_selector, allowed_domains, excluded_domains, "
+            "include_patterns, exclude_patterns}, interaction?:{javascript_before_wait, wait_for, "
+            "javascript, scan_full_page}, response_format:'summary'|'detailed'}. Summary returns "
+            "status, depth, word and Markdown-structure counts, diagnostics, and deterministic "
+            "output_path without page Markdown; detailed also returns content, links, and compact "
+            "Crawl4AI capability evidence. Per-page failures return typed error objects with "
+            "resolution and retryable fields."
+        ),
+        read_only=False,
+        idempotent=True,
+        open_world=True,
+    ),
     "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
     "grok_search": _entry(
         "grok_search",

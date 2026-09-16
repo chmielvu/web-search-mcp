@@ -1,4 +1,137 @@
 ## [Unreleased]
+### Fixed — Bright Data SERP providers activated and adapter merged to one module (2026-09-15)
+- Configured `BRIGHTDATA_SERP_ZONE=sdk_serp`, the account's SERP zone
+  (product `serp`). Without it every Bright Data provider reported
+  `available=False / missing credentials`, because `get_brightdata_zone()`
+  rejects the historical implicit `sdk_serp` default to avoid silently
+  selecting a wrong-product zone. All three catalog providers
+  (`brightdata`, `brightdata_bing`, `brightdata_yandex`) now resolve
+  healthy and return live results; the app runtime resolves the zone from
+  the environment file without any shell-side export.
+- Merged `search/providers/brightdata_common.py` into
+  `search/providers/brightdata.py`: target-URL builders, response parsing,
+  upstream-error detection and the bounded pagination transport now live
+  beside the provider entry point, so the Google/Bing/Yandex SERP adapter is
+  one module. The fold removed the unreferenced `_search_primary` helper and
+  the `_endpoint()` indirection that existed only to break the old import
+  cycle. Log records for this adapter now carry the
+  `...search.providers.brightdata` logger name.
+- Live-verified after the merge: `brightdata` returns 5 results in 2.4s,
+  `brightdata_bing` returns results with real absolute destination URLs
+  (`https://docs.brightdata.com/...`) and a correct `domain`, and
+  `brightdata_yandex` returns 0 parsed results in 27.7s from the raw-HTML
+  path. Both Bing and Yandex exceed the default
+  `search_retrieve_budget_seconds` of 20 and raise
+  `ProviderRequestError: provider request timed out` under it.
+- Catalog aliases no longer share one engine: `brightdata_bing` and
+  `brightdata_yandex` both executed the Google path, because nothing passed
+  the catalog name into `search_brightdata`, whose `provider_name` defaults to
+  `brightdata`. `_make_adapter` now injects `provider_name=<catalog name>` for
+  adapter functions that declare the parameter. Live-verified: the Bing alias
+  returns real destination URLs, the Google alias returns Google redirect
+  links.
+- `_run_page` and `_retry_delay` no longer raise `AttributeError` when a
+  provider error carries no metadata (``exc.metadata`` is optional). The retry
+  decision now reads the HTTP status defensively, so the underlying provider
+  error propagates instead of being masked by an attribute error.
+### Added — crawl_web acquisition fallback through the single-URL ladder (2026-09-15)
+- A page whose Crawl4AI result carried no usable content (typed failure,
+  blocked, or a thin challenge stub) is retried once through the shared
+  single-URL ladder — registry → Jina → Crawl4AI Markdown → stealth browser
+  (Camoufox) → archive. The Crawl4AI container's untrusted-request policy
+  forbids the client-side stealth switches (`js_code`, `magic`,
+  `simulate_user`, `override_navigator`, `cdp_url`, `proxy_config`,
+  `cookies`, `headers`) and its Chromium cannot beat challenge walls, so
+  hard sites only resolve through this second path. Accepted pages never
+  trigger the fallback. Live-verified: the two corpus URLs that previously
+  errored (`datacamp.com/tutorial/pydantic-ai-guide`,
+  `atalupadhyay.wordpress.com/2025/01/01/…`) now return `success` via
+  `jina_reader` (4025 and 1039 words).
+### Changed — Crawl4AI fit-markdown config + processor repairs (2026-09-15)
+- `crawl_web` now sends an explicit `markdown_generator`
+  (`DefaultMarkdownGenerator` + `PruningContentFilter(threshold=0.3, fixed,
+  min_word_threshold=0)`), `word_count_threshold=2`, `target_elements=["article"]`,
+  and `excluded_selector="div[class*='share'], .post-nav, .sidebar"` to the
+  Crawl4AI `/crawl` endpoint. Previously no content filter was sent, the server
+  returned `fit_markdown=None`, the fit/raw candidate selection only ever saw
+  raw markdown, and div-based boilerplate (cookie banners, share widgets,
+  tag lists, prev/next nav) rode into every persisted output. Live-verified on
+  the 10-URL christophergs.com corpus: boilerplate markers 10/10 → 0/10, all
+  code fences preserved (16/16 on the RAG page), article word counts
+  maintained. The A/B tuning matrix and the counter-intuitive result that
+  pruning thresholds ≥0.48 destroy code fences are recorded in the wiki
+  (`crawl4ai-pruning-config-tuning`).
+- `MarkdownProcessor` gains two source-range repair passes shared by the
+  `fetch` and `crawl` paths: `inferred-fence-languages` (deterministic
+  language tags on language-less fences — python/javascript/bash/sql/
+  dockerfile/html/json heuristics, body never edited, tagged fence openers
+  verified) and `deduped-h1-headings` (later H1s duplicating the first title
+  under Unicode punctuation/whitespace normalization are removed). Both run
+  before the protected-set freeze.
+- `QualityReport.boilerplate_hits` is now wired to junk-rule rumdl findings
+  (MD033/MD036/MD042/MD045/MD059) instead of hardcoded 0.
+- Fetch path unchanged in behavior (it already requested `f=fit`); it picks
+  up the two processor repairs automatically.
+### Fixed — `crawl_web` crash on transient DNS failure and slug-folded fetch targets (2026-09-15)
+- `_iter_resolved_ips` now wraps `loop.getaddrinfo` `OSError` as typed
+  `SafeFetchError("dns_resolution_failed")` instead of letting the raw
+  exception escape `validate_public_url` and abort the whole crawl request as
+  an untyped tool error.
+- `crawl_pipeline` records per-seed validation failures as typed failure
+  artifacts and continues with the remaining seeds, matching the documented
+  contract that failed URLs are recorded without aborting other URLs.
+- Crawl fetch targets (seeds and discovered links) canonicalize with
+  `canonicalize_url(..., fold_slug=False)`. The slug fold remains a dedup
+  identity key everywhere else; requesting folded URLs 404s on date-as-path
+  sites (e.g. christophergs.com `/2019/03/17/slug` → `/2019-03-17-slug`).
+  Live-verified: the same 10-URL christophergs.com crawl went 8/10 → 10/10.
+- `_match_items` keys its response-to-request lookup in request space
+  (`fold_slug=False`). It previously keyed with the folded identity while
+  looking up the un-folded request URL, so every date-path URL missed and
+  fell back to positional pairing — and Crawl4AI returns batch results in
+  completion order, so the fallback paired one page with another page's
+  result (observed live: a DeepEval URL received the WordPress page's
+  content). Live-verified: a 12-URL corpus now reports every page's own
+  URL and content.
+- Failure rows project `fetched_url → input_url → normalized_url` in both
+  `fetch` and `crawl_web` responses, so a failed page reports the address
+  the caller supplied instead of the slug-folded dedup identity, which 404s.
+### Added — `crawl_web` bounded Crawl4AI site traversal (2026-09-14)
+- Added typed `CrawlWebRequest` targets and interaction limits, SSRF-checked
+  breadth-first traversal capped at depth 2 and 100 pages, and fit/raw
+  candidate selection through the shared Markdown processor and sole artifact
+  finalizer.
+- Added additive `MarkdownChef` structure counts to processed artifacts and
+  compact summary/detailed responses with deterministic `outputs/` paths.
+### Changed — turbohtml DOM detector overhaul (2026-09-14)
+- `content/dom_detector.py` rewritten from regex markup scanning onto a primary
+  WHATWG-conformant `turbohtml` parse plus its C block-scoring pass (new
+  dependency `turbohtml>=1.8,<2`, zero transitive deps, C core): real DOM
+  counts immune to tag-like strings in script payloads, explicit hidden
+  subtrees excluded from content measures, `main_content()`/`boilerplate()`
+  scoring for positive article evidence, JSON-LD/RDFa/@type + og:type semantic
+  page types, real table row/column shapes, and chrome-restricted nav density.
+- Research-backed refiners add Lighthouse body-node counts and tree shape,
+  jusText-aligned repeated prose-bearing sibling detection for listing/forum
+  indexes, recursive `@graph` metadata handling, and `product.group` support.
+- Classifier fixes (all with evidence-trail reasons preserved): SSR pages with
+  framework roots (`#__next`, `#app`, `#root`) no longer auto-escalate to
+  browser — Ketch ordering requires low content or dominant hydration payload
+  plus shell corroboration (`noscript_requires_js`, `empty_mount`,
+  client-render marker); non-200 status is evidence, not an unconditional
+  browser switch (403/429+challenge or empty 5xx escalate; content-rich
+  404/500 pages stay extractable); lazy-loading demoted to diagnostic
+  metadata; structural scoring replaces threshold cliffs; readerable-prose
+  gate protects SSR news pages with large tracking payloads.
+- `RouteDecision` carries `target_selector` (article ≥0.70 / main ≥0.75 text
+  share) and `wait_for_selector` (browser-timing routes) suggestions;
+  `jina_reader.fetch_raw_document` passes them through to
+  `X-Target-Selector`/`X-Wait-For-Selector` (previously always unset).
+- Pipeline Crawl4AI stage skipped when the DOM route is `browser`: the
+  non-browser `/md` stage cannot render JS shells, so the attempt previously
+  burned a 30 s timeout before Camoufox handled the page anyway. Decision is
+  now typed optional (`decision: RouteDecision | None`) and bound before the
+  registry-accepted branch.
 ### Fixed — Camoufox client retries transient 502 (2026-09-14)
 - `CamoufoxClient.fetch_html` now retries HTTP 502 alongside 503 (up to
   3 attempts, exponential backoff) — the cold-start / transient-gateway

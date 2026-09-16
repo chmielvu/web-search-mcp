@@ -45,7 +45,14 @@ def _fold_slug(path: str) -> str:
     return folded
 
 
-def canonicalize_url(url: str) -> str:
+def canonicalize_url(url: str, *, fold_slug: bool = True) -> str:
+    """Canonicalize a URL for identity comparison.
+
+    Set ``fold_slug=False`` for URLs used as request targets: the slug fold
+    produces a comparable dedup key, not a resolvable address — date-as-path
+    sites (e.g. ``/2019/03/17/slug``) 404 under the folded ``/2019-03-17-slug``
+    form.
+    """
     parts = urlsplit(url.strip())
     scheme = parts.scheme.lower()
     netloc = parts.netloc.lower().removeprefix("www.")
@@ -61,7 +68,8 @@ def canonicalize_url(url: str) -> str:
         path = path[:-1]
     if not scheme or not netloc:
         return url.strip()
-    path = _fold_slug(path)
+    if fold_slug:
+        path = _fold_slug(path)
     return urlunsplit((scheme, netloc, path, query, fragment))
 
 

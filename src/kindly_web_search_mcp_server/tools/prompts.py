@@ -49,6 +49,10 @@ def web_search_workflow_prompt(
         lines.append("- NEWS: prefer grok_search for real-time/social signals.")
     else:
         lines.append("- GENERAL: balance docs/articles/community; docs first.")
+    lines.append(
+        "- SITE: use web-search:crawl_web for bounded link traversal or browser-rendered "
+        "pages; use web-search:fetch for one or more known URLs."
+    )
     lines += [
         "",
         "Execution:",
@@ -142,7 +146,8 @@ def research_methodology_prompt() -> list[Message]:
                     "## Deep-Reading Phase",
                     "",
                     "Snippets are teasers, not evidence. Always deep-read the best candidates:",
-                    "- fetch accepts one URL or urls for a detailed single/bulk read",
+                    "- web-search:fetch accepts one URL or urls for a detailed single/bulk read",
+                    "- web-search:crawl_web accepts request={urls:[...], max_depth:0..2, max_pages:1..100, targets?:{...}, interaction?:{...}, response_format:'summary'|'detailed'} for bounded site traversal or browser-rendered pages; use detailed only when page Markdown is needed",
                     "- Set focus_query to bias summaries toward what you care about",
                     "- Check window.has_more — content may be truncated; paginate with offset",
                     "- Prefer sources with concrete dates, author names, and reproducible examples",

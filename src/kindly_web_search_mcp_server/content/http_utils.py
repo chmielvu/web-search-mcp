@@ -287,7 +287,12 @@ def _ips_from_addrinfo(infos: Iterable[tuple]) -> Iterable[ipaddress._BaseAddres
 
 async def _iter_resolved_ips(hostname: str) -> list[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     loop = asyncio.get_running_loop()
-    infos = await loop.getaddrinfo(hostname, None)
+    try:
+        infos = await loop.getaddrinfo(hostname, None)
+    except OSError as exc:
+        raise SafeFetchError(
+            "dns_resolution_failed", f"DNS resolution failed for '{hostname}': {exc}"
+        ) from exc
     return list(_ips_from_addrinfo(infos))  # type: ignore[arg-type]
 
 

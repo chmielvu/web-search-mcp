@@ -36,16 +36,20 @@ import logging
 import os
 import re
 import shutil
+import unicodedata
 import sys
 from dataclasses import dataclass
 from typing import Any, Iterable, Literal, Sequence
 
 import markdown_it
+from chonkie import MarkdownChef
+
 from markdown_it.token import Token
 from mdformat import text as mdformat_text
 
 from kindly_web_search_mcp_server.content.models import (
     Diagnostic,
+    MarkdownStructure,
     ProcessedMarkdown,
     QualityReport,
 )
@@ -85,6 +89,11 @@ RUMLDL_ENABLED_RULES: tuple[str, ...] = (
 # but never count toward ``union_affected_chars``. The scraped-junk
 # rules above all count: they mark content an LLM cannot use cleanly.
 STYLE_RULES: frozenset[str] = frozenset({"MD031", "MD058"})
+
+# rumdl rule codes marking scraped junk an LLM cannot use cleanly (inline
+# HTML, emphasis-as-heading, empty links, alt-less images, non-descriptive
+# link text). Counted as ``boilerplate_hits`` in the quality report.
+_JUNK_RULES: frozenset[str] = frozenset({"MD033", "MD036", "MD042", "MD045", "MD059"})
 
 # Rule identifiers that gate mdformat canonicalization in index mode.
 # Confirmed defects only — mere fence presence does NOT block format.
@@ -135,6 +144,8 @@ def _build_parser() -> markdown_it.MarkdownIt:
 
 
 _PARSER: markdown_it.MarkdownIt = _build_parser()
+
+_MARKDOWN_CHEF = MarkdownChef(tokenizer="character")
 
 
 # --- Source-range edit helpers ------------------------------------------------
@@ -383,7 +394,10 @@ def _table_block_bounds(tokens: list[Token], start: int) -> tuple[int, int]:
     return start, len(tokens) - 1
 
 
-def _freeze_protected_set(text: str) -> _ProtectedSet:
+def _freeze_protected_set(
+    text: str,
+    additional_spans: Iterable[tuple[int, int]] = (),
+) -> _ProtectedSet:
     """Compute every char span that must NOT be edited.
 
     Walks tokens once, expanding:
@@ -429,8 +443,36 @@ def _freeze_protected_set(text: str) -> _ProtectedSet:
                 if inline_range is not None:
                     spans.append(_line_range_to_chars(text, line_starts, inline_range))
         index += 1
+    spans.extend(additional_spans)
+
     uniq = sorted(set(spans))
     return _ProtectedSet(spans=tuple(uniq))
+
+
+def _analyze_markdownchef(
+    text: str,
+) -> tuple[MarkdownStructure, tuple[tuple[int, int], ...]]:
+    """Parse MarkdownChef structure and return its source spans."""
+    document = _MARKDOWN_CHEF.parse(text)
+    tables = tuple(getattr(document, "tables", ()) or ())
+    code_blocks = tuple(getattr(document, "code", ()) or ())
+    images = tuple(getattr(document, "images", ()) or ())
+    text_regions = tuple(getattr(document, "chunks", ()) or ())
+    spans: list[tuple[int, int]] = []
+    for item in (*tables, *code_blocks, *images):
+        start = getattr(item, "start_index", None)
+        end = getattr(item, "end_index", None)
+        if isinstance(start, int) and isinstance(end, int) and 0 <= start < end <= len(text):
+            spans.append((start, end))
+    return (
+        MarkdownStructure(
+            tables=len(tables),
+            code_blocks=len(code_blocks),
+            images=len(images),
+            text_regions=len(text_regions),
+        ),
+        tuple(spans),
+    )
 
 
 # --- Jina envelope strip ------------------------------------------------------
@@ -536,6 +578,154 @@ def _collapse_excessive_blanks(text: str) -> tuple[str, bool]:
     if not mutated:
         return text, False
     return "\n".join(result), True
+
+
+# --- Fence-language inference and H1 dedup -------------------------------------
+
+# Deterministic language signals, checked in order against the fence body.
+# First match wins; unrecognized bodies stay untagged. The python import
+# signal requires an end-of-line import clause so JavaScript
+# ``import x from "y"`` lines fall through to the JavaScript rule.
+_FENCE_LANGUAGE_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "dockerfile",
+        re.compile(
+            r"(?m)^(?:\s*(?:FROM|RUN|COPY|ADD|ENTRYPOINT|CMD|WORKDIR|ENV)\s"
+            r"|\s*ENV\s+[A-Za-z_][\w.]*=)"
+        ),
+    ),
+    (
+        "sql",
+        re.compile(r"(?m)^(?:\s*(?:SELECT\b|INSERT\s+INTO\b|CREATE\s+TABLE\b|DELETE\s+FROM\b))"),
+    ),
+    (
+        "python",
+        re.compile(
+            r"(?m)^(?:\s*(?:def\s+\w|class\s+\w|import\s+[\w,\s]+$|from\s+[\w.]+\s+import\b"
+            r"|print\(|@(?:app|pytest|property|staticmethod|classmethod|dataclass)\b))"
+        ),
+    ),
+    (
+        "javascript",
+        re.compile(
+            r"(?m)^(?:\s*(?:const\s|let\s|var\s|function\s|import\s|export\s"
+            r"|console\.log\(|document\.|window\.|async\s+function\b|=>))"
+        ),
+    ),
+    (
+        "bash",
+        re.compile(
+            r"(?m)^(?:\s*(?:\$\s|pip\s+install\b|npm\s+(?:install|i)\b|apt(?:-get)?\s+install\b"
+            r"|brew\s+install\b|docker\s+(?:run|build|pull|exec)\b"
+            r"|git\s+(?:clone|checkout|commit|push)\b|curl\s|wget\s|cd\s"
+            r"|uv\s|poetry\s|make\s|python3?\s|export\s))"
+        ),
+    ),
+    (
+        "html",
+        re.compile(r"\A\s*(?:<!DOCTYPE|<html\b|<div\b|<head\b|<body\b)", re.IGNORECASE),
+    ),
+)
+
+_MAX_FENCE_INFERENCE_CHARS: int = 20_000
+
+
+def _infer_language_from_body(body: str) -> str | None:
+    """Return one inferred language tag for a fence body, or None."""
+    candidate = body.strip()
+    if not candidate:
+        return None
+    if candidate[0] in "{[":
+        try:
+            json.loads(candidate)
+        except (ValueError, TypeError, RecursionError):
+            pass
+        else:
+            return "json"
+    for language, signal in _FENCE_LANGUAGE_RULES:
+        if signal.search(candidate):
+            return language
+    return None
+
+
+def _infer_fence_languages(text: str) -> tuple[str, bool]:
+    """Tag language-less fenced code blocks with an inferred info string.
+
+    Only the fence opener line is edited; the code body is never touched.
+    Bodies over ``_MAX_FENCE_INFERENCE_CHARS`` characters and unrecognized
+    bodies keep the bare marker.
+    """
+    if "```" not in text and "~~~" not in text:
+        return text, False
+    tokens = _PARSER.parse(text)
+    line_starts = _line_starts(text)
+    lines = text.split("\n")
+    mutated = False
+    for token in tokens:
+        if token.type != "fence" or token.info.strip():
+            continue
+        fence_range = _as_line_range(token.map)
+        if fence_range is None:
+            continue
+        start_line, end_line = fence_range
+        body_start = line_starts[start_line + 1] if start_line + 1 < len(line_starts) else len(text)
+        body_end = line_starts[end_line] if end_line < len(line_starts) else len(text)
+        body = text[body_start:body_end]
+        if not body or len(body) > _MAX_FENCE_INFERENCE_CHARS:
+            continue
+        opener = lines[start_line] if start_line < len(lines) else ""
+        stripped = opener.strip()
+        if not _FENCE_MARKER_RE.fullmatch(stripped):
+            continue
+        language = _infer_language_from_body(body)
+        if language is None:
+            continue
+        indent = opener[: len(opener) - len(opener.lstrip())]
+        lines[start_line] = f"{indent}{stripped}{language}"
+        mutated = True
+    if not mutated:
+        return text, False
+    return "\n".join(lines), True
+
+
+def _dedupe_h1_headings(text: str) -> tuple[str, bool]:
+    """Delete H1 headings that duplicate an earlier H1 title.
+
+    Site templates often repeat the document title, sometimes with
+    typographic quotes instead of ASCII ones. Later duplicates are removed
+    with their heading lines; the first occurrence always survives.
+    Comparison normalizes Unicode punctuation, whitespace, and case.
+    """
+    if "#" not in text and "=" not in text:
+        return text, False
+    tokens = _PARSER.parse(text)
+    seen: set[str] = set()
+    drop_lines: set[int] = set()
+    for index, token in enumerate(tokens):
+        if token.type != "heading_open" or token.tag != "h1" or token.map is None:
+            continue
+        inline_text = ""
+        if index + 1 < len(tokens) and tokens[index + 1].type == "inline":
+            inline_text = tokens[index + 1].content
+        normalized = unicodedata.normalize("NFKC", inline_text)
+        for curly, ascii_char in (
+            ("\u2019", "'"),
+            ("\u2018", "'"),
+            ("\u201c", '"'),
+            ("\u201d", '"'),
+        ):
+            normalized = normalized.replace(curly, ascii_char)
+        normalized = " ".join(normalized.split()).casefold()
+        if not normalized:
+            continue
+        if normalized in seen:
+            drop_lines.update(range(token.map[0], token.map[1]))
+        else:
+            seen.add(normalized)
+    if not drop_lines:
+        return text, False
+    kept = (line for index, line in enumerate(text.split("\n")) if index not in drop_lines)
+    return "\n".join(kept), True
 
 
 # --- rumdl subprocess ---------------------------------------------------------
@@ -1074,8 +1264,24 @@ class MarkdownProcessor:
         if envelope_fields.get("url"):
             transforms.append("stripped-jina-envelope")
 
-        # 2. Freeze protected set once from post-envelope text.
-        protected = _freeze_protected_set(cleaned)
+        # 2. MarkdownChef audits the post-envelope source and contributes
+        # structural ranges to the protected set without replacing the
+        # markdown-it sanitizer or validator.
+        structure = MarkdownStructure()
+        markdownchef_spans: tuple[tuple[int, int], ...] = ()
+        try:
+            structure, markdownchef_spans = _analyze_markdownchef(cleaned)
+        except Exception as exc:
+            diagnostics.append(
+                Diagnostic(
+                    code="markdownchef_failed",
+                    message=f"MarkdownChef structural audit failed: {type(exc).__name__}",
+                    severity="warning",
+                    source="markdownchef",
+                    phase=_PHASE_VALIDATE,
+                )
+            )
+        protected = _freeze_protected_set(cleaned, additional_spans=markdownchef_spans)
         protected_spans = protected.spans
 
         # 3. Source-range edits (descending, non-overlapping).
@@ -1098,6 +1304,17 @@ class MarkdownProcessor:
         cleaned, mutated = _collapse_excessive_blanks(cleaned)
         if mutated:
             transforms.append("collapsed-excessive-blanks")
+
+        # 5b. Fence-language inference, then duplicate-H1 demotion. Both
+        # run before validation: fence info strings and duplicate H1
+        # heading lines are plain source lines, never protected content,
+        # and the edits stay valid ahead of the protected-set freeze.
+        cleaned, mutated = _infer_fence_languages(cleaned)
+        if mutated:
+            transforms.append("inferred-fence-languages")
+        cleaned, mutated = _dedupe_h1_headings(cleaned)
+        if mutated:
+            transforms.append("deduped-h1-headings")
 
         # 6. Substantive char count is the post-envelope denominator;
         # it is held constant across pre/post format scoring.
@@ -1239,6 +1456,7 @@ class MarkdownProcessor:
             quality=quality,
             diagnostics=tuple(diagnostics),
             transforms=tuple(transforms),
+            structure=structure,
         )
 
 
@@ -1281,7 +1499,7 @@ def _build_quality_report(
         code_blocks=code_blocks,
         tables=tables,
         duplicate_ratio=_duplicate_line_ratio(text),
-        boilerplate_hits=0,
+        boilerplate_hits=sum(1 for record in rumdl_records if record.code in _JUNK_RULES),
         malformed_tables=structural.malformed_tables,
         fence_errors=structural.fence_errors,
         flags=flags,
