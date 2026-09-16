@@ -20,7 +20,7 @@ from ..prompts.rerank import (
 from ..settings import settings
 from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
 from ..telemetry import record_rerank_stage
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 from .bi_encoder import bi_encoder_rank, run_conditional_bi_encoder
 from .cross_encoder import run_cross_encoder_stage
 from .llm import run_llm_stage

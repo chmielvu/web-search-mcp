@@ -16,7 +16,7 @@ import asyncio
 
 import httpx
 
-from .utils.observability import emit_observability_event
+from .analytics.producers import emit_observability_event
 
 logger = logging.getLogger(__name__)
 

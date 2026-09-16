@@ -7,8 +7,8 @@ from pathlib import Path
 import duckdb
 import typer
 
-from ...analytics.duckdb_store import _db_path
 from ...analytics.views import ensure_views
+from ...analytics.writers import _db_path
 from ...settings import settings
 from ..output import emit_json
 from ..skill_paths import DEV_SKILL_PATH, REPO_ROOT, USER_SKILL_PATH

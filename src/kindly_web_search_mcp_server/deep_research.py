@@ -25,7 +25,7 @@ from .settings import settings
 from .tools._helpers import _record_tool_failure, _record_tool_success
 from .tools.catalog import tool_kwargs
 from .utils.http_client import get_http_client
-from .utils.observability import emit_tool_observability_event
+from .analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 

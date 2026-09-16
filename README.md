@@ -4,23 +4,22 @@ Multi-provider web search MCP server for AI coding assistants (Codex, Cursor, Cl
 
 ## Installation
 
-```bash
-pip install kindly-web-search-mcp-server
-```
-
-Or with `uvx`:
-
-```bash
-uvx kindly-web-search-mcp-server start-mcp-server
-```
-
 ### From source
 
 ```bash
-git clone https://github.com/Shelpuk-AI-Technology-Consulting/kindly-web-search-mcp-server
-cd kindly-web-search-mcp-server
-pip install -e ".[dev]"
+git clone https://github.com/chmielvu/web-search-mcp
+cd web-search-mcp
+uv sync
 ```
+
+`uv sync` installs the runtime dependencies and the `dev` dependency group. The package is not published on PyPI under a project name matching this repository, so install from source.
+
+Installed console scripts:
+
+| Script | Purpose |
+|---|---|
+| `mcp-server`, `mcp-web-search`, `web-search-mcp` | Start the MCP server |
+| `web-search-cli` | JSON-first CLI (`doctor`, `schema`, `search web`, `content`, `youtube`, …) |
 
 ## Quick Start
 
@@ -43,15 +42,17 @@ export JINA_API_KEY="jina_..."
 export PARALLEL_API_KEY="pk_..."
 ```
 
-
 ### 2. Run the MCP server
 
 ```bash
 # Stdio transport (default, for AI coding assistants)
 mcp-server
 
-# HTTP transport (for testing/debugging)
+# Streamable HTTP transport (for testing/debugging)
 mcp-server --http --port 8000
+
+# Other transports and bind options
+mcp-server --transport stdio|sse|streamable-http --host 127.0.0.1 --port 8000
 ```
 
 ### 3. Add to your MCP client config
@@ -60,8 +61,8 @@ mcp-server --http --port 8000
 {
   "mcpServers": {
     "kindly-web-search": {
-      "command": "uvx",
-      "args": ["--from", "git+https://github.com/Shelpuk-AI-Technology-Consulting/kindly-web-search-mcp-server", "kindly-web-search-mcp-server", "start-mcp-server"]
+      "command": "uv",
+      "args": ["--directory", "/absolute/path/to/web-search-mcp", "run", "mcp-server"]
     }
   }
 }
@@ -74,19 +75,20 @@ mcp-server --http --port 8000
 | `web_search` | Multi-provider web search with RRF merge and rerank |
 | `fetch` | Fetch one or many URLs with typed routing, metadata, links, summaries, and bounded continuation |
 | `crawl_web` | Bounded Crawl4AI site traversal with typed targets, browser interactions, Markdown structure counts, and persisted outputs |
-| `discover_links` | Discover and categorize links from a page |
 | `gemini_search` | AI-synthesized answers via Gemini + Google Search |
-| `code_search` | Search public source code, implementation examples, technical documentation, and GitHub repositories with automatic backend selection |
-
 | `grok_search` | AI-synthesized answers via Grok/xAI |
 | `academic_search` | Search across academic databases (arXiv, PubMed, Semantic Scholar, OpenAlex, CrossRef) |
-| `youtube_search` | Search YouTube videos |
-| `youtube_transcript` | Get full transcript from YouTube video |
-| `quick_web_search` | Fast search via Parallel AI (advanced mode) |
-| `composio_similarlinks` | Find similar links via Composio |
-| `agentic_web_research` | Multi-step research agent (experimental) |
-| `analytics_query` | Query search analytics (DuckDB) |
-| `analytics_report` | Generate analytics reports |
+| `generate_sitemap` | Map a site's URL hierarchy and page structure |
+| `code_search` | Search public source code, implementation examples, technical documentation, and GitHub repositories with automatic backend selection |
+| `quick_web_search` | Fast first-pass discovery across web, YouTube, or library docs |
+| `deep_research` | Multi-step autonomous research with a cited report |
+| `youtube_transcript` | Full transcript for a YouTube video |
+| `code_fetch` | Fetch a repository file or tree snapshot from a public code host |
+| `composio_similarlinks` | Find pages similar to a given link via Composio |
+
+`code_fetch`, `composio_similarlinks`, and `youtube_transcript` are registered but hidden from MCP client tool listings by default (see `tools/profiles.py`); the CLI calls them directly.
+
+The server also exposes read-only MCP resources (`status://`, `docs://workflow`, `settings://public`, `analytics://`, `cache://stats`) and prompts (`research_methodology`, `query_refinement`, `web_search_workflow`).
 
 ### Tool Profiles
 
@@ -94,10 +96,8 @@ Control which tools are exposed via `TOOL_PROFILE`:
 
 | Profile | Tools | Use Case |
 |---------|-------|----------|
-| `regular` | Core search + content tools | General AI assistants |
-| `research` | Regular + academic search | Research tasks |
-| `media` | Regular + YouTube tools | Media/content tasks |
-| `full` | All tools | Power users |
+| `regular` | Every catalog tool except `grok_search` | General AI assistants |
+| `full` | All catalog tools | Power users |
 
 ```bash
 export TOOL_PROFILE="full"
@@ -147,12 +147,13 @@ User Query
 
 ### Key Components
 
-- **Search Pipeline** (`search/pipeline.py`) - Orchestrates the full search flow
-- **Content Resolver** (`content/`) - Extracts content from URLs (GitHub, StackExchange, Wikipedia, arXiv, etc.)
-- **Rerank Engine** (`rerank/`) - Multi-engine reranking with bypass policy
-- **Entity Extraction** (`entity/`) - GLiNER2-based entity extraction for query understanding
-- **Remote Web Index** (`index/`) - Qdrant HF Space index for web search results
-- **Query Understanding** (`search/understanding/`) - LLM-backed intent classification and query rewrite
+- **Search Pipeline** (`search/`) — planning, fanout, RRF merge (`merge.py`), rerank handoff (`ranking.py`), outcome persistence (`outcomes.py`)
+- **Content Resolvers** (`content/resolvers/`) — per-host extractors (GitHub, StackExchange, Wikipedia, arXiv, …) assembled in `content/resolver_registry.py`
+- **Rerank Engine** (`rerank/`) — multi-engine reranking with bypass policy
+- **Entity Extraction** (`ml/gliner_client.py`) — GLiNER2-based entity extraction for query understanding
+- **Remote Web Index** (`index/`) — Qdrant HF Space index plus local BM25 encoder
+- **Query Understanding** (`search/understanding/`) — LLM-backed intent classification and query rewrite
+- **Analytics** (`analytics/`) — DuckDB writers, views, judges, and the dashboard app
 
 ## Configuration
 
@@ -233,30 +234,22 @@ See `src/kindly_web_search_mcp_server/settings.py` for all 100+ configuration op
 
 ## Development
 
-### Run tests
-
-```bash
-pytest
-```
-
-Focused test slice:
-
-```bash
-python -m pytest tests/test_server.py tests/test_search_orchestrator.py -v
-```
-
 ### Lint/format
 
 ```bash
-ruff check src/
-ruff format src/
+uv run ruff check src/
+uv run ruff format --check src/
 ```
 
 ### Run MCP server locally
 
 ```bash
-uvx --from . kindly-web-search-mcp-server start-mcp-server --http --port 8000
+uv run mcp-server --http --port 8000
 ```
+
+### Tests
+
+The `tests/` suite is currently frozen and removed from the repository by project policy — do not add, run, or modify tests. `AGENTS.md` documents the checks that replace it (lint, import smoke, CLI smoke).
 
 ## License
 

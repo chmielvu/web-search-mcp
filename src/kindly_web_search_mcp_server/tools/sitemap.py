@@ -11,7 +11,7 @@ from pydantic import Field
 from ..content.link_discovery import map_site as _generate_sitemap
 from ..errors import raise_tool_error
 from ..models import SitemapResponse, fetch_next
-from ..utils.observability import emit_tool_observability_event
+from ..analytics.producers import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success
 
 LOGGER = logging.getLogger(__name__)

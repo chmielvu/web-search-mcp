@@ -13,7 +13,7 @@ from typing import Any
 
 import duckdb
 
-from .duckdb_store import (
+from .writers import (
     _db_path,
     ensure_search_quality_tables,
     insert_search_quality_scores,

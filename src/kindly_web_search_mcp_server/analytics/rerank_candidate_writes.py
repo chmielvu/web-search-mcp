@@ -8,7 +8,8 @@ from typing import Any
 import duckdb
 
 from ..settings import settings
-from .duckdb_store import _LOCK, _RC_TABLE_NAME, _db_path, _ensure_rerank_candidates
+from .writers import _LOCK, _RC_TABLE_NAME, _db_path, _ensure_rerank_candidates
+
 
 _RERANK_CANDIDATE_COLUMNS = [
     "run_key",

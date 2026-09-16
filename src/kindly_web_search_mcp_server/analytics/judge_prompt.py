@@ -6,12 +6,14 @@ completeness, source_quality) plus an overall score and rationale.
 
 This module is used in the *live* search pipeline (not the offline eval
 benchmarking in evals/judges.py). Scores are persisted to the
-judge_evaluations table via analytics/duckdb_store.py.
+judge_evaluations table via analytics/writers.
+
 """
 
 from __future__ import annotations
 
 import json
+
 import logging
 from typing import Any
 

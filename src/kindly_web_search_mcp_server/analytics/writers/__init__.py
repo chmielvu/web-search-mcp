@@ -1,7 +1,8 @@
 """DuckDB writer subpackage: table names, schema, connection helpers, and writers.
 
 Clean-cutover redesign: 7 wide fact tables + 2 embedding tables + provider_health.
-``analytics.duckdb_store`` remains a thin facade re-exporting every public name.
+This is the canonical home of analytics persistence; callers import directly
+from ``analytics.writers``.
 """
 
 from __future__ import annotations

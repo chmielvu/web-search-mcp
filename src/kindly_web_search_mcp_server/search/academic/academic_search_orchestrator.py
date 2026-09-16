@@ -24,7 +24,7 @@ import asyncio
 import logging
 
 from ...models import AcademicPaper, AcademicSearchResponse, ProviderWarning
-from ...utils.observability import emit_observability_event
+from ...analytics.producers import emit_observability_event
 from .academic_arxiv import search_arxiv
 from .academic_core import search_core
 from .academic_crossref import search_crossref

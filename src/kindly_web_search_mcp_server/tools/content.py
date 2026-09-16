@@ -44,7 +44,7 @@ from ..models import (
     TokenUsage,
 )
 from ..settings import settings
-from ..utils.observability import emit_tool_observability_event
+from ..analytics.producers import emit_tool_observability_event
 from ..utils.text_chunking import slice_content
 from ..utils.url_canonicalize import canonicalize_url
 from ._helpers import _record_tool_failure, _record_tool_success

@@ -14,7 +14,7 @@ from pydantic import Field
 
 from ...errors import raise_tool_error
 from ...telemetry import SEARCH_QUERY, create_chain_span
-from ...utils.observability import emit_tool_observability_event
+from ...analytics.producers import emit_tool_observability_event
 from .models import (
     CodeSearchPublicResult,
     CodeSearchRequest,

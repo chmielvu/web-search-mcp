@@ -17,7 +17,7 @@ import httpx
 
 from ..settings import settings
 from ..search.intents import INTENT_ALIASES
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 from ..utils.entity import (
     DEFAULT_CONTENT_LABELS,
     DEFAULT_QUERY_LABELS,

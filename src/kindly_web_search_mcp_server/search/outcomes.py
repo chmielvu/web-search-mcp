@@ -13,7 +13,7 @@ _OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
 
 async def persist_search_outcome(run):
     from ..analytics.async_writes import dispatch_duckdb_write
-    from ..analytics.duckdb_store import (
+    from ..analytics.writers import (
         insert_candidate_embeddings,
         insert_final_results,
         insert_provider_calls,
@@ -23,6 +23,7 @@ async def persist_search_outcome(run):
         insert_search_candidates,
         insert_search_run,
     )
+
     from ..settings import settings
     from ..analytics.training.query_understanding_jsonl import (
         append_query_outcome_record,
@@ -379,10 +380,12 @@ async def persist_search_outcome(run):
             LOGGER.debug("persist search quality failed: %s", e)
         # Persist planned variants, provider discoveries, and actual query shaping.
         try:
-            from ..analytics.duckdb_store import insert_funnel_uplift_batches
+            from ..analytics.writers import insert_funnel_uplift_batches
 
             pr_rows = dc.provider_result_rows or []
+
             qv_rows = dc.query_variant_rows or []
+
             catalog_rows = [
                 {
                     "canonical_result_id": _canonical_result_id(candidate.link),

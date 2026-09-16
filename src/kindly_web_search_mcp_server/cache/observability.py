@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 
 
 def emit_cache_lookup_event(

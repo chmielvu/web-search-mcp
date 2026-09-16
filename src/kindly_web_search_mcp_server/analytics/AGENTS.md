@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-11 | Last verified: 2026-09-11 -->
+<!-- Last updated: 2026-09-16 | Last verified: 2026-09-16 -->
 
 # AGENTS.md - Analytics & Search Quality
 
@@ -17,13 +17,13 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `writers/inserts.py` | Typed SQL insert statements for pipeline entities |
 | `writers/table_names.py` | Canonical DuckDB table name definitions |
 | `writers/connection.py` | `_db_path` + `_LOCK` + FlockMTL resources |
-| `judges.py` | FlockMTL LLM-as-Judge orchestrator (6 facets) |
+| `judges/` | FlockMTL LLM-as-Judge orchestrator (6 facets): `run.py` (`judge_search_run`, `schedule_judge_search_run`), `executor.py` (daemon pool lifecycle), `stages.py` (stage calling + parsing), `digest.py` (run digest), `jobs.py` (parallel-facet primitives), `persistence.py` (judgment rows) |
 | `judge_runner.py` | Fire-and-forget judge evaluation |
 | `quality_metrics.py` | Run-level quality scoring |
 | `reports.py` | Named analytics reports, including provider reliability, quality misses, and classifier calibration |
-| `views.py` | Dashboard and quality-diagnostic views |
+| `views/` | Dashboard, funnel-uplift, and fetch-observability view bootstrap: `dashboard_sql.py` / `funnel_sql.py` / `fetch_observability_sql.py` hold the SQL, `__init__.py` orchestrates |
+| `producers/` | Observability event persistence for tool calls and content operations (`emit_observability_event`, `emit_tool_observability_event`) |
 | `motherduck_sync.py` | MotherDuck sync helpers |
-| `feedback_labels.py` | Offline LLM judge result-quality materialization into `result_labels` |
 | `graph_feedback.py` | Direct read-only DuckDB observation query, in-memory NetworkX graph computation, and `generate`/`compare` SQLite operations |
 | `graph_store.py` | SQLite WAL persistence, transactional generation publication, ready-generation loading, and path-scoped cache |
 | `graph_replay.py` | Read-only DuckDB run-history replay against SQLite graph artifacts plus control/treatment metrics |
@@ -62,7 +62,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 
 ## Judge Pipeline (6 facets, two-stage inference chain)
 
-- **Orchestrator**: `judges.py::judge_search_run(run_key)` + `schedule_judge_search_run(run_key)`
+- **Orchestrator**: `judges/` package — `judge_search_run(run_key)` + `schedule_judge_search_run(run_key)`
 - **Inference chain** (HF router retired 2026-08-22): Stage 1 Gemini API
   `gemma-4-26b-a4b-it` via the native google-genai SDK (plain text; JSON
   recovered by the prompt footer + `_parse_result`) → Stage 2 NanoGPT
@@ -91,16 +91,16 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - `llm_call_log` is the unified source for per-call LLM cost attribution.
 - `tool_calls` is the source of truth for MCP tool lifecycle analytics; legacy `search_events` persistence is not used.
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
-- `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`.
-- `llm_judge` materialization retains one latest valid observation per `(run_key, canonical_result_id, stage, source, rubric_version, annotator_id)`; equal timestamps use a stable hash tie-breaker and upsert only materialized rows.
+- `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`. The table, DDL, and writers (`insert_result_labels`, `upsert_materialized_result_labels`) exist, but nothing populates them yet: the `llm_judge` materializer was removed as dead code, so a producer still has to be wired before the graph-feedback replay sees labels.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 - Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.
 
 ## Testing
 
+The `tests/` suite is frozen and removed from the repository by project policy — do not add, run, or modify tests. Verify analytics changes with:
+
 ```bash
-uv run pytest tests/test_analytics_*.py
-uv run pytest tests/test_pipeline_tables.py tests/test_search_quality_scores.py
-uv run pytest tests/test_judges_facets.py tests/test_judge_after_outcome_write.py
-uv run pytest tests/test_judge_chain.py tests/test_flockmtl_judge_routing.py
+uv run ruff check src/
+uv run python -c "import kindly_web_search_mcp_server.analytics.app; print('analytics imports OK')"
+uv run web-search-cli doctor
 ```

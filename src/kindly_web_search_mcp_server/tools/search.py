@@ -25,7 +25,7 @@ from ._helpers import (
     _record_tool_success,
     _resolve_session_id,
 )
-from ..utils.observability import emit_tool_observability_event
+from ..analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 

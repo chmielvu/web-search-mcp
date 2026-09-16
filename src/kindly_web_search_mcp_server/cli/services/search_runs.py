@@ -5,7 +5,7 @@ from typing import Any
 
 import duckdb
 
-from ...analytics.duckdb_store import _db_path
+from ...analytics.writers import _db_path
 from ...analytics.formatting import json_safe_rows
 
 

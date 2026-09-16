@@ -30,7 +30,7 @@ from ..youtube import (
 
 from ..youtube.api_quota import get_youtube_api_quota_tracker
 from ..utils.text_clean import clean_text_for_llm
-from ..utils.observability import emit_tool_observability_event
+from ..analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 

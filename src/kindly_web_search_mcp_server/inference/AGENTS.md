@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-08 | Last verified: 2026-09-08 -->
+<!-- Last updated: 2026-09-16 | Last verified: 2026-09-16 -->
 
 # AGENTS.md - Unified Inference Subsystem
 
@@ -16,13 +16,11 @@ Centralized LLM, embedding, and reranking model execution through a catalog-driv
 | `catalog.py` | Declarative model & chain registration from `settings` |
 | `engine.py` | `execute_with_fallback()` — dispatches via `get_provider()` or optional `handler` |
 | `router.py` | `LLMRouter` — thin wrapper around `ChainSpec` with `_complete()` |
-| `worker.py` | `LLMWorker` and `StructuredLLMRequest` for structured JSON generation |
 | `adapters/openai.py` | OpenAI-compatible adapter (groq, vercel, openrouter) |
 | `adapters/hf_chat.py` | Hugging Face InferenceClient adapter |
 | `adapters/genai.py` | Google GenAI adapter (with `get_genai_client`) |
 | `adapters/voyage.py` | Voyage rerank provider adapter |
 | `bridges/rankllm.py` | RankLLM XML listwise reranker bridge |
-| `bridges/flockmtl.py` | DuckDB FlockMTL secret bridge (NanoGPT subscription endpoint; HF router retired 2026-08-22) |
 
 ## Architecture
 
@@ -41,7 +39,7 @@ engine.py (execute_with_fallback)  ← retry + timeout + telemetry + dispatch
 adapters/*.py  ← provider-specific I/O (self-register on import)
 bridges/*.py  ← Domain-specific integrations
     ↓
-router.py (LLMRouter) + worker.py (LLMWorker, StructuredLLMRequest)
+router.py (LLMRouter)
 ```
 
 ## Unified Registry (`registry.py`)

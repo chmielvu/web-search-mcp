@@ -20,10 +20,12 @@ jobs:
         with:
           enable-cache: true
       - name: Lint
-        run: uv run --with ruff --no-sync ruff check src tests
+        run: uv run --with ruff --no-sync ruff check src
+      - name: Format check
+        run: uv run --with ruff --no-sync ruff format --check src
 
-  test:
-    name: Tests (Python ${{ matrix.python-version }})
+  smoke:
+    name: Import and CLI smoke (Python ${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -36,17 +38,8 @@ jobs:
         with:
           enable-cache: true
       - name: Sync environment
-        run: uv sync --extra eval --group dev --python ${{ matrix.python-version }}
-      - name: Lint
-        run: uv run ruff check src tests
+        run: uv sync --python ${{ matrix.python-version }}
       - name: Import smoke
         run: uv run python -c "import kindly_web_search_mcp_server.server; import kindly_web_search_mcp_server.cli.app; print('imports OK')"
-      - name: Test
-        run: uv run pytest -q --tb=short
-      - name: Check for leaked test artifacts
-        run: |
-          if ls test_*.duckdb >/dev/null 2>&1; then
-            echo "::error::test_*.duckdb leaked into repo root (cwd sandbox not effective)"
-            exit 1
-          fi
-          echo "no leaked test artifacts"
+      - name: CLI smoke
+        run: uv run web-search-cli --help

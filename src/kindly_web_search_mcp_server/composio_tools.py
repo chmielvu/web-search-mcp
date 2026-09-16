@@ -19,7 +19,7 @@ from .models import (
 )
 from .tools.catalog import tool_kwargs
 from .errors import raise_tool_error
-from .utils.observability import emit_tool_observability_event
+from .analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 

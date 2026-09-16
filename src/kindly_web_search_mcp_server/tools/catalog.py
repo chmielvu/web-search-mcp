@@ -168,7 +168,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
     "generate_sitemap": _entry(
         "generate_sitemap",
         "Generate Sitemap",
-        {"regular", "research", "full"},
+        {"regular", "full"},
         expensive=True,
         task=True,
     ),

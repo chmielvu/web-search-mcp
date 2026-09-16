@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from .metrics import _content_fallback_counter, _content_error_counter
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 from .attributes import (
     CONTENT_EXTRACTION_METHOD,
     CONTENT_FINAL_STAGE,

@@ -11,7 +11,8 @@ from typing import Any
 
 from ..settings import settings
 from ..telemetry.phoenix_tracing import LLMTraceContext
-from .duckdb_store import insert_judge_evaluation
+from .writers import insert_judge_evaluation
+
 from .search_relevance_judge import SearchRelevanceJudge
 
 logger = logging.getLogger(__name__)

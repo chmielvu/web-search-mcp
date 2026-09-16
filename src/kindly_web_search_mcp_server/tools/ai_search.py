@@ -19,7 +19,7 @@ from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
 from ..telemetry import record_gemini_search
 from ..utils.background_tasks import fire_and_forget
-from ..utils.observability import emit_tool_observability_event
+from ..analytics.producers import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success, _resolve_session_id
 
 LOGGER = logging.getLogger(__name__)

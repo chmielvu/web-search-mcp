@@ -101,7 +101,7 @@ from .tools.search import web_search
 from .tools.sitemap import generate_sitemap
 from .tools.youtube import youtube_transcript
 from .utils.logging import configure_logging
-from .utils.observability import emit_observability_event
+from .analytics.producers import emit_observability_event
 
 from .analytics.app import analytics_app
 

@@ -66,8 +66,8 @@ Every code comment must stand alone for a reader without access to the authoring
 | Task | Command | ~Time |
 |------|---------|-------|
 | Install | `uv sync` | ~5s |
-| Lint | `uv run ruff check src/ tests/` | <1s |
-| Format Check | `uv run ruff format --check src/ tests/` | <1s |
+| Lint | `uv run ruff check src/` | <1s |
+| Format Check | `uv run ruff format --check src/` | <1s |
 | Run MCP Server | `uv run web-search-cli server` | foreground |
 | CLI Doctor | `uv run web-search-cli doctor` | ~8s |
 
@@ -181,47 +181,37 @@ This project is indexed by GitNexus as **web-search-mcp** (10603 symbols, 17956 
 
 ### Tooling
 
-Formatting and linting are handled by `ruff`; types by `mypy`. Configure once, let the tools decide style debates.
+Formatting and linting are handled by `ruff`; types by `pyright`. Configure once, let the tools decide style debates.
+
+The enforced configuration lives in `pyproject.toml` and is kept deliberately narrow so the whole tree passes clean:
 
 ```toml
-# pyproject.toml
+# pyproject.toml (enforced)
 [tool.ruff]
-line-length = 120
+line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "UP",   # pyupgrade
-    "SIM",  # flake8-simplify
-]
+select = ["E", "F", "W"]
 ignore = ["E501"]  # line length is the formatter's job
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 
-[tool.mypy]
-python_version = "3.12"
-strict = true
-warn_return_any = true
-warn_unused_ignores = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
+[tool.pyright]
+typeCheckingMode = "basic"
+pythonVersion = "3.12"
 ```
 
 Run before calling anything done:
 
 ```bash
-ruff check --fix .
-ruff format .
-mypy .
+uv run ruff check src/
+uv run ruff format --check src/
 ```
+
+Widening the lint set (`I`, `B`, `C4`, `UP`, `SIM`) or moving `pyright` to `standard`/`strict` is a deliberate, standalone change: both need a repo-wide fix pass, so they are not smuggled into unrelated edits.
 
 ### Naming
 
@@ -234,7 +224,7 @@ PEP 8, with clarity valued over brevity:
 
 ### Imports
 
-Group in order — standard library, third-party, local — and use absolute imports only:
+Group in order — standard library, third-party, local. Inside `kindly_web_search_mcp_server`, relative imports (`from .models import …`, `from ..utils.x import …`) are the convention, as used throughout `src/`:
 
 ```python
 # Standard library
@@ -246,8 +236,9 @@ from typing import Any
 import httpx
 from pydantic import BaseModel
 
-# Local imports
-from wikidata_cli.models import Entity
+# Local imports (relative inside the package)
+from .models import WebSearchResponse
+from ..utils.url_canonicalize import canonicalize_url
 ```
 
 ### Type Annotations

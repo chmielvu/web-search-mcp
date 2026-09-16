@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 from fastmcp.server.middleware import MiddlewareContext
 
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 
 logger = logging.getLogger(__name__)
 

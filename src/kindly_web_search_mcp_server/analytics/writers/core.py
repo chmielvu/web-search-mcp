@@ -17,7 +17,7 @@ from .connection import _db_path, _LOCK
 from ..async_writes import dispatch_duckdb_write
 from ...telemetry.usage import extract_llm_usage
 
-_FACADE_MODULE = "kindly_web_search_mcp_server.analytics.duckdb_store"
+_FACADE_MODULE = "kindly_web_search_mcp_server.analytics.writers"
 
 
 def _resolve_ensure(name: str) -> Callable[[duckdb.DuckDBPyConnection], None]:

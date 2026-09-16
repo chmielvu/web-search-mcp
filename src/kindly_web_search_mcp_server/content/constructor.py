@@ -25,7 +25,7 @@ from kindly_web_search_mcp_server.content.models import (
 )
 from kindly_web_search_mcp_server.settings import settings
 from kindly_web_search_mcp_server.utils.entity import EntitySpan
-from kindly_web_search_mcp_server.utils.observability import emit_observability_event
+from kindly_web_search_mcp_server.analytics.producers import emit_observability_event
 from kindly_web_search_mcp_server.utils.paths import OUTPUTS_DIR
 from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
 

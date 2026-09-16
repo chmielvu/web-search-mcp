@@ -7,10 +7,12 @@ from typing import Any
 
 from ..models import WebSearchResult
 from ..telemetry import RERANK_INPUT_COUNT, RERANK_OUTPUT_COUNT, RERANK_STAGE, record_rerank_stage
-from ..utils.observability import emit_observability_event, serialize_search_results
+from ..analytics.producers import emit_observability_event
+from ..utils.observability import serialize_search_results
 from ..utils.url_canonicalize import canonicalize_url
 from .async_writes import dispatch_duckdb_write
-from .duckdb_store import insert_funnel_uplift_batches
+from .writers import insert_funnel_uplift_batches
+
 from .ids import _candidate_id, _canonical_result_id
 from .rerank_candidate_writes import insert_rerank_candidate_rows_batch
 

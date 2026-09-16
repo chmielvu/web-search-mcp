@@ -17,7 +17,7 @@ from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.exceptions import ToolError
 
 from .session_tracking import SessionTracker, get_session_id
-from ..utils.observability import emit_observability_event
+from ..analytics.producers import emit_observability_event
 
 logger = logging.getLogger(__name__)
 
