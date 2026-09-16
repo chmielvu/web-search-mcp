@@ -367,7 +367,8 @@ def rehydrate_cached_artifact(
                 continue
             try:
                 restored.append(EntitySpan(**entry))
-            except Exception:
+            except Exception as exc:
+                LOGGER.debug("Skipping unrestorable cached entity span: %s", exc)
                 continue
         entities = tuple(restored) or None
     restored_diagnostics = []
@@ -377,7 +378,8 @@ def rehydrate_cached_artifact(
                 continue
             try:
                 restored_diagnostics.append(Diagnostic(**entry))
-            except Exception:
+            except Exception as exc:
+                LOGGER.debug("Skipping unrestorable cached diagnostic: %s", exc)
                 continue
     raw_status = payload.get("status")
     status = (
