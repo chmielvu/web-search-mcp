@@ -1,3 +1,18 @@
+"""SQL for the human-readable dashboard views.
+
+Builds the run/provider/branch/candidate views the dashboard reads, plus the
+quality-diagnostic, judge, and legacy-judge views: ``vw_run_summary``,
+``vw_provider_performance``, ``vw_branch_summary``, ``vw_candidate_funnel``,
+``vw_rerank_timeline``, ``vw_rewrite_diagnostics``, ``vw_daily_trend``,
+``vw_quality_distribution``, ``vw_judge_quality``, ``vw_llm_judgments``,
+``vw_flockmtl_resources``, ``vw_judge_facet_agg``, ``vw_legacy_judge_quality``,
+``vw_result_quality_diagnostics`` and their companion statements.
+
+Placeholder ``{t}`` in each statement is the target schema/prefix (``main`` for
+the local store, a remote schema for synced databases).
+"""
+
+
 def _build_dashboard_view_sql(target: str) -> list[str]:
     """Return SQL for the 11 human-readable dashboard views."""
     t = target

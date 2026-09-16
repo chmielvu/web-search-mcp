@@ -1,3 +1,14 @@
+"""SQL for the funnel-uplift views.
+
+Stage-by-stage conversion and contribution analysis: ``vw_run_stage_funnel``,
+``vw_run_funnel``, ``vw_candidate_trajectory``, ``vw_provider_contribution``,
+``vw_branch_contribution``, ``vw_rewrite_value``, ``vw_followup_attribution``,
+``vw_result_usefulness``, and ``vw_dense_score_calibration``.
+
+Placeholder ``{t}`` in each statement is the target schema/prefix.
+"""
+
+
 def _build_funnel_uplift_view_sql(target: str) -> list[str]:
     """Return SQL for the 8 web-search funnel uplift analytical views."""
     t = target

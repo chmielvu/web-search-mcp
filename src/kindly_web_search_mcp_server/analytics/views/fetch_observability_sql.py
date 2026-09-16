@@ -1,3 +1,13 @@
+"""SQL for the fetch-observability views.
+
+Fetch-side health and follow-through: ``vw_fetch_stage_funnel``,
+``vw_fetch_backend_quality``, ``vw_fetch_followthrough``, and
+``vw_analytics_table_freshness``.
+
+Placeholder ``{t}`` in each statement is the target schema/prefix.
+"""
+
+
 def _build_fetch_observability_view_sql(target: str) -> list[str]:
     """Return SQL for fetch-tool stage, backend quality, follow-through, and freshness views."""
     t = target
