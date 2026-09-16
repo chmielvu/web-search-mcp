@@ -15,6 +15,7 @@ from ..models import (
     FetchContext,
     RawDocument,
     ResolverTarget,
+    Scope,
     TextDocument,
 )
 
@@ -37,7 +38,7 @@ def _text_document(
     *,
     fetched_url: str | None = None,
     content_type: str | None = None,
-    scope: str = "full",
+    scope: Scope = "full",
     complete: bool | None = True,
     coverage: dict[str, object] | None = None,
     extra: tuple[Diagnostic, ...] = (),
@@ -58,7 +59,7 @@ def _text_document(
         http_status=None,
         response_headers={},
         complete=complete,
-        scope=scope,  # type: ignore[arg-type]
+        scope=scope,
         bytes_downloaded=None,
         redirect_count=None,
         coverage=dict(coverage or {}),

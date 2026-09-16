@@ -3,18 +3,19 @@
 from __future__ import annotations
 
 import inspect
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from typing import Any
 
 from .options import SearchOptions
 
 
 def build_provider_call_kwargs(
-    provider_fn: object,
+    provider_fn: Callable[..., Any],
     *,
     search_options: SearchOptions | None,
     provider_arguments: Mapping[str, object] | None,
 ) -> dict[str, object]:
-    signature = inspect.signature(provider_fn)  # type: ignore[arg-type]
+    signature = inspect.signature(provider_fn)
     accepts_kwargs = any(
         parameter.kind == inspect.Parameter.VAR_KEYWORD
         for parameter in signature.parameters.values()

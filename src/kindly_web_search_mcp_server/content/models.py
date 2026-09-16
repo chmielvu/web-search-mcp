@@ -11,6 +11,9 @@ from urllib.parse import SplitResult, urlsplit
 
 import httpx
 
+Scope = Literal["full", "metadata", "excerpt", "sample"]
+
+
 ProcessingMode = Literal["agent", "index"]
 ContentStatus = Literal["success", "partial", "blocked", "unsupported", "error"]
 TextFormat = Literal["markdown", "html", "text"]
@@ -152,7 +155,7 @@ class RawDocument:
     http_status: int | None = None
     response_headers: dict[str, str] = field(default_factory=dict)
     complete: bool | None = None
-    scope: Literal["full", "metadata", "excerpt", "sample"] = "full"
+    scope: Scope = "full"
     bytes_downloaded: int | None = None
     redirect_count: int | None = None
     coverage: dict[str, Any] = field(default_factory=dict)
