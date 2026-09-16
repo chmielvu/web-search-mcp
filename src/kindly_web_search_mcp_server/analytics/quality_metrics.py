@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 import duckdb
 
@@ -219,9 +219,9 @@ def compute_search_quality(run_key: str, db_path: str | None = None) -> dict[str
 
 def _to_float(val: object) -> float | None:
     """Safely convert *val* to ``float`` (or ``None``)."""
-    return None if val is None else float(val)  # type: ignore[arg-type]
+    return None if val is None else float(cast("float | int | str", val))
 
 
 def _to_int(val: object) -> int | None:
     """Safely convert *val* to ``int`` (or ``None``)."""
-    return None if val is None else int(val)  # type: ignore[arg-type]
+    return None if val is None else int(cast("float | int | str", val))

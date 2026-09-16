@@ -35,7 +35,7 @@ import contextlib
 import sys
 
 from fastmcp.server.middleware import CallNext, Middleware, MiddlewareContext
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools.base import ToolResult
 from mcp import types as mt
 
 

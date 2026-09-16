@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any
 
 from ...analytics.producers import emit_observability_event
 from ...analytics.training.query_understanding_jsonl import append_query_understanding_record
@@ -67,7 +68,7 @@ async def resolve_query_understanding(
         analysis = _deterministic_fallback("gliner2-unexpected-error", query=normalized_query)
 
     understanding = analysis.understanding
-    event_fields = {
+    event_fields: dict[str, Any] = {
         "query": normalized_query,
         "intent": understanding.intent,
         "confidence": understanding.confidence,

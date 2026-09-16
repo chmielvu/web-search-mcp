@@ -1,6 +1,22 @@
 from __future__ import annotations
 
-TOOL_COVERAGE: tuple[dict[str, object], ...] = (
+from typing import TypedDict
+
+
+class ToolCoverageEntry(TypedDict, total=False):
+    """One MCP tool and the CLI command that reaches it.
+
+    ``purpose`` is present on the entries that carry a longer explanation.
+    """
+
+    tool: str
+    command: str
+    profiles: list[str]
+    required: list[str]
+    purpose: str
+
+
+TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
     {
         "tool": "web_search",
         "command": "search web",
