@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from prefab_ui.app import PrefabApp
 from prefab_ui.components import (
@@ -48,7 +48,10 @@ def build_empty_app(path: Path) -> PrefabApp:
     return empty_app
 
 
-def _trend(value: Any) -> str:
+TrendDirection = Literal["up", "down", "neutral"]
+
+
+def _trend(value: Any) -> TrendDirection:
     """Arrow direction for a KPI card.
 
     ``Metric.trend`` only accepts ``"up"``, ``"down"`` or ``"neutral"`` — a reactive
