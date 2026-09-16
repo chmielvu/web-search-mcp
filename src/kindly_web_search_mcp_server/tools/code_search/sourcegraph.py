@@ -19,6 +19,8 @@ from .models import (
     CodeSearchHit,
     CodeSearchRequest,
     Diagnostic,
+    FailureKind,
+    Outcome,
     ProviderResponse,
     build_location_metadata,
 )
@@ -160,8 +162,8 @@ def _diag(
     *,
     query: str | None = None,
     response: httpx.Response | None = None,
-    outcome: str = "error",
-    failure_kind: str = "provider",
+    outcome: Outcome = "error",
+    failure_kind: FailureKind = "provider",
     retry_after_seconds: float | None = None,
     details: dict[str, Any] | None = None,
 ) -> Diagnostic:
@@ -171,9 +173,9 @@ def _diag(
             retry_after_seconds = _parse_retry_after_header(raw_retry_after)
     return Diagnostic(
         provider="sourcegraph",
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         message=message[:500],
-        failure_kind=failure_kind,  # type: ignore[arg-type]
+        failure_kind=failure_kind,
         status_code=response.status_code if response is not None else None,
         retry_after_seconds=retry_after_seconds,
         query=query,

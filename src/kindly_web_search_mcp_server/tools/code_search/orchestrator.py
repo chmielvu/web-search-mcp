@@ -20,6 +20,8 @@ from .models import (
     CodeSearchRequest,
     CodeSearchResultType,
     Diagnostic,
+    FailureKind,
+    Outcome,
     ProviderResponse,
     RepoCandidate,
     Stats,
@@ -31,7 +33,7 @@ from .reranking import RerankProfile, rerank_code_hits
 from .sourcegraph import search_sourcegraph
 from .windows import extract_source_windows
 
-_ERROR_KIND_MAP: dict[str, str] = {
+_ERROR_KIND_MAP: dict[str, FailureKind] = {
     "rate_limit": "rate_limit",
     "auth": "auth",
     "network": "network",
@@ -53,7 +55,7 @@ def _branch_failure(provider: str, exc: BaseException) -> ProviderResponse:
                 provider=provider,
                 outcome="error",
                 message=structured.error,
-                failure_kind=kind,  # type: ignore[arg-type]
+                failure_kind=kind,
                 status_code=structured.status_code,
                 retry_after_seconds=(
                     float(structured.retry_after) if structured.retry_after is not None else None
@@ -79,7 +81,7 @@ async def _run_provider(
     return _branch_failure(provider, TypeError("provider returned an invalid response"))
 
 
-def _outcome(responses: list[ProviderResponse], result_count: int) -> str:
+def _outcome(responses: list[ProviderResponse], result_count: int) -> Outcome:
     diagnostics = [diagnostic for response in responses for diagnostic in response.diagnostics]
     meaningful = [
         diagnostic for diagnostic in diagnostics if diagnostic.outcome in {"partial", "error"}
@@ -231,7 +233,7 @@ async def execute_code_search(
         stats.elapsed_ms = (time.monotonic() - started) * 1000
         return CodeSearchResultType(
             query=request.query,
-            outcome=_outcome(responses, len(hits)),  # type: ignore[arg-type]
+            outcome=_outcome(responses, len(hits)),
             results=hits,
             repositories=[],
             diagnostics=diagnostics,
@@ -268,7 +270,7 @@ async def execute_code_search(
         stats.elapsed_ms = (time.monotonic() - started) * 1000
         return CodeSearchResultType(
             query=request.query,
-            outcome=_outcome(responses, len(hits)),  # type: ignore[arg-type]
+            outcome=_outcome(responses, len(hits)),
             results=hits,
             repositories=[],
             diagnostics=diagnostics,

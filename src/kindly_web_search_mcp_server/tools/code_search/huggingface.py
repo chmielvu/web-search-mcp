@@ -16,6 +16,8 @@ from .models import (
     CodeSearchHit,
     CodeSearchRequest,
     Diagnostic,
+    FailureKind,
+    Outcome,
     ProviderResponse,
 )
 from .query import QueryPlan
@@ -53,8 +55,8 @@ def _failure_kind(status_code: int) -> str:
 def _diagnostic(
     message: str,
     *,
-    outcome: str = "error",
-    failure_kind: str = "provider",
+    outcome: Outcome = "error",
+    failure_kind: FailureKind = "provider",
     status_code: int | None = None,
     retry_after_seconds: float | None = None,
     query: str | None = None,
@@ -62,9 +64,9 @@ def _diagnostic(
 ) -> Diagnostic:
     return Diagnostic(
         provider=_PROVIDER,
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         message=message[:500],
-        failure_kind=failure_kind,  # type: ignore[arg-type]
+        failure_kind=failure_kind,
         status_code=status_code,
         retry_after_seconds=retry_after_seconds,
         query=query,

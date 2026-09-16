@@ -19,6 +19,8 @@ from .models import (
     CodeSearchHit,
     CodeSearchRequest,
     Diagnostic,
+    FailureKind,
+    Outcome,
     ProviderResponse,
     RepoCandidate,
     build_location_metadata,
@@ -203,8 +205,8 @@ def _retry_after(response: httpx.Response) -> float | None:
 def _diagnostic(
     message: str,
     *,
-    outcome: str = "error",
-    failure_kind: str = "provider",
+    outcome: Outcome = "error",
+    failure_kind: FailureKind = "provider",
     query: str | None = None,
     response: httpx.Response | None = None,
     details: dict[str, Any] | None = None,
@@ -212,16 +214,16 @@ def _diagnostic(
     status = response.status_code if response is not None else None
     kind = failure_kind
     if status in {401, 403} and failure_kind == "provider":
-        kind = "auth" if status == 401 else "rate_limit"
+        kind: FailureKind = "auth" if status == 401 else "rate_limit"
     if status == 404 and failure_kind == "provider":
-        kind = "not_found"
+        kind: FailureKind = "not_found"
     if status in {408, 429, 500, 502, 503, 504} and failure_kind == "provider":
-        kind = "rate_limit" if status == 429 else "network"
+        kind: FailureKind = "rate_limit" if status == 429 else "network"
     return Diagnostic(
         provider="github",
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         message=message[:500],
-        failure_kind=kind,  # type: ignore[arg-type]
+        failure_kind=kind,
         status_code=status,
         retry_after_seconds=_retry_after(response) if response is not None else None,
         query=query,

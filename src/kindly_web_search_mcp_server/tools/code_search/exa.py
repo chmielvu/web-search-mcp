@@ -15,6 +15,8 @@ from .models import (
     CodeSearchHit,
     CodeSearchRequest,
     Diagnostic,
+    FailureKind,
+    Outcome,
     ProviderResponse,
     build_location_metadata,
 )
@@ -58,8 +60,8 @@ def _diagnostic(
     message: str,
     *,
     query: str | None = None,
-    failure_kind: str = "provider",
-    outcome: str = "error",
+    failure_kind: FailureKind = "provider",
+    outcome: Outcome = "error",
     response: httpx.Response | None = None,
     details: dict[str, Any] | None = None,
 ) -> Diagnostic:
@@ -75,22 +77,22 @@ def _diagnostic(
     kind = failure_kind
     if response is not None and failure_kind == "provider":
         if status == 401 or status == 403:
-            kind = "auth"
+            kind: FailureKind = "auth"
         elif status == 402:
             kind = "budget"
         elif status == 404:
-            kind = "not_found"
+            kind: FailureKind = "not_found"
         elif status in {400, 422}:
-            kind = "validation"
+            kind: FailureKind = "validation"
         elif status == 429:
-            kind = "rate_limit"
+            kind: FailureKind = "rate_limit"
         elif status in {408, 425, 500, 502, 503, 504}:
-            kind = "network"
+            kind: FailureKind = "network"
     return Diagnostic(
         provider="exa",
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         message=message[:500],
-        failure_kind=kind,  # type: ignore[arg-type]
+        failure_kind=kind,
         status_code=status,
         retry_after_seconds=retry_after,
         query=query,
