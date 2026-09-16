@@ -105,7 +105,6 @@ def _public_settings_snapshot() -> dict[str, object]:
             "brave": bool(os.environ.get("BRAVE_API_KEY")),
             "jina": bool(os.environ.get("JINA_API_KEY")),
             "langsearch": bool(os.environ.get("LANGSEARCH_API_KEY")),
-            "cohere": bool(settings.cohere_api_key),
             "openrouter": bool(settings.openrouter_api_key),
             "gemini": bool(settings.gemini_api_key),
             "pollinations": bool(os.environ.get("POLLINATIONS_API_KEY")),
@@ -117,7 +116,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "github_token": bool(os.environ.get("GITHUB_TOKEN")),
         },
         "models": {
-            "openrouter_rerank_model": settings.openrouter_rerank_model,
+            "rankllm_openrouter_model": settings.rankllm_openrouter_model,
             "voyage_rerank_model": settings.voyage_rerank_model,
             "voyage_rerank_fallback_model": settings.voyage_rerank_fallback_model,
             "judge_model": settings.judge_model,
@@ -131,8 +130,7 @@ def _public_settings_snapshot() -> dict[str, object]:
             "query_decomposition": settings.query_decomposition_timeout_seconds,
             "youtube_transcript": settings.youtube_transcript_timeout_seconds,
             "grok": settings.grok_timeout_seconds,
-            "cohere_rerank": settings.cohere_rerank_timeout,
-            "openrouter_rerank": settings.openrouter_rerank_timeout,
+            "voyage_rerank": settings.voyage_rerank_timeout,
             "judge": settings.judge_timeout_seconds,
         },
     }

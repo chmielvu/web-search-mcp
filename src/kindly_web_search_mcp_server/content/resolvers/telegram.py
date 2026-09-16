@@ -107,10 +107,11 @@ async def fetch_telegram_raw_content(url: str) -> dict[str, object]:
     if target.msg_id:
         # Fetch specific message
         messages = await client.get_messages(entity, ids=[target.msg_id])
-        if not messages or not messages[0]:
+        fetched = messages[0] if isinstance(messages, list) else messages
+        if fetched is None:
             raise TelegramContentError(f"Message {target.msg_id} not found")
 
-        msg = messages[0]
+        msg = fetched
 
         if target.comment_thread_id:
             # Fetch comment thread

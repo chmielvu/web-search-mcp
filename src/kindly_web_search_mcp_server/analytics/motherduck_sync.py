@@ -53,7 +53,7 @@ def _load_motherduck(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("LOAD motherduck")
 
 
-def _duckdb_config() -> dict[str, str]:
+def _duckdb_config() -> dict[str, str | float | list[str]]:
     token = os.environ.get("MOTHERDUCK_TOKEN", "").strip()
     if not token:
         raise ValueError("MOTHERDUCK_TOKEN is required to sync analytics to MotherDuck.")
@@ -78,7 +78,8 @@ def _sync_append_only(
     target_table: str,
     key_columns: list[str],
 ) -> int:
-    before = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]  # type: ignore[index]
+    row = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()
+    before = int(row[0]) if row else 0
     predicate = " AND ".join(f"remote.{column} = local.{column}" for column in key_columns)
     connection.execute(
         f"""
@@ -92,7 +93,8 @@ def _sync_append_only(
         )
         """
     )
-    after = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()[0]  # type: ignore[index]
+    row = connection.execute(f"SELECT count(*) FROM {target_table}").fetchone()
+    after = int(row[0]) if row else 0
     return int(after - before)
 
 
@@ -135,7 +137,7 @@ def sync_once(
     target = f"{_quote_ident(attach)}.{_quote_ident(schema)}"
     remote_target = _quote_ident(schema)
 
-    connection = duckdb.connect(str(source), config=_duckdb_config())  # type: ignore[arg-type]
+    connection = duckdb.connect(str(source), config=_duckdb_config())
     try:
         _load_motherduck(connection)
         connection.execute(f"ATTACH 'md:{database}' AS {_quote_ident(attach)}")
@@ -146,9 +148,10 @@ def sync_once(
         before = 0
         after = 0
         try:
-            before = connection.execute(
+            row = connection.execute(
                 f"SELECT count(*) FROM {target}.analytics_event_raw"
-            ).fetchone()[0]  # type: ignore[index]
+            ).fetchone()
+            before = int(row[0]) if row else 0
             after = before
         except Exception:
             # Target table may not exist yet on a fresh MotherDuck schema.
@@ -157,7 +160,7 @@ def sync_once(
     finally:
         connection.close()
 
-    remote = duckdb.connect(f"md:{database}", config=_duckdb_config())  # type: ignore[arg-type]
+    remote = duckdb.connect(f"md:{database}", config=_duckdb_config())
     try:
         remote.execute(f"CREATE SCHEMA IF NOT EXISTS {remote_target}")
         for statement in [

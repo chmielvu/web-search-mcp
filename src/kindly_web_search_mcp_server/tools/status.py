@@ -16,7 +16,6 @@ def get_providers_status() -> str:
         f"**Search Router**: {'✓ Configured' if os.environ.get('SEARCH_ROUTER_API_KEY') else '✗ Not configured'}",
         f"**Jina**: {'✓ Configured' if os.environ.get('JINA_API_KEY') else '✗ Not configured'}",
         f"**LangSearch**: {'✓ Configured' if os.environ.get('LANGSEARCH_API_KEY') else '✗ Not configured'}",
-        f"**Cohere Reranker**: {'✓ Configured' if settings.cohere_api_key else '✗ Not configured'}",
         f"**OpenRouter Reranker**: {'✓ Configured' if settings.openrouter_api_key else '✗ Not configured'}",
         f"**Voyage Reranker**: {'✓ Configured' if settings.voyage_api_key else '✗ Not configured'}",
         f"**Composio LLM Search**: {'✓ Configured' if os.environ.get('COMPOSIO_API_KEY') and os.environ.get('COMPOSIO_USER_ID') else '✗ Not configured'}",

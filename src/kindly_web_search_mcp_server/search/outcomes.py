@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any
 
 from ..analytics.ids import _candidate_id, _canonical_result_id
@@ -11,6 +13,14 @@ from ..utils.url_canonicalize import extract_domain_from_url
 
 LOGGER = logging.getLogger(__name__)
 _OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
+
+
+@dataclass(frozen=True, slots=True)
+class _Write:
+    """One deferred analytics write: the persistence call and its keyword payload."""
+
+    persist: Callable[..., Any]
+    kwargs: dict[str, Any]
 
 
 async def persist_search_outcome(run):
@@ -45,11 +55,11 @@ async def persist_search_outcome(run):
     en = diag.get("enrichment", {})
     rw = diag.get("rewrite", {})
     mc = dc.merge_counts or {}
-    writes = []
+    writes: list[_Write] = []
 
     if settings.query_understanding_jsonl_enabled and outcome.plan is not None:
         try:
-            bounded_results = [
+            bounded_results: list[dict[str, object]] = [
                 {
                     "title": result.title[:1000],
                     "link": result.link,
@@ -88,271 +98,271 @@ async def persist_search_outcome(run):
         selected = sorted(names)
 
     writes.append(
-        {
-            "_w": insert_search_run,
-            "run_key": rk,
-            "tool_call_id": outcome.tool_call_id,
-            "session_id": outcome.session_id,
-            "query": outcome.request.query,
-            "normalized_query": outcome.plan.normalized_query if outcome.plan else "",
-            "research_goal": outcome.request.research_goal,
-            "intent": dc.intent or "",
-            "understanding_confidence": dc.understanding_confidence,
-            "num_results_requested": outcome.request.num_results,
-            "rewrite_enabled": outcome.request.rewrite,
-            "selected_providers": selected,
-            "skipped_providers": [],
-            "branch_count": len(outcome.outcomes),
-            "provider_count": mc.get("provider_count", 0),
-            "merged_count": mc.get("merged_count", 0),
-            "reranked_count": mc.get("reranked_count", 0),
-            "final_result_count": len(r.results) if r is not None else 0,
-            "candidate_count": mc.get("candidate_count", 0),
-            "status": outcome.status,
-            "error_type": outcome.error_summary,
-            "duration_ms": (
-                dc.total_latency_ms
-                if dc.total_latency_ms is not None
-                else sum(outcome.timings.values())
-            ),
-            "reranker_provider": outcome.rerank_metadata.get("reranker_provider"),
-            "reranker_model": outcome.rerank_metadata.get("reranker_model"),
-            "rake_terms": en.get("rake_terms", []),
-            "brave_autosuggest": en.get("brave_autosuggest", []),
-            "rewrite_prompt": rw.get("prompt"),
-            "rewrite_model": rw.get("model"),
-            "rewrite_input_tokens": rw.get("input_tokens"),
-            "rewrite_output_tokens": rw.get("output_tokens"),
-            "rewrite_latency_ms": rw.get("latency_ms"),
-            "rewrite_error": rw.get("error"),
-            "rewritten_branch_queries": (
-                list(outcome.plan.rewrite_queries)
-                if outcome.plan and outcome.plan.rewrite_queries
-                else None
-            ),
-            "payload_json": {
+        _Write(
+            insert_search_run,
+            {
+                "run_key": rk,
                 "tool_call_id": outcome.tool_call_id,
                 "session_id": outcome.session_id,
-                "phase_timings": dc.phase_timings,
-                "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
-                "seed_queries": (
-                    list(outcome.plan.seed_queries[:4])
+                "query": outcome.request.query,
+                "normalized_query": outcome.plan.normalized_query if outcome.plan else "",
+                "research_goal": outcome.request.research_goal,
+                "intent": dc.intent or "",
+                "understanding_confidence": dc.understanding_confidence,
+                "num_results_requested": outcome.request.num_results,
+                "rewrite_enabled": outcome.request.rewrite,
+                "selected_providers": selected,
+                "skipped_providers": [],
+                "branch_count": len(outcome.outcomes),
+                "provider_count": mc.get("provider_count", 0),
+                "merged_count": mc.get("merged_count", 0),
+                "reranked_count": mc.get("reranked_count", 0),
+                "final_result_count": len(r.results) if r is not None else 0,
+                "candidate_count": mc.get("candidate_count", 0),
+                "status": outcome.status,
+                "error_type": outcome.error_summary,
+                "duration_ms": dc.total_latency_ms
+                if dc.total_latency_ms is not None
+                else sum(outcome.timings.values()),
+                "reranker_provider": outcome.rerank_metadata.get("reranker_provider"),
+                "reranker_model": outcome.rerank_metadata.get("reranker_model"),
+                "rake_terms": en.get("rake_terms", []),
+                "brave_autosuggest": en.get("brave_autosuggest", []),
+                "rewrite_prompt": rw.get("prompt"),
+                "rewrite_model": rw.get("model"),
+                "rewrite_input_tokens": rw.get("input_tokens"),
+                "rewrite_output_tokens": rw.get("output_tokens"),
+                "rewrite_latency_ms": rw.get("latency_ms"),
+                "rewrite_error": rw.get("error"),
+                "rewritten_branch_queries": list(outcome.plan.rewrite_queries)
+                if outcome.plan and outcome.plan.rewrite_queries
+                else None,
+                "payload_json": {
+                    "tool_call_id": outcome.tool_call_id,
+                    "session_id": outcome.session_id,
+                    "phase_timings": dc.phase_timings,
+                    "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
+                    "seed_queries": list(outcome.plan.seed_queries[:4])
                     if outcome.plan and outcome.plan.seed_queries
-                    else []
-                ),
-                "graph_expansion": {
-                    "status": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("status", "disabled")
+                    else [],
+                    "graph_expansion": {
+                        "status": (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                            "status", "disabled"
+                        )
                         if dc.rewrite_metadata
-                        else "disabled"
-                    ),
-                    "generation_id": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("generation_id")
+                        else "disabled",
+                        "generation_id": (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                            "generation_id"
+                        )
                         if dc.rewrite_metadata
-                        else None
-                    ),
-                    "related_queries": (
-                        list(
+                        else None,
+                        "related_queries": list(
                             (dc.rewrite_metadata.get("graph_expansion") or {}).get(
                                 "related_queries", []
                             )
                         )[:2]
                         if dc.rewrite_metadata
-                        else []
-                    ),
-                    "source_fingerprint": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("source_fingerprint")
+                        else [],
+                        "source_fingerprint": (
+                            dc.rewrite_metadata.get("graph_expansion") or {}
+                        ).get("source_fingerprint")
                         if dc.rewrite_metadata
-                        else None
-                    ),
-                    "artifact_age_seconds": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get(
-                            "artifact_age_seconds"
+                        else None,
+                        "artifact_age_seconds": (
+                            dc.rewrite_metadata.get("graph_expansion") or {}
+                        ).get("artifact_age_seconds")
+                        if dc.rewrite_metadata
+                        else None,
+                        "matched_query": (dc.rewrite_metadata.get("graph_expansion") or {}).get(
+                            "matched_query"
                         )
                         if dc.rewrite_metadata
-                        else None
-                    ),
-                    "matched_query": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get("matched_query")
+                        else None,
+                        "candidate_support_counts": (
+                            dc.rewrite_metadata.get("graph_expansion") or {}
+                        ).get("candidate_support_counts", {})
                         if dc.rewrite_metadata
-                        else None
-                    ),
-                    "candidate_support_counts": (
-                        (dc.rewrite_metadata.get("graph_expansion") or {}).get(
-                            "candidate_support_counts", {}
-                        )
-                        if dc.rewrite_metadata
-                        else {}
-                    ),
-                    "effective_seed_queries": (
-                        list(
+                        else {},
+                        "effective_seed_queries": list(
                             (dc.rewrite_metadata.get("graph_expansion") or {}).get(
                                 "effective_seed_queries", []
                             )
                         )[:4]
                         if dc.rewrite_metadata
-                        else []
-                    ),
-                    "dropped_candidates": (
-                        list(
+                        else [],
+                        "dropped_candidates": list(
                             (dc.rewrite_metadata.get("graph_expansion") or {}).get(
                                 "dropped_candidates", []
                             )
                         )
                         if dc.rewrite_metadata
-                        else []
-                    ),
-                    **(
-                        {
-                            "error_type": (dc.rewrite_metadata.get("graph_expansion") or {}).get(
-                                "error_type"
-                            )
-                        }
-                        if dc.rewrite_metadata
-                        and (dc.rewrite_metadata.get("graph_expansion") or {}).get("error_type")
-                        else {}
-                    ),
+                        else [],
+                        **(
+                            {
+                                "error_type": (
+                                    dc.rewrite_metadata.get("graph_expansion") or {}
+                                ).get("error_type")
+                            }
+                            if dc.rewrite_metadata
+                            and (dc.rewrite_metadata.get("graph_expansion") or {}).get("error_type")
+                            else {}
+                        ),
+                    },
                 },
             },
-        }
+        ),
     )
     for i, ob in enumerate(outcome.outcomes):
         b = ob.branch
         writes.append(
-            {
-                "_w": insert_search_branches,
-                "run_key": rk,
-                "branch_index": i,
-                "branch_id": _canonical_result_id(f"{rk}|{i}"),
-                "branch_role": b.role.value,
-                "branch_query": b.query,
-                "branch_why": b.why,
-                "support_terms": list(b.support_terms),
-                "max_results": b.max_results,
-                "assigned_providers": list(b.provider_names),
-                "attempted_providers": list(ob.attempted_provider_names),
-                "skipped_providers": [],
-                "results_count": len(ob.results),
-                "latency_ms": ob.elapsed_seconds * 1000.0,
-                "payload_json": {},
-            }
+            _Write(
+                insert_search_branches,
+                {
+                    "run_key": rk,
+                    "branch_index": i,
+                    "branch_id": _canonical_result_id(f"{rk}|{i}"),
+                    "branch_role": b.role.value,
+                    "branch_query": b.query,
+                    "branch_why": b.why,
+                    "support_terms": list(b.support_terms),
+                    "max_results": b.max_results,
+                    "assigned_providers": list(b.provider_names),
+                    "attempted_providers": list(ob.attempted_provider_names),
+                    "skipped_providers": [],
+                    "results_count": len(ob.results),
+                    "latency_ms": ob.elapsed_seconds * 1000.0,
+                    "payload_json": {},
+                },
+            ),
         )
     for br in dc.branch_results:
         for c in br.get("provider_calls", []):
             writes.append(
-                {
-                    "_w": insert_provider_calls,
-                    "run_key": rk,
-                    "branch_index": br.get("branch_index"),
-                    "branch_role": c.get("branch_role"),
-                    "provider": c.get("provider"),
-                    "branch_query": br.get("branch_query"),
-                    "status": c.get("status", "unknown"),
-                    "num_results_requested": br.get("max_results"),
-                    "num_results_returned": c.get("num_results_returned", 0),
-                    "latency_ms": c.get("latency_ms"),
-                    "error_type": c.get("error_type"),
-                    "error_message": c.get("error_message"),
-                    "candidate_urls": c.get("candidate_urls", []),
-                    "request_query": c.get("request_query"),
-                    "request_url": c.get("request_url"),
-                    "http_status": c.get("http_status"),
-                    "result_class": c.get("result_class"),
-                    "response_meta_json": c.get("response_meta_json"),
-                    "retry_after_seconds": c.get("retry_after"),
-                    "retryable": c.get("retryable"),
-                    "provider_call_id": _canonical_result_id(
-                        f"{rk}|{br.get('branch_index', '')}|{c.get('provider', '')}"
-                    ),
-                    "payload_json": {},
-                }
+                _Write(
+                    insert_provider_calls,
+                    {
+                        "run_key": rk,
+                        "branch_index": br.get("branch_index"),
+                        "branch_role": c.get("branch_role"),
+                        "provider": c.get("provider"),
+                        "branch_query": br.get("branch_query"),
+                        "status": c.get("status", "unknown"),
+                        "num_results_requested": br.get("max_results"),
+                        "num_results_returned": c.get("num_results_returned", 0),
+                        "latency_ms": c.get("latency_ms"),
+                        "error_type": c.get("error_type"),
+                        "error_message": c.get("error_message"),
+                        "candidate_urls": c.get("candidate_urls", []),
+                        "request_query": c.get("request_query"),
+                        "request_url": c.get("request_url"),
+                        "http_status": c.get("http_status"),
+                        "result_class": c.get("result_class"),
+                        "response_meta_json": c.get("response_meta_json"),
+                        "retry_after_seconds": c.get("retry_after"),
+                        "retryable": c.get("retryable"),
+                        "provider_call_id": _canonical_result_id(
+                            f"{rk}|{br.get('branch_index', '')}|{c.get('provider', '')}"
+                        ),
+                        "payload_json": {},
+                    },
+                ),
             )
     for rank, res in enumerate(dc.merged_candidates, start=1):
         writes.append(
-            {
-                "_w": insert_search_candidates,
-                "run_key": rk,
-                "link": res.link,
-                "canonical_result_id": _canonical_result_id(res.link),
-                "title": res.title,
-                "snippet": res.snippet,
-                "domain": res.domain or extract_domain_from_url(res.link) or "",
-                "rrf_score": res.retrieval_rrf_score or 0.0,
-                "provider_count": len(res.providers or []),
-                "providers": list(res.providers or []),
-                "overlap_flag": len(res.providers or []) > 1,
-                "payload_json": {"rank": rank},
-            }
+            _Write(
+                insert_search_candidates,
+                {
+                    "run_key": rk,
+                    "link": res.link,
+                    "canonical_result_id": _canonical_result_id(res.link),
+                    "title": res.title,
+                    "snippet": res.snippet,
+                    "domain": res.domain or extract_domain_from_url(res.link) or "",
+                    "rrf_score": res.retrieval_rrf_score or 0.0,
+                    "provider_count": len(res.providers or []),
+                    "providers": list(res.providers or []),
+                    "overlap_flag": len(res.providers or []) > 1,
+                    "payload_json": {"rank": rank},
+                },
+            ),
         )
     if r is not None:
         for rank, res in enumerate(r.results, start=1):
             writes.append(
-                {
-                    "_w": insert_final_results,
-                    "run_key": rk,
-                    "rank": rank,
-                    "title": res.title,
-                    "link": res.link,
-                    "snippet": res.snippet,
-                    "domain": res.domain or extract_domain_from_url(res.link) or "",
-                    "final_score": res.final_score,
-                    "providers": list(res.providers or []),
-                    "provider_count": len(res.providers or []),
-                    "entities_count": 0,
-                    "candidate_id": _candidate_id(res.link, res.title, res.snippet),
-                    "canonical_result_id": _canonical_result_id(res.link),
-                    "payload_json": {},
-                }
+                _Write(
+                    insert_final_results,
+                    {
+                        "run_key": rk,
+                        "rank": rank,
+                        "title": res.title,
+                        "link": res.link,
+                        "snippet": res.snippet,
+                        "domain": res.domain or extract_domain_from_url(res.link) or "",
+                        "final_score": res.final_score,
+                        "providers": list(res.providers or []),
+                        "provider_count": len(res.providers or []),
+                        "entities_count": 0,
+                        "candidate_id": _candidate_id(res.link, res.title, res.snippet),
+                        "canonical_result_id": _canonical_result_id(res.link),
+                        "payload_json": {},
+                    },
+                ),
             )
     if dc.query_embedding is not None:
         v = dc.query_embedding
         writes.append(
-            {
-                "_w": insert_query_embeddings,
-                "run_key": rk,
-                "embedding": v,
-                "model_id": "intfloat/multilingual-e5-large-instruct",
-                "payload_json": {"dim": len(v)},
-            }
+            _Write(
+                insert_query_embeddings,
+                {
+                    "run_key": rk,
+                    "embedding": v,
+                    "model_id": "intfloat/multilingual-e5-large-instruct",
+                    "payload_json": {"dim": len(v)},
+                },
+            ),
         )
     for c in dc.candidate_embeddings:
         v = c.get("dense", [])
         t = (c.get("text") or "").split("\n", 1)[0] if c.get("text") else ""
         writes.append(
-            {
-                "_w": insert_candidate_embeddings,
-                "run_key": rk,
-                "link": c.get("url", ""),
-                "title": t,
-                "embedding": v,
-                "model_id": "intfloat/multilingual-e5-large-instruct",
-                "payload_json": {"dim": len(v), "text_preview": (c.get("text") or "")[:200]},
-            }
+            _Write(
+                insert_candidate_embeddings,
+                {
+                    "run_key": rk,
+                    "link": c.get("url", ""),
+                    "title": t,
+                    "embedding": v,
+                    "model_id": "intfloat/multilingual-e5-large-instruct",
+                    "payload_json": {"dim": len(v), "text_preview": (c.get("text") or "")[:200]},
+                },
+            ),
         )
     for s in dc.rerank_stage_summaries:
         writes.append(
-            {
-                "_w": insert_rerank_stages,
-                "run_key": rk,
-                "stage": s.get("stage"),
-                "provider": s.get("provider"),
-                "model": s.get("model"),
-                "input_count": s.get("input_count"),
-                "output_count": s.get("output_count"),
-                "duration_ms": s.get("duration_ms"),
-                "max_score": s.get("max_score"),
-                "avg_score": s.get("avg_score"),
-                "input_tokens": s.get("input_tokens"),
-                "output_tokens": s.get("output_tokens"),
-                "status": s.get("status"),
-                "error_type": s.get("error_type"),
-                "instruction_present": s.get("instruction_present"),
-                "instruction_length": s.get("instruction_length"),
-                "query_type_hint": s.get("query_type_hint"),
-                "attempted_passes": s.get("attempted_passes"),
-                "valid_passes": s.get("valid_passes"),
-                "failed_passes": s.get("failed_passes"),
-            }
+            _Write(
+                insert_rerank_stages,
+                {
+                    "run_key": rk,
+                    "stage": s.get("stage"),
+                    "provider": s.get("provider"),
+                    "model": s.get("model"),
+                    "input_count": s.get("input_count"),
+                    "output_count": s.get("output_count"),
+                    "duration_ms": s.get("duration_ms"),
+                    "max_score": s.get("max_score"),
+                    "avg_score": s.get("avg_score"),
+                    "input_tokens": s.get("input_tokens"),
+                    "output_tokens": s.get("output_tokens"),
+                    "status": s.get("status"),
+                    "error_type": s.get("error_type"),
+                    "instruction_present": s.get("instruction_present"),
+                    "instruction_length": s.get("instruction_length"),
+                    "query_type_hint": s.get("query_type_hint"),
+                    "attempted_passes": s.get("attempted_passes"),
+                    "valid_passes": s.get("valid_passes"),
+                    "failed_passes": s.get("failed_passes"),
+                },
+            ),
         )
 
     # The primary `insert_search_run` MUST succeed for the judge to have
@@ -365,14 +375,12 @@ async def persist_search_outcome(run):
 
     def _write():
         if primary is not None:
-            primary_fn = primary.pop("_w")
-            primary_fn(**primary)  # let exceptions propagate
+            primary.persist(**primary.kwargs)  # let exceptions propagate
         for w in rest:
-            fn = w.pop("_w")
             try:
-                fn(**w)
+                w.persist(**w.kwargs)
             except Exception as e:
-                LOGGER.debug("persist %s failed: %s", fn.__name__, e)
+                LOGGER.debug("persist %s failed: %s", getattr(w.persist, "__name__", w.persist), e)
         try:
             from ..analytics.quality_metrics import compute_search_quality
 

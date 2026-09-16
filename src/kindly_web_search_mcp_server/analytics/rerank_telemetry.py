@@ -5,6 +5,9 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from opentelemetry import trace
+from opentelemetry.util.types import AttributeValue
+
 from ..analytics.producers import emit_observability_event
 from ..models import WebSearchResult
 from ..telemetry import RERANK_INPUT_COUNT, RERANK_OUTPUT_COUNT, RERANK_STAGE, record_rerank_stage
@@ -270,7 +273,7 @@ def record_ranked_stage(
     attempted_passes: int = 0,
     valid_passes: int = 0,
     failed_passes: int = 0,
-    main_span: object,
+    main_span: trace.Span,
 ) -> tuple[float | None, float | None]:
     max_score = max(relevance_scores) if relevance_scores else 0.0
     avg_score = sum(relevance_scores) / len(relevance_scores) if relevance_scores else 0.0
@@ -282,7 +285,7 @@ def record_ranked_stage(
         relevance_scores=relevance_scores,
         model=model,
     )
-    event_attributes: dict[str, object] = {
+    event_attributes: dict[str, AttributeValue] = {
         RERANK_STAGE: stage_name,
         RERANK_INPUT_COUNT: input_count,
         RERANK_OUTPUT_COUNT: output_count,

@@ -23,7 +23,8 @@ def _result_link[T](result: T) -> str:
 def _url_matches_domain(url: str, pattern: str) -> bool:
     """Check if URL matches domain pattern (supports wildcards, subdomains, and paths)."""
     try:
-        from fnmatch import fnmatch
+        # The module, not the function: the call sites use fnmatch.fnmatch(...).
+        import fnmatch
         from urllib.parse import urlparse
 
         parsed = urlparse(url)

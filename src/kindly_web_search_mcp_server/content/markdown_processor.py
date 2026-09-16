@@ -40,6 +40,7 @@ import sys
 import unicodedata
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Literal
 
 import markdown_it
@@ -751,9 +752,11 @@ def _resolve_rumdl_argv() -> list[str] | None:
     if importlib.util.find_spec("rumdl") is not None:
         wheel_binary = importlib.metadata.files("rumdl")
         for entry in wheel_binary or ():
-            path = entry.locate()
-            name = str(path.name).lower()
-            if not path.is_file() or name not in {"rumdl", "rumdl.exe"}:
+            located = entry.locate()
+            if located is None:
+                continue
+            path = Path(located)
+            if not path.is_file() or path.name.lower() not in {"rumdl", "rumdl.exe"}:
                 continue
             return [str(path)]
         return [sys.executable, "-m", "rumdl"]
