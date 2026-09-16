@@ -27,10 +27,8 @@ jobs:
         # ty resolves imports against the project environment, so it needs a real sync.
         run: uv sync --python "3.12"
       - name: Type check (ty)
-        # Advisory while the pre-existing backlog is burned down: on 2026-09-16 this
-        # reports 182 diagnostics (170 errors). Remove `continue-on-error` once
-        # `uv run ty check src` is clean — see AGENTS.md → "Type checking".
-        continue-on-error: true
+        # Blocking: `uv run --no-sync ty check src` is clean as of 2026-09-16, after the
+        # backlog (182 diagnostics) was burned down. See AGENTS.md → "Type checking".
         run: uv run --no-sync ty check src
 
   smoke:

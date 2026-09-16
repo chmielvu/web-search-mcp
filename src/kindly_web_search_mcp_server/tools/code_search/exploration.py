@@ -346,7 +346,7 @@ async def _try_fast_lane_github_file(
         if not commit_task.done():
             commit_task.cancel()
         metadata = await asyncio.gather(commit_task, return_exceptions=True)
-        if metadata and isinstance(metadata[0], tuple) and len(metadata[0]) == 2:
+        if isinstance(metadata[0], tuple) and len(metadata[0]) == 2:
             branch, sha = metadata[0]
 
     source = sources.get((repository.casefold(), path.replace("\\", "/").casefold()))

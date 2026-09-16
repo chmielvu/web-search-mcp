@@ -314,11 +314,8 @@ async def search_searxng(
                 score = float(raw_score)
 
             published_date = item.get("publishedDate") or item.get("published_date")
-            category = item.get("category")
             if not isinstance(published_date, str) or not published_date.strip():
                 published_date = None
-            if not isinstance(category, str) or not category.strip():
-                category = None
 
             results.append(
                 WebSearchResult(
@@ -328,7 +325,6 @@ async def search_searxng(
                     domain=extract_domain_from_url(link),
                     published_date=published_date,
                     source_engines=engines or None,
-                    category=category,
                     raw_score=score,
                 )
             )

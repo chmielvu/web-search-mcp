@@ -365,8 +365,10 @@ def raise_tool_error(
     message = structured.error
     if structured.action:
         message = f"{message} {structured.action}"
-    tool_error = ToolError(message)
-    tool_error.structured = structured  # type: ignore[attr-defined]
+    # The structured payload rides on the error as a dynamic attribute so middleware
+    # can read it back; see the module docstring.
+    tool_error: Any = ToolError(message)
+    tool_error.structured = structured
     raise tool_error
 
 

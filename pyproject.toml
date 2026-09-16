@@ -160,6 +160,8 @@ allowed-unresolved-imports = [
     "curl_cffi.**",  # TLS-impersonating HTTP client (stealth fetch tier)
     "fitz",  # legacy module name for PyMuPDF
     "gradio_client.**",  # Hugging Face Space ASR tier
+    "pymupdf.layout",  # pdf-advanced extra
+    "pymupdf4llm",  # pdf-advanced extra
     "opentelemetry.exporter.prometheus",  # optional OTEL exporter
 ]
 

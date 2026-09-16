@@ -10,14 +10,13 @@ from __future__ import annotations
 from urllib.parse import urljoin, urlparse
 
 try:
-    from bs4 import BeautifulSoup  # type: ignore
+    from bs4 import BeautifulSoup
 except Exception:  # pragma: no cover
-    BeautifulSoup = None  # type: ignore
-
+    BeautifulSoup = None
 try:
-    from markdownify import markdownify as _markdownify  # type: ignore
+    from markdownify import markdownify as _markdownify
 except Exception:  # pragma: no cover
-    _markdownify = None  # type: ignore
+    _markdownify = None
 
 
 def soup_from_html(html: str):
@@ -66,7 +65,7 @@ def extract_metadata(html: str, *, page_url: str, fetched_url: str | None = None
             attrs["name"] = name
         if property:
             attrs["property"] = property
-        tag = soup.find("meta", attrs=attrs)  # type: ignore[call-overload]
+        tag = soup.find("meta", attrs=attrs)
         content = tag.get("content") if tag else None
         return content.strip() if isinstance(content, str) and content.strip() else ""
 
@@ -78,7 +77,7 @@ def extract_metadata(html: str, *, page_url: str, fetched_url: str | None = None
             metadata[key] = value
 
     canonical = ""
-    link = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})  # type: ignore[call-overload]
+    link = soup.find("link", attrs={"rel": lambda value: value and "canonical" in value})
     if link:
         href = link.get("href")
         canonical = href.strip() if isinstance(href, str) and href.strip() else ""

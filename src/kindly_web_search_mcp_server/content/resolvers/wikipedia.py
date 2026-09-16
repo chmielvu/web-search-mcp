@@ -291,7 +291,9 @@ async def fetch_wikipedia_article_raw(
         cleaned_html = _strip_wikipedia_html_noise(html, host=target.host)
         # Drop raw HTML as soon as we have a cleaned version.
         html = ""
-        md = await anyio.to_thread.run_sync(partial(extract_html_as_markdown, cleaned_html))  # type: ignore[attr-defined]
+        md = await anyio.to_thread.run_sync(  # ty: ignore[unresolved-attribute] - anyio stub gap
+            partial(extract_html_as_markdown, cleaned_html)
+        )  # type: ignore[attr-defined]
         cleaned_html = ""
         rendered = render_wikipedia_markdown(
             title=title,

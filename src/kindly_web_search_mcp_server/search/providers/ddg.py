@@ -138,6 +138,8 @@ def _search_ddg_sync(
 
     results: list[WebSearchResult] = []
 
+    # ty: ignore[invalid-argument-type] - ddgs declares (*args, **kwargs); the stub
+    # does not model its timeout keyword.
     with DDGS(timeout=settings.search_retrieve_budget_seconds) as ddgs:
         try:
             if is_news:

@@ -17,6 +17,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures.thread import _worker  # type: ignore[attr-defined]
 from dataclasses import dataclass
 from threading import Lock
+from typing import Any, cast
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +35,10 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
         if self._idle_semaphore.acquire(timeout=0):
             return
 
-        def weakref_cb(_, q=self._work_queue):
-            q.put(None)  # pyright: ignore[reportArgumentType]
+        # The worker loop reads None as "exit"; the stdlib queue is typed for its
+        # work items only, and this class deliberately mirrors CPython's internals.
+        def weakref_cb(_, q: Any = self._work_queue) -> None:
+            q.put(None)
 
         num_threads = len(self._threads)
         if num_threads < self._max_workers:
@@ -52,7 +55,7 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
                 daemon=True,
             )
             t.start()
-            self._threads.add(t)  # pyright: ignore[reportAttributeAccessIssue]
+            cast("set[threading.Thread]", self._threads).add(t)
             # Deliberately skip: _threads_queues[t] = self._work_queue
 
 

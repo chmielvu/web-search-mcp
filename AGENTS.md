@@ -254,8 +254,8 @@ Configuration is the `[tool.ty]` table in `pyproject.toml`:
 Rules for agents:
 
 - **Do not add new diagnostics.** When you touch a file, fix the `ty` errors it already has.
-- Suppress narrowly at the site with `# ty: ignore[rule-name]`; never relax a rule globally to make a file pass. Existing `# type: ignore[...]` comments are still honoured (`respect-type-ignore-comments` defaults to true).
-- The repo is mid-burn-down: as of 2026-09-16 `uv run ty check src` reports 182 diagnostics (170 errors, 12 warnings), concentrated in `content/constructor.py`, `search/outcomes.py`, and `tools/code_search/`. The CI step is therefore **advisory** (`continue-on-error: true` in `.github/workflows/ci.yml`). Delete that flag once the count reaches zero.
+- Suppress narrowly at the site with `# ty: ignore[rule-name]` and a stated reason; never relax a rule globally to make a file pass. Note that mypy-style codes do not match ty's rule names — `# type: ignore[arg-type]` suppresses nothing here, because ty looks for `invalid-argument-type`. Prefer fixing the producer (type the helper parameter or local variable as the literal it feeds) over suppressing at the consumer.
+- **The backlog is cleared:** as of 2026-09-16 `uv run ty check src` is clean, so the CI step is **blocking** (no `continue-on-error`). The remaining `# ty: ignore[...]` comments are all library-stub gaps (telethon, `ddgs`, google-genai, anyio, the OpenAI-compatible client shape) and each carries its reason inline.
 - `[tool.pyright]` stays in `pyproject.toml` for editor integrations (Pylance); `ty` is what the command line and CI enforce.
 
 ### Naming

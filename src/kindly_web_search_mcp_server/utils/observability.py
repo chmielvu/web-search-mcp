@@ -142,7 +142,7 @@ def current_trace_context() -> dict[str, str]:
         return {}
     span = trace.get_current_span()
     context = span.get_span_context()
-    if not context or not context.is_valid:
+    if not context.is_valid:
         return {}
     return {
         "trace_id": format(context.trace_id, "032x"),

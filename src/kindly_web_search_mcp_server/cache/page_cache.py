@@ -6,7 +6,7 @@ with metadata about extraction method and timestamps.
 
 from __future__ import annotations
 
-import asyncio
+import inspect
 import logging
 import threading
 import time
@@ -81,7 +81,7 @@ class PageCache:
         # so `hasattr` returns True but the value is not awaitable. A real backend
         # exposes `alookup` as a coroutine function (`async def`).
         backend_alookup = getattr(self._backend, "alookup", None)
-        if not asyncio.iscoroutinefunction(backend_alookup):
+        if not inspect.iscoroutinefunction(backend_alookup):
             logger.error(
                 "PageCache backend alookup is not a coroutine function -- mock leaked: %s",
                 type(self._backend).__name__,

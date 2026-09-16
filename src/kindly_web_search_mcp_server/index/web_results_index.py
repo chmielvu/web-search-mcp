@@ -49,7 +49,8 @@ class WebResultsIndex:
         *,
         url: str,
         api_key: str | None = None,
-        auth_token_provider: Callable[[], str | Awaitable[str]] | None = None,
+        # qdrant accepts one of two callable shapes, not a callable returning a union.
+        auth_token_provider: Callable[[], str] | Callable[[], Awaitable[str]] | None = None,
     ) -> None:
         self._url = url.rstrip("/")
         self._api_key = api_key
@@ -77,8 +78,11 @@ class WebResultsIndex:
         with contextlib.suppress(Exception):
             info = await client.get_collection(COLLECTION_NAME)
             if info.status == "green":
-                vectors_config = info.config.params.vectors or {}
-                dense_cfg = vectors_config.get("dense")  # type: ignore[union-attr]
+                vectors_config = info.config.params.vectors
+                # One unnamed vector reports VectorParams instead of a name -> params map.
+                dense_cfg = (
+                    vectors_config.get("dense") if isinstance(vectors_config, dict) else None
+                )
                 if dense_cfg is not None and hasattr(dense_cfg, "size"):
                     expected_size = COLLECTION_VECTORS["dense"].size
                     if dense_cfg.size != expected_size:

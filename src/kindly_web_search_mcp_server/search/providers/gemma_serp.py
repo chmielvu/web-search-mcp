@@ -238,7 +238,6 @@ def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
         if not raw_results:
             raise _invalid_response("Gemma returned no parseable search results.")
 
-    model_used = str(data.get("model") or MODEL)
     results: list[WebSearchResult] = []
     for item in raw_results:
         url = item["url"]
@@ -248,16 +247,6 @@ def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
                 link=url,
                 snippet=item["snippet"],
                 domain=urlparse(url).netloc or url,
-                diagnostics=[
-                    {
-                        "source": "pollinations_chat_completions",
-                        "provider": "pollinations",
-                        "model": model_used,
-                        "underlying_model": UNDERLYING_MODEL,
-                        "grounding": True,
-                        "grounding_method": "native_web_search",
-                    }
-                ],
             )
         )
     return results

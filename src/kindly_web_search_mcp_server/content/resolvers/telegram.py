@@ -101,8 +101,10 @@ async def fetch_telegram_raw_content(url: str) -> dict[str, object]:
     # Resolve entity
     if target.channel_id:
         entity = await client.get_entity(target.channel_id)
-    else:
+    elif target.username is not None:
         entity = await client.get_entity(target.username)
+    else:
+        raise TelegramContentError("Telegram target has neither a channel id nor a username.")
 
     if target.msg_id:
         # Fetch specific message
@@ -118,7 +120,9 @@ async def fetch_telegram_raw_content(url: str) -> dict[str, object]:
             replies = [
                 m
                 async for m in client.iter_messages(
-                    entity, reply_to=target.comment_thread_id, limit=100
+                    entity,  # ty: ignore[invalid-argument-type] - telethon stub
+                    reply_to=target.comment_thread_id,
+                    limit=100,
                 )
             ]
             title = getattr(entity, "title", None) or "Unknown"
@@ -140,7 +144,11 @@ async def fetch_telegram_raw_content(url: str) -> dict[str, object]:
         }
 
     # No specific message — fetch recent messages
-    messages = await client.get_messages(entity, limit=50)
+    fetched = await client.get_messages(entity, limit=50)
+    # get_messages answers with a list for a limit query, but is typed as a union.
+    messages = fetched if isinstance(fetched, list) else [fetched] if fetched else []
+    # ty: ignore[invalid-argument-type] - telethon stub wants InputChannel; the
+    # peer returned by get_entity is accepted at runtime.
     full = await client(functions.channels.GetFullChannelRequest(entity))
     title = getattr(entity, "title", None) or "Unknown"
     markdown = _render_channel_overview(entity, full, messages)

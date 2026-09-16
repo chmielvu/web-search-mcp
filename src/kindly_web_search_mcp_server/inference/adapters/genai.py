@@ -51,12 +51,14 @@ async def execute_google(
     if tools:
         for tool in tools:
             if "google_search" in tool:
-                genai_config.google_search = genai_types.GoogleSearch()
+                # The stub types this field as the request-side union; the tool
+                # instance is the documented usage.
+                genai_config.google_search = genai_types.GoogleSearch()  # ty: ignore[invalid-assignment]
             elif "url_context" in tool:
                 genai_config.tools = [genai_types.Tool(url_context=genai_types.UrlContext())]
 
     if web_search_options:
-        genai_config.google_search = genai_types.GoogleSearch()
+        genai_config.google_search = genai_types.GoogleSearch()  # ty: ignore[invalid-assignment]
 
     response = await asyncio.to_thread(
         client.models.generate_content,

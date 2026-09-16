@@ -241,19 +241,18 @@ def _pdf_bytes_to_markdown_best_effort(
     # Prefer the modern `pymupdf` import (PyMuPDF >= 1.24), but fall back to `fitz`
     # for older installs.
     try:
-        import pymupdf  # type: ignore
+        import pymupdf
     except Exception:
-        pymupdf = None  # type: ignore
-
+        pymupdf = None
     if pymupdf is None:
         try:
-            import fitz as pymupdf  # type: ignore
+            import fitz as pymupdf
         except Exception as e:  # pragma: no cover
             raise ArxivError("PyMuPDF is required for PDF processing but is not installed.") from e
 
     # Import layout helpers if available. This can improve downstream layout extraction.
     try:  # pragma: no cover
-        import pymupdf.layout  # type: ignore
+        import pymupdf.layout
     except Exception:
         # Some installs may provide this as a standalone distribution.
         with contextlib.suppress(Exception):
@@ -267,10 +266,9 @@ def _pdf_bytes_to_markdown_best_effort(
         pages_rendered = min(effective_max, page_count)
         with _suppress_third_party_output():
             try:
-                import pymupdf4llm  # type: ignore
+                import pymupdf4llm
             except Exception:
-                pymupdf4llm = None  # type: ignore
-
+                pymupdf4llm = None
         if pymupdf4llm is not None and hasattr(pymupdf4llm, "to_markdown"):
             # Prefer using `pymupdf4llm` only if we can limit pages; otherwise fall back to
             # our own page-by-page extraction to enforce bounds deterministically.

@@ -449,7 +449,7 @@ def _call_nanogpt_stage(
         try:
             conform = client.chat.completions.create(
                 model=settings.judge_nanogpt_model,
-                messages=conform_messages,
+                messages=conform_messages,  # ty: ignore[invalid-argument-type] - OpenAI-compatible client; the stub wants its own message types
                 temperature=0.0,
                 max_tokens=4000,
                 extra_body={"reasoning": {"exclude": True}},
