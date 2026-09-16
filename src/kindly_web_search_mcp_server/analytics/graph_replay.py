@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import json
+import math
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-import json
-import math
 from typing import Any
 
 import duckdb

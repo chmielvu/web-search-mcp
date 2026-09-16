@@ -9,6 +9,7 @@ future resolves, intended for graceful CLI shutdown.
 """
 
 from __future__ import annotations
+
 import logging
 import threading
 import weakref
@@ -29,24 +30,24 @@ class _DaemonThreadPoolExecutor(ThreadPoolExecutor):
       cannot block process exit on abandoned judge work)
     """
 
-    def _adjust_thread_count(self) -> None:  # noqa: SLF001
-        if self._idle_semaphore.acquire(timeout=0):  # noqa: SLF001
+    def _adjust_thread_count(self) -> None:
+        if self._idle_semaphore.acquire(timeout=0):
             return
 
-        def weakref_cb(_, q=self._work_queue):  # noqa: SLF001
+        def weakref_cb(_, q=self._work_queue):
             q.put(None)  # pyright: ignore[reportArgumentType]
 
-        num_threads = len(self._threads)  # noqa: SLF001
+        num_threads = len(self._threads)
         if num_threads < self._max_workers:
-            thread_name = "%s_%d" % (self._thread_name_prefix or self, num_threads)
+            thread_name = f"{self._thread_name_prefix or self}_{num_threads}"
             t = threading.Thread(
                 name=thread_name,
                 target=_worker,
                 args=(
                     weakref.ref(self, weakref_cb),
-                    self._work_queue,  # noqa: SLF001
-                    self._initializer,  # noqa: SLF001
-                    self._initargs,  # noqa: SLF001
+                    self._work_queue,
+                    self._initializer,
+                    self._initargs,
                 ),
                 daemon=True,
             )
@@ -130,6 +131,6 @@ def drain_judges(timeout_seconds: float = 30.0) -> None:
         futures = list(_PENDING_JUDGE_FUTURES)
     if not futures:
         return
-    done, not_done = wait(futures, timeout=timeout_seconds)
+    _done, not_done = wait(futures, timeout=timeout_seconds)
     if not_done:
         logger.warning("%d judge tasks timed out during drain", len(not_done))

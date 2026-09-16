@@ -9,18 +9,16 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Sequence
 from typing import Any
 
-from ..utils.url_canonicalize import canonicalize_url
-
 from ..models import ProviderWarning, WebSearchResult
 from ..settings import settings
 from ..telemetry.spans import get_tracer
+from ..utils.query_pipeline import build_query_features, shape_for_branch
 from ..utils.task_scope import cancel_and_drain_tasks
+from ..utils.url_canonicalize import canonicalize_url
 from .contracts import BranchOutcome, ProviderRankedResults, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
 from .provider_registry import get_provider_adapter, get_provider_definition
 from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
-
-from ..utils.query_pipeline import build_query_features, shape_for_branch
 
 
 def _warning(

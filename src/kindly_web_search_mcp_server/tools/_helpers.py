@@ -1,23 +1,22 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 from fastmcp.server.context import Context
 
-from ..utils.environment import get_float_env, get_int_env
-
-
+from ..analytics.async_writes import shutdown_duckdb_write_executor
+from ..content.remote_clients import close_camoufox_client, close_crawl4ai_client
+from ..ml.gliner_client import gliner_query_budget_seconds
 from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
-from ..ml.gliner_client import gliner_query_budget_seconds
 from ..telemetry import record_mcp_tool_call, record_tool_details
 from ..telemetry.init import shutdown_telemetry
 from ..utils.background_tasks import cancel_all_background_tasks, drain_background_tasks
-from ..analytics.async_writes import shutdown_duckdb_write_executor
-from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
+from ..utils.environment import get_float_env, get_int_env
 from ..utils.http_client import close_http_client
 from ..utils.singleflight import SingleFlight
 
@@ -61,36 +60,28 @@ def _resolve_session_id(ctx: Context | None) -> str | None:
     ``get_context()`` when the injected context is unavailable.
     """
     if ctx is not None:
-        try:
+        with contextlib.suppress(Exception):
             session_id = ctx.session_id
             if session_id:
                 return str(session_id)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             client_id = ctx.client_id
             if client_id:
                 return str(client_id)
-        except Exception:
-            pass
     try:
         from fastmcp.server.dependencies import get_context
 
         request_ctx = get_context()
         if request_ctx is not None:
-            try:
+            with contextlib.suppress(Exception):
                 session_id = request_ctx.session_id
                 if session_id:
                     return str(session_id)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 client_id = request_ctx.client_id
                 if client_id:
                     return str(client_id)
-            except Exception:
-                pass
-    except Exception:  # noqa: BLE001  # outside a request context
+    except Exception:  # outside a request context
         pass
     return None
 
@@ -196,7 +187,7 @@ def _search_history_snapshot(limit: int = 20) -> dict[str, object]:
             "branch_count",
             "provider_count",
         ]
-        rows = [dict(zip(columns, row)) for row in table]
+        rows = [dict(zip(columns, row, strict=False)) for row in table]
     finally:
         connection.close()
 

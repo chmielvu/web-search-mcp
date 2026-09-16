@@ -7,10 +7,10 @@ match Phoenix/OpenInference conventions.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-import json
 from typing import Any
 
 try:

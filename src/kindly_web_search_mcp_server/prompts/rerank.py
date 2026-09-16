@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from ..search.intents import SearchIntent, normalize_intent
 
-
 RERANK_INTENT_INSTRUCTIONS: dict[SearchIntent, str] = {
     "general": """For factual questions, prefer direct primary or official evidence when
 the candidate visibly provides it.

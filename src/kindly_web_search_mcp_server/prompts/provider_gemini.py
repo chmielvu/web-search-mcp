@@ -10,7 +10,6 @@ Single-prompt mode (fallback):
 
 from __future__ import annotations
 
-
 # ============================================================================
 # Template 4.1 — Base system instruction (search-aware, model-tuned)
 # ============================================================================

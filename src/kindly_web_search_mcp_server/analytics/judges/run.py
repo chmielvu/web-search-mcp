@@ -13,6 +13,7 @@ eagerly.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from concurrent.futures import Future, as_completed
 from pathlib import Path
@@ -27,14 +28,14 @@ from .digest import (
     _format_overview_reasoning,
 )
 from .executor import (
-    _DaemonThreadPoolExecutor,
     _JUDGE_LIFECYCLE,
     _JUDGE_SCHEDULE_LOCK,
     _PENDING_JUDGE_FUTURES,
     _PENDING_JUDGE_FUTURES_LOCK,
+    _DaemonThreadPoolExecutor,
     _get_judge_executor,
 )
-from .jobs import _ResultQualityJob, _RerankImprovementJob, _run_parallel_facet
+from .jobs import _RerankImprovementJob, _ResultQualityJob, _run_parallel_facet
 from .persistence import _connect, _ensure_loaded, _store_judgment_row
 from .stages import _JUDGE_MODEL, _parse_result, _run_prompt
 
@@ -306,10 +307,8 @@ def judge_search_run(
                     except Exception:
                         logger.exception("parallel judge facet failed for run_key=%s", run_key)
             finally:
-                try:
+                with contextlib.suppress(RuntimeError):
                     pool.shutdown(wait=False, cancel_futures=True)
-                except RuntimeError:
-                    pass
         # Re-open connection for failure_cause (serial, needs branch errors).
         connection = _connect(db_path)
         loaded_ok = _ensure_loaded(connection)

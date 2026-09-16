@@ -100,7 +100,7 @@ async def execute_web_search(
     progress: object | None = None,
     return_diagnostics: bool = False,
     schedule_judges: bool = True,
-) -> WebSearchResponse | tuple[WebSearchResponse, "SearchRun"]:
+) -> WebSearchResponse | tuple[WebSearchResponse, SearchRun]:
     """Execute a web search. When return_diagnostics=True, returns (response, run)
     so the caller can build SearchDiagnostics from run.diagnostics."""
     run = SearchRun(

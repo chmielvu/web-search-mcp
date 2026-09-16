@@ -13,6 +13,7 @@ that cannot receive ``CancelledError``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import threading
 import time
@@ -27,10 +28,8 @@ DEFAULT_DRAIN_SECONDS: float = 3.0
 
 
 def _ignore_task_exception(task: asyncio.Task[Any]) -> None:
-    try:
+    with contextlib.suppress(asyncio.CancelledError, Exception):
         task.exception()
-    except (asyncio.CancelledError, Exception):
-        pass
 
 
 _DRAINING_TASKS: set[asyncio.Task[Any]] = set()
@@ -216,7 +215,7 @@ class TaskScope:
         await self.wait_and_cancel()
 
 
-def task_completed_successfully(task: asyncio.Task[T]) -> bool:
+def task_completed_successfully[T](task: asyncio.Task[T]) -> bool:
     """Return True when *task* finished without error or cancellation."""
     if not task.done() or task.cancelled():
         return False

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
-import os
 import logging
+import os
 from typing import Any
 from urllib.parse import urlparse
 
@@ -14,9 +14,9 @@ from ...utils.url_canonicalize import canonicalize_url, extract_domain_from_url
 from ..filters import searxng_time_range
 from ..options import SearchOptions
 from .base import (
+    _RETRYABLE_HTTP_STATUSES,
     ProviderRequestError,
     ProviderRequestMetadata,
-    _RETRYABLE_HTTP_STATUSES,
     _classify_http_status,
     _parse_retry_after,
     run_provider,
@@ -71,7 +71,7 @@ def _build_headers() -> dict[str, str]:
             if isinstance(key, str) and isinstance(value, str) and key.strip() and value.strip():
                 headers[key] = value
 
-    if "user-agent" not in {key.lower() for key in headers.keys()}:
+    if "user-agent" not in {key.lower() for key in headers}:
         headers["User-Agent"] = settings.searxng_user_agent.strip() or DEFAULT_SEARXNG_USER_AGENT
 
     return headers
@@ -112,7 +112,7 @@ def _engine_consensus_rrf_scores(
         for engine in result.source_engines or []:
             results_by_engine.setdefault(engine, []).append(result)
 
-    for engine, engine_results in results_by_engine.items():
+    for _engine, engine_results in results_by_engine.items():
         for rank, result in enumerate(engine_results, start=1):
             canonical = canonicalize_url(result.link)
             scores[canonical] = scores.get(canonical, 0) + 1.0 / (k + rank)

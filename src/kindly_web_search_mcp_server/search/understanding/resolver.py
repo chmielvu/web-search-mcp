@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import logging
 
-from ...ml.gliner_client import GatewayAnalysis, get_gliner_client
-from ...utils.query_understanding import resolve_fallback_understanding
-from ...settings import settings
+from ...analytics.producers import emit_observability_event
 from ...analytics.training.query_understanding_jsonl import append_query_understanding_record
 from ...analytics.training.session_state import get_session_state_store
-from ...analytics.producers import emit_observability_event
+from ...ml.gliner_client import GatewayAnalysis, get_gliner_client
+from ...settings import settings
+from ...utils.query_understanding import resolve_fallback_understanding
 from ...utils.text_clean import clean_query as normalize_query
 from ..intents import SearchIntent
 from .models import QueryUnderstandingResult

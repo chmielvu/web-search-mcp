@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from .types import ModelSpec
 from .registry import get_model
+from .types import ModelSpec
 
 logger = logging.getLogger(__name__)
 

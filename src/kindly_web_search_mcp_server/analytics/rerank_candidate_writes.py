@@ -10,7 +10,6 @@ import duckdb
 from ..settings import settings
 from .writers import _LOCK, _RC_TABLE_NAME, _db_path, _ensure_rerank_candidates
 
-
 _RERANK_CANDIDATE_COLUMNS = [
     "run_key",
     "stage",

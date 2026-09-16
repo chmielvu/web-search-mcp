@@ -10,6 +10,7 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
+from ..documents import build_thread_document
 from ..html_tools import html_to_markdown as extract_html_as_markdown
 from ..http_utils import request_with_redirect_validation
 from ..models import (
@@ -22,7 +23,6 @@ from ..models import (
     ThreadDocument,
     ThreadMessage,
 )
-from ..documents import build_thread_document
 
 
 class DiscourseError(RuntimeError):

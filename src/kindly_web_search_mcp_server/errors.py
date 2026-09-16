@@ -8,12 +8,11 @@ P1 Critical Pattern: formatToolError from Exa MCP
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 from dataclasses import dataclass
 from typing import Any, NoReturn
-
-import asyncio
-import json
 
 import httpx
 
@@ -132,21 +131,22 @@ def classify_error(
     # Input and parameter validation errors
     if isinstance(error, ValueError) or "ValidationError" in error_name:
         return StructuredToolError(
-            error=f"Invalid parameter: {str(error)}",
+            error=f"Invalid parameter: {error!s}",
             error_type="validation",
             action="Check input parameters and format.",
             provider=provider,
         )
 
     # YouTube-specific errors (IP blocking)
-    if "YouTube" in str(error) or "transcript" in str(error).lower():
-        if "IP" in str(error) or "blocked" in str(error).lower() or "Cloud" in str(error):
-            return StructuredToolError(
-                error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
-                error_type="network",
-                action="Set YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
-                provider="youtube",
-            )
+    if ("YouTube" in str(error) or "transcript" in str(error).lower()) and (
+        "IP" in str(error) or "blocked" in str(error).lower() or "Cloud" in str(error)
+    ):
+        return StructuredToolError(
+            error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
+            error_type="network",
+            action="Set YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
+            provider="youtube",
+        )
 
     # asyncio timeouts (asyncio.wait_for / asyncio.timeout)
     if isinstance(error, asyncio.TimeoutError):

@@ -10,8 +10,8 @@ from .web_results_index import (
 
 __all__ = [
     "COLLECTION_NAME",
-    "encode_bm25",
     "WebResultsIndex",
+    "encode_bm25",
     "get_web_results_index",
     "index_final_results",
 ]

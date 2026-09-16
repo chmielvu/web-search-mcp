@@ -2,18 +2,17 @@ from __future__ import annotations
 
 import os
 import re
-from functools import partial
 from dataclasses import dataclass
+from functools import partial
 from typing import Any
 from urllib.parse import parse_qs, unquote, urlparse
 
 import anyio
 import httpx
 
-from ..html_tools import html_to_markdown as extract_html_as_markdown, soup_from_html
-
-
-from ..models import FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ..html_tools import html_to_markdown as extract_html_as_markdown
+from ..html_tools import soup_from_html
+from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
 from ._bridge import bridge_text_producer
 
 
@@ -227,7 +226,7 @@ class WikipediaApiClient:
         data = resp.json()
         if not isinstance(data, dict):
             raise WikipediaError("Wikipedia API response was not a JSON object.")
-        if "error" in data and data["error"]:
+        if data.get("error"):
             err = data["error"]
             msg = ""
             if isinstance(err, dict):

@@ -11,9 +11,8 @@ import duckdb
 
 from ..settings import settings
 from ..utils.paths import DEFAULT_EXTENSION_DIR
-from .writers import ensure_store_schema
 from .views import build_analytics_view_sql
-
+from .writers import ensure_store_schema
 
 DEFAULT_SCHEMA = "web_search_analytics"
 DEFAULT_EXTENSION_DIR = DEFAULT_EXTENSION_DIR

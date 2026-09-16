@@ -14,7 +14,6 @@ from typing import Any
 
 from ..skill_paths import REPO_ROOT
 
-
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "partial"})
 
 # How long ``cancel_job`` waits for a running worker to stop before reporting it

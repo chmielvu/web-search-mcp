@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import logging
+import time
 from collections import Counter
 from collections.abc import Awaitable, Sequence
 from datetime import date
-import logging
-import time
 from typing import Literal
 
 from ..models import (
@@ -22,12 +22,12 @@ from ..rerank.bm25 import score_candidates_async
 from ..rerank.pipeline import rerank_results
 from ..settings import settings
 from ..telemetry.spans import get_tracer
+from ..utils.url_canonicalize import canonicalize_url
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
 from .filters import filter_results_by_window, parse_published_date
 from .merge import memoize_canonicalize, reciprocal_rank_fusion
 from .postprocess import apply_domain_boost
-from ..utils.url_canonicalize import canonicalize_url
 
 logger = logging.getLogger(__name__)
 

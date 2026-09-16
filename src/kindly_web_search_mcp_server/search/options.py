@@ -13,7 +13,7 @@ class SearchOptions:
     language: str | None = None
     region: str | None = None
 
-    def validate(self) -> "SearchOptions":
+    def validate(self) -> SearchOptions:
         if self.temporal is not None and self.temporal.bucket is None and self.temporal.is_empty:
             raise ValueError("temporal window resolved empty; pass None instead.")
         return self

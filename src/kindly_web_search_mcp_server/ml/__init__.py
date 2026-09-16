@@ -10,8 +10,8 @@ from .embeddings import (
     reset_client,
 )
 from .gliner_client import (
-    GLiNER2Client,
     GatewayAnalysis,
+    GLiNER2Client,
     QueryFeatureAnalysis,
     get_gliner_client,
 )
@@ -21,11 +21,11 @@ __all__ = [
     "EmbeddingAPIError",
     "EmbeddingDimensionError",
     "EmbeddingTimeoutError",
-    "embed_query",
-    "embed_texts",
-    "reset_client",
     "GLiNER2Client",
     "GatewayAnalysis",
     "QueryFeatureAnalysis",
+    "embed_query",
+    "embed_texts",
     "get_gliner_client",
+    "reset_client",
 ]

@@ -9,6 +9,7 @@ of carrying them as private methods.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import shutil
 import threading
 import time
@@ -27,13 +28,15 @@ from .fetch import (
 from .graph import _extract_graph
 from .models import (
     GRAPH_WAIT_SECONDS,
-    LOGGER as _LOGGER,  # noqa: F401  (re-exported for callers)
     MAX_CONTENT_CHARS,
     QueryResult,
     Snapshot,
     SnapshotError,
     SnapshotHit,
     _repo_key,
+)
+from .models import (
+    LOGGER as _LOGGER,
 )
 from .persist import (
     _deferred_graph_build,
@@ -130,12 +133,11 @@ class SnapshotManager:
             return
         if snapshot.graph_task is None:
             return
-        try:
-            done, _pending = await asyncio.wait(
+        # Task failure is recorded in graph_status by _deferred_graph_build.
+        with contextlib.suppress(Exception):
+            _done, _pending = await asyncio.wait(
                 {snapshot.graph_task}, timeout=budget or GRAPH_WAIT_SECONDS
             )
-        except Exception:
-            pass  # Task failure is recorded in graph_status by _deferred_graph_build.
 
     async def ensure(self, repository: str, *, ref: str | None = None) -> Snapshot:
         key = f"{repository}@{ref}" if ref else repository
@@ -175,10 +177,9 @@ class SnapshotManager:
             # TreeSitter graph (symbols/edges) is expensive (30-50% of cold time)
             # and only needed for symbol/callers queries. Defer it so the
             # snapshot is usable for search/read/tree immediately.
-            try:
+            # No loop (tests) - graph built on demand or not needed.
+            with contextlib.suppress(RuntimeError):
                 snapshot.graph_task = asyncio.create_task(_deferred_graph_build(self, snapshot))
-            except RuntimeError:
-                pass  # No loop (tests) - graph built on demand or not needed
             return snapshot
         except SnapshotError as exc:
             if previous is not None:

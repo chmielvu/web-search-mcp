@@ -47,9 +47,8 @@ def _extract_sitemap_links(
             continue
         domain = parsed.netloc.lower() or ""
         internal = bool(base_domain and domain == base_domain)
-        if same_domain_only or not include_external:
-            if not internal:
-                continue
+        if (same_domain_only or not include_external) and not internal:
+            continue
         normalized_url = parsed._replace(fragment="").geturl()
         if normalized_url in seen:
             continue

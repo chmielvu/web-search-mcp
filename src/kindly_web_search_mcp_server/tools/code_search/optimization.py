@@ -9,8 +9,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ...ml.gliner_client import QueryFeatureAnalysis, get_gliner_client
 from ...inference.router import build_worker_router
+from ...ml.gliner_client import QueryFeatureAnalysis, get_gliner_client
 from .models import CodeSearchRequest
 from .query import QueryPlan
 

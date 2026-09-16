@@ -13,7 +13,7 @@ from typing import TypeVar
 T = TypeVar("T")
 
 
-def _result_link(result: T) -> str:
+def _result_link[T](result: T) -> str:
     """Duck-typed link accessor: pydantic models and plain dicts both work."""
     if isinstance(result, dict):
         return str(result.get("link") or "")
@@ -64,7 +64,7 @@ def _url_matches_domain(url: str, pattern: str) -> bool:
         return False
 
 
-def apply_domain_boost(
+def apply_domain_boost[T](
     results: Sequence[T],
     domain_boost: tuple[str, ...] | list[str] | None,
 ) -> list[T]:

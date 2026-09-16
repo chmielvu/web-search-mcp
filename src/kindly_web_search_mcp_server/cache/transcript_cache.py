@@ -15,6 +15,8 @@ from ..telemetry import record_cache_lookup
 from .observability import emit_cache_lookup_event, emit_cache_store_event
 from .transcript_sqlite import (
     TRANSCRIPT_CACHE_DEFAULT_TTL_SECONDS,
+)
+from .transcript_sqlite import (
     TranscriptSQLiteCache as _TranscriptSQLiteCache,
 )
 
@@ -35,7 +37,7 @@ class TranscriptCache:
         """Return the number of cached transcript entries."""
         try:
             return self._backend.entry_count()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Transcript cache entry_count failed: %s", exc)
             return 0
 

@@ -19,6 +19,7 @@ Architecture:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import logging.handlers
@@ -26,7 +27,7 @@ import queue
 import sqlite3
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -133,8 +134,8 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
 
     @staticmethod
     def _current_trace_context() -> dict[str, str]:
-        try:
-            from opentelemetry import trace as otel_trace  # noqa: PLC0415
+        with contextlib.suppress(Exception):
+            from opentelemetry import trace as otel_trace
 
             span = otel_trace.get_current_span()
             if span and span.is_recording():
@@ -143,8 +144,6 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
                     "trace_id": format(ctx.trace_id, "032x"),
                     "span_id": format(ctx.span_id, "016x"),
                 }
-        except Exception:  # noqa: BLE001
-            pass
         return {}
 
     # ── record extraction ───────────────────────────────────────────
@@ -173,8 +172,8 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
 
         return {
             "log_id": uuid.uuid4().hex,
-            "recorded_at": datetime.fromtimestamp(record.created, tz=timezone.utc).isoformat(),
-            "logged_at": datetime.now(tz=timezone.utc).isoformat(),
+            "recorded_at": datetime.fromtimestamp(record.created, tz=UTC).isoformat(),
+            "logged_at": datetime.now(tz=UTC).isoformat(),
             "pid": record.process,
             "logger_name": record.name,
             "level": record.levelname,
@@ -253,7 +252,7 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
                     )
             self._total_inserted += len(records)
             self._flush_count += 1
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logging.getLogger(__name__).warning("SQLite process log flush failed: %s", exc)
         finally:
             con.close()
@@ -289,7 +288,7 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
                         WHERE rowid NOT IN (SELECT rowid FROM process_logs);
                         """
                     )
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logging.getLogger(__name__).warning(
                     "SQLite process log TTL cleanup failed: %s", exc
                 )
@@ -331,7 +330,7 @@ class BatchSQLiteLogHandler(logging.handlers.BufferingHandler):
             return
         try:
             self.flush()
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass
         finally:
             self._closed = True
@@ -420,7 +419,7 @@ def _load_settings() -> dict[str, Any]:
             "process_logs_duckdb_path": getattr(s, "process_logs_duckdb_path", ""),
             "process_logs_ttl_hours": getattr(s, "process_logs_ttl_hours", 48),
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}
 
 

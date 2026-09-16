@@ -3,19 +3,19 @@
 from __future__ import annotations
 
 import argparse
-from collections.abc import Sequence
-from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
-from hashlib import sha256
 import json
 import math
-from pathlib import Path
 import uuid
+from collections.abc import Sequence
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from hashlib import sha256
+from pathlib import Path
 
 import duckdb
 
-from .ids import _canonical_result_id
 from .graph_store import GraphSnapshot, publish_graph_snapshot
+from .ids import _canonical_result_id
 from .quality_metrics import compute_positional_discount
 from .writers.connection import _db_path
 
@@ -51,7 +51,7 @@ def build_graph_snapshot(*, db_path: str | None, config: GraphBuildConfig) -> Gr
         raise GraphBuildError("lookback_days must be positive")
     window_start = cutoff - timedelta(days=config.lookback_days)
 
-    built_at = datetime.now(timezone.utc)
+    built_at = datetime.now(UTC)
     path = _db_path(db_path)
     if not path.exists():
         raise GraphBuildError(f"Database path does not exist: {path}")
@@ -438,7 +438,7 @@ def _parse_utc_cutoff(raw_value: str) -> datetime:
         raise ValueError("cutoff must include an explicit UTC offset")
     if cutoff.utcoffset() != timedelta(0):
         raise ValueError("cutoff must be expressed in UTC")
-    return cutoff.astimezone(timezone.utc)
+    return cutoff.astimezone(UTC)
 
 
 def generate_graph_snapshot(

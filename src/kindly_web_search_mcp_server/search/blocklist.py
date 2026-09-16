@@ -30,7 +30,7 @@ from ..settings import settings
 
 logger = logging.getLogger(__name__)
 
-_index_cache: "BlocklistIndex | None" = None
+_index_cache: BlocklistIndex | None = None
 _index_lock = threading.Lock()
 _db_lock = threading.Lock()
 
@@ -229,9 +229,7 @@ def is_blocked_url(url: str) -> bool:
             if host[dot + 1 :] in index.sub_hosts:
                 return True
             dot = host.find(".", dot + 1)
-    if index.regex is not None and index.regex.match(url):
-        return True
-    return False
+    return bool(index.regex is not None and index.regex.match(url))
 
 
 def filter_blocked_results(results: list[WebSearchResult]) -> list[WebSearchResult]:

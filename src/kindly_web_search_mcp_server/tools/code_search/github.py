@@ -9,7 +9,8 @@ import os
 import re
 import time
 from collections import deque
-from typing import Any, Iterable
+from collections.abc import Iterable
+from typing import Any
 
 import httpx
 

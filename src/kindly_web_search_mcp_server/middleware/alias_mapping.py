@@ -7,7 +7,8 @@ to their canonical definitions. Uses FastMCP 4.x immutable context.copy pattern.
 from __future__ import annotations
 
 import logging
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 
@@ -105,8 +106,8 @@ def create_argument_aliasing_middleware() -> ArgumentAliasingMiddleware:
 
 
 __all__ = [
-    "ArgumentAliasingMiddleware",
-    "create_argument_aliasing_middleware",
     "GLOBAL_ALIASES",
     "TOOL_ALIASES",
+    "ArgumentAliasingMiddleware",
+    "create_argument_aliasing_middleware",
 ]

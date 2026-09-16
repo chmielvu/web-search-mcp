@@ -9,6 +9,7 @@ code-search modes (code, discovery, issues, huggingface) are untouched.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import re
 from typing import Any
@@ -134,13 +135,11 @@ async def _context7_get(
         raise RuntimeError(f"Context7 request failed: {type(exc).__name__}.") from exc
     if response.status_code >= 400:
         detail = ""
-        try:
+        with contextlib.suppress(ValueError):
             body = response.json()
             detail = (
                 _text(body.get("message") or body.get("error")) if isinstance(body, dict) else ""
             )
-        except ValueError:
-            pass
         raise RuntimeError(
             f"Context7 returned HTTP {response.status_code}"
             f"{f': {detail}' if detail else ''}. Check the library ID and query."

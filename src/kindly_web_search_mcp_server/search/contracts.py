@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from enum import Enum
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Literal, Mapping, Sequence
+from typing import Annotated, Any, Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
-from typing_extensions import Annotated
 
 from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
 from .options import SearchOptions
@@ -24,7 +24,7 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(strict=True, frozen=True, extra="forbid")
 
 
-class BranchRole(str, Enum):
+class BranchRole(StrEnum):
     ORIGINAL = "original"
     FREE = "free"
     SERP1 = "serp1"
@@ -84,7 +84,7 @@ class SearchPlan:
         policy_version: str,
         rewrite_queries: Sequence[str] = (),  # 5 planner rewrites (k1, k2, k3, neural, specialized)
         seed_queries: Sequence[str] = (),
-    ) -> "SearchPlan":
+    ) -> SearchPlan:
         copied = {
             name: MappingProxyType(dict(values)) for name, values in provider_arguments.items()
         }

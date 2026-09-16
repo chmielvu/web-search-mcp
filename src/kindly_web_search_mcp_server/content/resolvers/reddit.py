@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from ..documents import build_thread_document, thread_messages_from_dict
 from ..http_utils import raise_for_status, request_with_redirect_validation
 from ..models import (
     AcquisitionError,
@@ -17,7 +18,6 @@ from ..models import (
     ResolverTarget,
     ThreadDocument,
 )
-from ..documents import build_thread_document, thread_messages_from_dict
 
 
 class RedditError(RuntimeError):

@@ -10,7 +10,6 @@ from ...models import WebSearchResult
 from ...rerank.cross_encoder import rerank_with_provider_fallback
 from .models import CodeSearchHit, Diagnostic
 
-
 RerankProfile = Literal["code", "hybrid"]
 
 _CODE_SEARCH_RERANKING_INSTRUCTIONS = (

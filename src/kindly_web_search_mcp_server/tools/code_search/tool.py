@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -12,18 +13,17 @@ from fastmcp.server.context import Context
 from opentelemetry import trace
 from pydantic import Field
 
+from ...analytics.producers import emit_tool_observability_event
+from ...cache.code_search import build_search_cache_key, get_code_search_cache
 from ...errors import raise_tool_error
 from ...telemetry import SEARCH_QUERY, create_chain_span
-from ...analytics.producers import emit_tool_observability_event
+from .._helpers import _code_search_flight
 from .models import (
     CodeSearchPublicResult,
     CodeSearchRequest,
     CodeSearchResultType,
     to_public_result,
 )
-from ...cache.code_search import build_search_cache_key, get_code_search_cache
-
-from .._helpers import _code_search_flight
 from .optimization import optimize_query_plan
 from .orchestrator import execute_code_search
 from .query import build_query_plan
@@ -402,10 +402,8 @@ async def code_search(
     finally:
         reset_run_context(optimization_token)
     if ctx is not None and hasattr(ctx, "report_progress"):
-        try:
+        with contextlib.suppress(Exception):
             await ctx.report_progress(progress=5, total=100, message="Planning code search...")
-        except Exception:
-            pass
 
     cache = get_code_search_cache()
     cache_key = build_search_cache_key(request, plan)
@@ -414,12 +412,10 @@ async def code_search(
 
     async def _execute_uncached() -> CodeSearchResultType:
         if ctx is not None and hasattr(ctx, "report_progress"):
-            try:
+            with contextlib.suppress(Exception):
                 await ctx.report_progress(
                     progress=15, total=100, message="Running selected code-search providers..."
                 )
-            except Exception:
-                pass
         with create_chain_span(
             "code_search",
             attributes={
@@ -476,10 +472,8 @@ async def code_search(
             cache.store_search(cache_key, response.model_dump(mode="json"))
 
     if ctx is not None and hasattr(ctx, "report_progress"):
-        try:
+        with contextlib.suppress(Exception):
             await ctx.report_progress(progress=100, total=100, message="Done")
-        except Exception:
-            pass
     emit_tool_observability_event(
         LOGGER,
         "code_search",

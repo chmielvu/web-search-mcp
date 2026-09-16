@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import hashlib
 import logging
 import time
-from typing import Any, Awaitable, Sequence
+from collections.abc import Awaitable, Sequence
+from typing import Any
 
-from ..utils.query_pipeline import QueryFeatures, build_query_features
+from ..analytics.training.query_understanding_jsonl import (
+    append_query_rewrite_record,
+    rewritten_slots_payload,
+)
 from ..inference.router import build_worker_router
 from ..prompts.query_rewrite import (
     REWRITE_PROMPT_VERSION,
@@ -18,15 +23,12 @@ from ..prompts.query_rewrite import (
 from ..prompts.rerank import build_relevance_query
 from ..settings import settings
 from ..telemetry.spans import get_tracer
-from ..analytics.training.query_understanding_jsonl import (
-    append_query_rewrite_record,
-    rewritten_slots_payload,
-)
+from ..utils.query_pipeline import QueryFeatures, build_query_features
+from ..utils.text_clean import clean_query as normalize_query
 from .contracts import BranchRole, QueryBranch, SearchPlan, SearchRun
 from .graph_expansion import GraphExpansionDecision, expand_seed_queries
-from ..utils.text_clean import clean_query as normalize_query
-from .keyword_extract import extract_support_terms
 from .intents import SearchIntent, normalize_intent, resolve_intent_policy
+from .keyword_extract import extract_support_terms
 from .provider_registry import (
     select_paid_google_provider,
     select_provider_names,
@@ -35,7 +37,6 @@ from .provider_registry import (
 from .providers.brave import suggest_brave_queries
 from .providers.discovery_engine import app_for_intent, credentials_available, warm_access_token
 from .understanding.resolver import resolve_query_understanding
-
 
 LOGGER = logging.getLogger(__name__)
 _ENRICHMENT_TIMEOUT_SECONDS = 3.0
@@ -195,7 +196,7 @@ async def _rewrite_queries(
         preserved_terms=list(preserved_terms),
     )
     cache_key = hashlib.sha256(
-        f"v{REWRITE_PROMPT_VERSION}:{normalize_intent(str(intent))}:{user_content}".encode("utf-8")
+        f"v{REWRITE_PROMPT_VERSION}:{normalize_intent(str(intent))}:{user_content}".encode()
     ).hexdigest()
     if cache_key in _REWRITE_CACHE:
         cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]
@@ -270,10 +271,8 @@ async def plan_search(run: SearchRun) -> SearchPlan:
         original = _branch_names(_ORIGINAL_CANDIDATES, available)
         free = _branch_names(_FREE_CANDIDATES, available)
         if token_warm is not None:
-            try:
+            with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(asyncio.shield(token_warm), timeout=12.0)
-            except TimeoutError:
-                pass
         if discovery_app is None:
             original = tuple(name for name in original if name != "google_discovery_engine")
             free = tuple(name for name in free if name != "google_discovery_engine")
@@ -391,7 +390,7 @@ async def plan_search(run: SearchRun) -> SearchPlan:
                 # Per-slot degradation: a blank slot falls back alone.
                 queries = tuple(
                     (normalized_slots[name].strip() or fb.strip() or normalized_query)
-                    for name, fb in zip(SLOT_ORDER, fallback)
+                    for name, fb in zip(SLOT_ORDER, fallback, strict=False)
                 )
                 rewritten_slots = tuple(normalized_slots[name] for name in SLOT_ORDER)
             except Exception as exc:

@@ -18,7 +18,11 @@ from ...utils.entity import (
 from ...utils.query_pipeline import langs_from_text
 from ...utils.query_understanding import (
     TIME_CURRENT as _CURRENT_TERMS,
+)
+from ...utils.query_understanding import (
     TIME_HISTORICAL as _HISTORICAL_TERMS,
+)
+from ...utils.query_understanding import (
     TIME_RECENT as _RECENT_TERMS,
 )
 from ..intents import SearchIntent, normalize_intent

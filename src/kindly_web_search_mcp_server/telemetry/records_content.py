@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from .metrics import _content_fallback_counter, _content_error_counter
+
 from ..analytics.producers import emit_observability_event
 from .attributes import (
     CONTENT_EXTRACTION_METHOD,
@@ -14,7 +14,7 @@ from .attributes import (
     ERROR_TYPE,
     STATUS_SUCCESS,
 )
-from .metrics import get_content_metrics
+from .metrics import _content_error_counter, _content_fallback_counter, get_content_metrics
 
 
 def record_content_resolution(

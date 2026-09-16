@@ -8,16 +8,16 @@ gateway (see ml/gliner_client.py); this module never imports it.
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from collections.abc import Iterable
 
 from pydantic import BaseModel, Field
 
 __all__ = [
     "DEFAULT_CONTENT_LABELS",
     "DEFAULT_CONTENT_RELATIONS",
-    "_GRAPH_RELATIONS",
     "DEFAULT_QUERY_LABELS",
     "DEFAULT_QUERY_RELATIONS",
+    "_GRAPH_RELATIONS",
     "EntityRelation",
     "EntitySpan",
     "postprocess_entities",

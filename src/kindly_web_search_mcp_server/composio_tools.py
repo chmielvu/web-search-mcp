@@ -11,15 +11,15 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
+from .analytics.producers import emit_tool_observability_event
 from .composio_client import execute_composio_tool
+from .errors import raise_tool_error
 from .models import (
     SimilarLinkResult,
     SimilarLinksResponse,
     fetch_next,
 )
 from .tools.catalog import tool_kwargs
-from .errors import raise_tool_error
-from .analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -36,10 +36,7 @@ def _string_list(values: list[str] | None) -> list[str] | None:
 
 def _extract_similar_items(data: dict[str, Any]) -> list[dict[str, Any]]:
     container = data.get("results", data)
-    if isinstance(container, dict):
-        items = container.get("results", [])
-    else:
-        items = container
+    items = container.get("results", []) if isinstance(container, dict) else container
     return items if isinstance(items, list) else []
 
 

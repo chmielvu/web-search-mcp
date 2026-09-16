@@ -8,11 +8,12 @@ from typing import Annotated, Any, Literal
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
-from ..errors import raise_tool_error
+
+from ..analytics.producers import emit_tool_observability_event
 from ..cache import get_query_cache, provider_cache_key
+from ..errors import raise_tool_error
 from ..models import AcademicSearchResponse, fetch_next
 from ..utils.text_clean import clean_query as normalize_query
-from ..analytics.producers import emit_tool_observability_event
 from ._helpers import _academic_search_flight, _record_tool_failure, _record_tool_success
 
 LOGGER = logging.getLogger(__name__)

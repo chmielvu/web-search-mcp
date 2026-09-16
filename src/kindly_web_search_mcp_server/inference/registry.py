@@ -75,8 +75,8 @@ from __future__ import annotations
 
 import logging
 import threading
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Awaitable, Callable
 
 from .types import LLMGeneration, ModelCapability, ModelSpec
 
@@ -298,10 +298,7 @@ def _provider_key_for_slot(provider: str, index: int) -> str:
 
 
 def _normalize_api_key_envs(api_key_envs: str | list[str] | tuple[str, ...]) -> list[str]:
-    if isinstance(api_key_envs, str):
-        values = [api_key_envs]
-    else:
-        values = list(api_key_envs)
+    values = [api_key_envs] if isinstance(api_key_envs, str) else list(api_key_envs)
     normalized = [value.strip() for value in values if value and value.strip()]
     if not normalized:
         raise ValueError("At least one api_key_env is required")

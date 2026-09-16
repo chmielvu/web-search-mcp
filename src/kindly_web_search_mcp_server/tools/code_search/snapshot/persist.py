@@ -18,21 +18,23 @@ if TYPE_CHECKING:
     from .store import SnapshotManager
 
 
+import contextlib
+
 from ..tree_sitter_evidence import language_for_path
 from .graph import _extract_graph
 from .models import (
+    _SKIP_DIRS,
+    _SKIP_SUFFIXES,
     LOGGER,
     MAX_FILE_BYTES,
     MAX_LIVE_SNAPSHOTS,
-    Snapshot,
     TTL_SECONDS,
-    _SKIP_DIRS,
-    _SKIP_SUFFIXES,
+    Snapshot,
     _repo_key,
 )
 
 
-def _connect(manager: "SnapshotManager") -> sqlite3.Connection:
+def _connect(manager: SnapshotManager) -> sqlite3.Connection:
     manager.db_path.parent.mkdir(parents=True, exist_ok=True)
     con = sqlite3.connect(str(manager.db_path), timeout=30.0)
     con.row_factory = sqlite3.Row
@@ -42,7 +44,7 @@ def _connect(manager: "SnapshotManager") -> sqlite3.Connection:
     return con
 
 
-def _ensure_schema(manager: "SnapshotManager") -> None:
+def _ensure_schema(manager: SnapshotManager) -> None:
     with manager._lock:
         con = _connect(manager)
         try:
@@ -110,7 +112,7 @@ def _ensure_schema(manager: "SnapshotManager") -> None:
             con.close()
 
 
-def _remember(manager: "SnapshotManager", snapshot: Snapshot, key: str | None = None) -> None:
+def _remember(manager: SnapshotManager, snapshot: Snapshot, key: str | None = None) -> None:
     manager._live[key or snapshot.repository] = snapshot
     if len(manager._live) <= MAX_LIVE_SNAPSHOTS:
         return
@@ -121,7 +123,7 @@ def _remember(manager: "SnapshotManager", snapshot: Snapshot, key: str | None = 
 
 
 def _persist(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     records: list[tuple[str, str | None, int, str]],
     symbols: list[tuple[str, str, str, int, int]],
@@ -135,13 +137,11 @@ def _persist(
                 con.execute("DELETE FROM files WHERE repository = ?", (repo_key,))
                 con.execute("DELETE FROM symbols WHERE repository = ?", (repo_key,))
                 con.execute("DELETE FROM edges WHERE repository = ?", (repo_key,))
-                try:
+                with contextlib.suppress(sqlite3.OperationalError):
                     con.execute(
                         "DELETE FROM files_fts WHERE repository = ?",
                         (repo_key,),
                     )
-                except sqlite3.OperationalError:
-                    pass
                 con.execute(
                     """
                     INSERT OR REPLACE INTO snapshots
@@ -201,19 +201,17 @@ def _persist(
                         ) in edges
                     ],
                 )
-                try:
+                with contextlib.suppress(sqlite3.OperationalError):
                     con.executemany(
                         "INSERT INTO files_fts (repository, path, content) VALUES (?, ?, ?)",
                         [(repo_key, path, content) for path, _language, _size, content in records],
                     )
-                except sqlite3.OperationalError:
-                    pass
         finally:
             con.close()
 
 
 def _restore_persisted_snapshot(
-    manager: "SnapshotManager", repository: str, key: str
+    manager: SnapshotManager, repository: str, key: str
 ) -> Snapshot | None:
     """Restore a recent materialized snapshot whose worktree still exists."""
     with manager._lock:
@@ -265,15 +263,14 @@ def _restore_persisted_snapshot(
         snapshot.graph_edge_count = edge_count
     else:
         # The deferred build re-reads the worktree, so it works on restore.
-        try:
+        # No loop (some test paths) — status stays pending.
+        with contextlib.suppress(RuntimeError):
             snapshot.graph_task = asyncio.create_task(_deferred_graph_build(manager, snapshot))
-        except RuntimeError:
-            pass  # No loop (some test paths) — status stays pending
     _remember(manager, snapshot, key=key)
     return snapshot
 
 
-async def _deferred_graph_build(manager: "SnapshotManager", snapshot: Snapshot) -> None:
+async def _deferred_graph_build(manager: SnapshotManager, snapshot: Snapshot) -> None:
     """Build TreeSitter graph in background after snapshot is usable."""
     try:
         repo_key = _repo_key(snapshot)

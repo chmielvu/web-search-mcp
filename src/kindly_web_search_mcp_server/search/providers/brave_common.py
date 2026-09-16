@@ -8,9 +8,8 @@ while leaving the public provider functions in their own modules.
 
 from __future__ import annotations
 
+from ...settings import get_env_value, settings
 from .base import ProviderRequestError
-
-from ...settings import settings, get_env_value
 
 
 class BraveError(ProviderRequestError):

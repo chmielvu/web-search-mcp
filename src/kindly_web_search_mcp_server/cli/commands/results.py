@@ -9,7 +9,6 @@ from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..services.results import RESULT_KINDS, search_results
 
-
 results_app = typer.Typer(no_args_is_help=True)
 
 

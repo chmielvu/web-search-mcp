@@ -3,13 +3,14 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Annotated, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
+from ..analytics.producers import emit_tool_observability_event
 from ..errors import raise_tool_error
 from ..models import (
     YouTubeChannelTranscriptionItem,
@@ -17,20 +18,18 @@ from ..models import (
     YouTubeTranscriptResponse,
 )
 from ..telemetry import record_youtube_transcript
+from ..utils.text_clean import clean_text_for_llm
 from ..youtube import (
     YouTubeError,
     calculate_total_duration,
     fetch_transcript_with_cache,
     format_transcript_text,
     format_transcript_timestamped,
-    parse_youtube_url,
     list_channel_videos,
     looks_like_channel_target,
+    parse_youtube_url,
 )
-
 from ..youtube.api_quota import get_youtube_api_quota_tracker
-from ..utils.text_clean import clean_text_for_llm
-from ..analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -290,7 +289,7 @@ async def youtube_transcript(
         await ctx.report_progress(progress=100, total=100, message="Done")
         return response  # type: ignore[return-value]
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         record_youtube_transcript(
             format=format,
             language=language or "en",
@@ -311,7 +310,7 @@ async def youtube_transcript(
             duration_ms=(time.monotonic() - started) * 1000,
         )
         raise_tool_error(
-            asyncio.TimeoutError(error_msg),
+            TimeoutError(error_msg),
             provider="youtube",
         )
 

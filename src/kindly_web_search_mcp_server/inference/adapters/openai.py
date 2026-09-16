@@ -7,10 +7,10 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from ..registry import ProviderAdapter, register_provider_adapter
-from ..types import LLMGeneration, ModelCapability, ModelSpec
 from ...telemetry.phoenix_tracing import LLMTraceContext, openinference_context_scope
 from ...telemetry.usage import extract_llm_usage
+from ..registry import ProviderAdapter, register_provider_adapter
+from ..types import LLMGeneration, ModelCapability, ModelSpec
 
 
 async def execute_openai(

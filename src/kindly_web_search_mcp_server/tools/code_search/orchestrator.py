@@ -10,27 +10,26 @@ import httpx
 
 from ...errors import classify_error
 from .exa import search_exa
+from .filters import filter_scoped_hits
 from .github import search_github
-from .hydration import hydrate_sources
 from .grepapp import search_grepapp
 from .huggingface import search_huggingface
+from .hydration import hydrate_sources
 from .issues import search_github_issues
-from .filters import filter_scoped_hits
 from .models import (
     CodeSearchRequest,
     CodeSearchResultType,
-    normalize_hit_metadata,
     Diagnostic,
     ProviderResponse,
     RepoCandidate,
     Stats,
+    normalize_hit_metadata,
 )
 from .query import QueryPlan
 from .ranking import rank_candidates
-from .windows import extract_source_windows
 from .reranking import RerankProfile, rerank_code_hits
 from .sourcegraph import search_sourcegraph
-
+from .windows import extract_source_windows
 
 _ERROR_KIND_MAP: dict[str, str] = {
     "rate_limit": "rate_limit",

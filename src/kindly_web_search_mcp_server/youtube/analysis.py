@@ -12,9 +12,9 @@ from ..ml.gliner_client import get_gliner_client
 from ..models import YouTubeTranscriptAnalysis
 from ..search.understanding.adapter import normalize_content_entities
 from ..utils.entity import (
+    _GRAPH_RELATIONS,
     DEFAULT_CONTENT_LABELS,
     DEFAULT_CONTENT_RELATIONS,
-    _GRAPH_RELATIONS,
     EntityRelation,
     EntitySpan,
     postprocess_entities,
@@ -198,7 +198,7 @@ async def analyze_transcript(text: str) -> YouTubeTranscriptAnalysis:
             break
 
     if batch_results is not None:
-        for (offset, chunk), raw in zip(chunks, batch_results):
+        for (offset, chunk), raw in zip(chunks, batch_results, strict=False):
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("batch result is not an object")

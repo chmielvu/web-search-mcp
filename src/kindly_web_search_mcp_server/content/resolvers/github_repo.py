@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import contextlib
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from ...utils.github import normalize_github_repository
+from ..documents import build_repository_document
 from ..github_api import (
     fetch_readme_markdown,
     github_graphql,
@@ -22,7 +24,6 @@ from ..models import (
     RepositoryDocument,
     ResolverTarget,
 )
-from ..documents import build_repository_document
 
 
 class GitHubRepoError(RuntimeError):
@@ -62,17 +63,12 @@ def parse_github_repo_url(url: str) -> GitHubRepoTarget:
         repo = repo[:-4]
     ref: str | None = None
     path: str | None = None
-    if len(parts) >= 4 and parts[2] == "tree":
+    if (len(parts) >= 4 and parts[2] == "tree") or (len(parts) >= 4 and parts[2] == "blob"):
         ref = parts[3]
         path = "/".join(parts[4:]) or None
-    elif len(parts) >= 4 and parts[2] == "blob":
-        ref = parts[3]
-        path = "/".join(parts[4:]) or None
-    try:
+    with contextlib.suppress(Exception):
         normalized = normalize_github_repository(f"{owner}/{repo}")
         owner, repo = normalized.split("/", 1)
-    except Exception:
-        pass
     return GitHubRepoTarget(owner=owner, repo=repo, ref=ref, path=path)
 
 
@@ -215,7 +211,7 @@ async def fetch_github_repo_raw(target: ResolverTarget, ctx: FetchContext) -> Ra
 __all__ = [
     "GitHubRepoError",
     "GitHubRepoTarget",
-    "parse_github_repo_url",
-    "match_github_repo",
     "fetch_github_repo_raw",
+    "match_github_repo",
+    "parse_github_repo_url",
 ]

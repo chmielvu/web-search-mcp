@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+import json
 import logging
 import os
-from typing import Any
-
-
-import json
 import sys
 from datetime import UTC, datetime
+from typing import Any
+
 from opentelemetry import trace
 
 
@@ -69,9 +68,12 @@ def configure_logging(
         root.addHandler(handler)
     else:
         for handler in root.handlers:
-            if isinstance(handler, logging.StreamHandler) and handler.stream is sys.stderr:
-                if log_format == "json":
-                    handler.setFormatter(JsonStderrLogFormatter())
+            if (
+                isinstance(handler, logging.StreamHandler)
+                and handler.stream is sys.stderr
+                and log_format == "json"
+            ):
+                handler.setFormatter(JsonStderrLogFormatter())
 
     root.setLevel(resolved_level)
     # Silence common noisy libraries unless the host explicitly configures them.
@@ -109,7 +111,7 @@ def _install_process_logging() -> None:
     if _process_logging_installed:
         return
 
-    from ..settings import settings as _settings  # noqa: PLC0415
+    from ..settings import settings as _settings
 
     if not getattr(_settings, "process_logs_enabled", True):
         return
@@ -134,9 +136,9 @@ def _install_process_logging() -> None:
 def _install_sqlite_handler(db_path: str, ttl_hours: int) -> tuple | None:
     """Try to install the SQLite log handler. Returns (handler, listener) or None."""
     try:
-        from .sqlite_log_handler import install_process_logging as _install  # noqa: PLC0415
+        from .sqlite_log_handler import install_process_logging as _install
 
         return _install(db_path=db_path, ttl_hours=ttl_hours)
-    except Exception:  # noqa: BLE001
+    except Exception:
         # Logging config failures must never crash the application.
         return None

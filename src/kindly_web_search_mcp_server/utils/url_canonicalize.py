@@ -9,6 +9,7 @@ RRF dedup collapses duplicate citations of the same article.
 
 from __future__ import annotations
 
+import contextlib
 import re
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -80,7 +81,7 @@ def extract_domain_from_url(url: str) -> str | None:
     Returns None for invalid or empty URLs.
     Accepts bare hosts (e.g. "docs.python.org") as well as full URLs.
     """
-    try:
+    with contextlib.suppress(Exception):
         parsed = urlsplit(url)
         host = parsed.hostname
         if not host and not parsed.scheme and not parsed.netloc:
@@ -90,6 +91,4 @@ def extract_domain_from_url(url: str) -> str | None:
                 return candidate.lower().removeprefix("www.")
         if host:
             return host.lower().removeprefix("www.")
-    except Exception:
-        pass
     return None

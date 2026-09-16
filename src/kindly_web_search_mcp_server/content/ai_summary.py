@@ -14,8 +14,8 @@ import os
 import re
 import threading
 import time
-from collections.abc import Mapping
-from typing import Any, Sequence
+from collections.abc import Mapping, Sequence
+from typing import Any
 
 from google import genai  # type: ignore[import-untyped]
 from google.genai import types

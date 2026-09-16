@@ -437,8 +437,10 @@ async def _search_grepapp_single_repo(
         rest_response.request_count += 1
         return ProviderResponse(
             provider="grep.app",
-            diagnostics=list(rest_response.diagnostics)
-            + [_diagnostic("grep.app MCP relay returned an error", query=expression)],
+            diagnostics=[
+                *list(rest_response.diagnostics),
+                _diagnostic("grep.app MCP relay returned an error", query=expression),
+            ],
             request_count=rest_response.request_count,
             metadata={
                 "compiled_queries": [expression],

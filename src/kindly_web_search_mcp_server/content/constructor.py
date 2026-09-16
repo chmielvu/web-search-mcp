@@ -12,6 +12,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any
 
+from kindly_web_search_mcp_server.analytics.producers import emit_observability_event
 from kindly_web_search_mcp_server.content.models import (
     PROCESSING_POLICY_VERSION,
     Candidate,
@@ -25,7 +26,6 @@ from kindly_web_search_mcp_server.content.models import (
 )
 from kindly_web_search_mcp_server.settings import settings
 from kindly_web_search_mcp_server.utils.entity import EntitySpan
-from kindly_web_search_mcp_server.analytics.producers import emit_observability_event
 from kindly_web_search_mcp_server.utils.paths import OUTPUTS_DIR
 from kindly_web_search_mcp_server.utils.url_canonicalize import canonicalize_url
 
@@ -76,7 +76,8 @@ def _write_index_document(markdown: str, normalized_url: str) -> str:
     digest.update(markdown.encode("utf-8"))
     destination = OUTPUTS_DIR / f"{digest.hexdigest()}.md"
     destination.parent.mkdir(parents=True, exist_ok=True)
-    handle = tempfile.NamedTemporaryFile(
+    # Closed by the `with` below, which has to happen before replace() on Windows.
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115
         mode="wb", dir=destination.parent, suffix=".tmp", delete=False
     )
     try:

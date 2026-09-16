@@ -6,16 +6,16 @@ import json
 import math
 import sys
 from collections.abc import Callable
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from typing import Any
 from uuid import uuid4
 
 import duckdb
 
-from .connection import _db_path, _LOCK
-from ..async_writes import dispatch_duckdb_write
 from ...telemetry.usage import extract_llm_usage
+from ..async_writes import dispatch_duckdb_write
+from .connection import _LOCK, _db_path
 
 _FACADE_MODULE = "kindly_web_search_mcp_server.analytics.writers"
 
@@ -457,7 +457,7 @@ def record_backend_health_probe(
     _BACKEND_HEALTH_WRITER.dispatch_insert(
         db_path=db_path,
         backend=backend,
-        checked_at=datetime.now(timezone.utc),
+        checked_at=datetime.now(UTC),
         healthy=healthy,
         check_latency_ms=check_latency_ms,
         consecutive_failures=consecutive_failures,
@@ -507,8 +507,8 @@ def insert_code_search_batches(
     """Persist one code search outcome synchronously across child tables."""
     from .inserts import (
         _CODE_SEARCH_DIAGNOSTICS_WRITER,
-        _CODE_SEARCH_HITS_WRITER,
         _CODE_SEARCH_HIT_VARIANTS_WRITER,
+        _CODE_SEARCH_HITS_WRITER,
         _CODE_SEARCH_PROVIDERS_WRITER,
         _CODE_SEARCH_QUERY_VARIANTS_WRITER,
         _CODE_SEARCH_REPOSITORIES_WRITER,
@@ -616,13 +616,13 @@ def insert_funnel_uplift_batches(
     from .inserts import (
         _CANDIDATE_STAGE_EVENTS_WRITER,
         _PROVIDER_RESULTS_WRITER,
-        _QUERY_VARIANTS_WRITER,
         _QUERY_TRANSFORMS_WRITER,
+        _QUERY_VARIANTS_WRITER,
         _RESULT_CATALOG_WRITER,
         _TOOL_OUTPUT_ITEMS_WRITER,
     )
 
-    recorded_at = datetime.now(timezone.utc)
+    recorded_at = datetime.now(UTC)
 
     def _with_recorded_at(row: dict[str, Any]) -> dict[str, Any]:
         return {
@@ -777,7 +777,7 @@ def _prepare_result_label_row(values: dict[str, Any]) -> dict[str, Any]:
     if isinstance(payload_json, (dict, list)):
         payload_json = json.dumps(payload_json, ensure_ascii=False, default=str)
 
-    recorded_at = values.get("recorded_at") or datetime.now(timezone.utc)
+    recorded_at = values.get("recorded_at") or datetime.now(UTC)
 
     return {
         "label_id": label_id,

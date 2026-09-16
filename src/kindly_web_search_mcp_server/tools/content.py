@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import dataclasses
-
 import asyncio
 import base64
+import dataclasses
 import hashlib
 import json
 import logging
@@ -15,6 +14,7 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
+from ..analytics.producers import emit_tool_observability_event
 from ..cache import get_page_cache
 from ..content.ai_summary import summarize, summarize_batch
 from ..content.constructor import (
@@ -23,14 +23,14 @@ from ..content.constructor import (
     finalize_artifact,
     rehydrate_cached_artifact,
 )
-from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.crawl_pipeline import CrawlArtifact, crawl_content_artifacts
-from ..content.remote_clients import get_crawl4ai_client
+from ..content.fetch_pipeline import fetch_content_artifact
 from ..content.models import (
     PROCESSING_POLICY_VERSION,
     ContentError,
     FetchOptions,
 )
+from ..content.remote_clients import get_crawl4ai_client
 from ..errors import raise_tool_error
 from ..models import (
     ContentLink,
@@ -44,7 +44,6 @@ from ..models import (
     TokenUsage,
 )
 from ..settings import settings
-from ..analytics.producers import emit_tool_observability_event
 from ..utils.text_chunking import slice_content
 from ..utils.url_canonicalize import canonicalize_url
 from ._helpers import _record_tool_failure, _record_tool_success
@@ -139,7 +138,7 @@ async def _fetch_one_artifact(
             fetch_options=fetch_options,
             stage_attempts=stage_attempts,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         artifact = await finalize_artifact(
             input_url,
             None,
@@ -777,7 +776,7 @@ async def fetch(
             cursor=None,
             wave_size=wave_size,
             waves_completed=1,
-            duration_ms=int(round((time.monotonic() - started) * 1000.0)),
+            duration_ms=round((time.monotonic() - started) * 1000.0),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
     else:
@@ -904,7 +903,7 @@ async def fetch(
             cursor=next_cursor,
             wave_size=wave_size,
             waves_completed=waves_completed,
-            duration_ms=int(round((time.monotonic() - started) * 1000.0)),
+            duration_ms=round((time.monotonic() - started) * 1000.0),
         )
         await ctx.report_progress(progress=100, total=100, message="Done")
 
@@ -1078,7 +1077,7 @@ async def crawl_web(
         max_depth_reached=max((item.depth for item in outcomes), default=0),
         capabilities=capabilities,
         diagnostics=response_diagnostics or None,
-        duration_ms=int(round((time.monotonic() - started) * 1000.0)),
+        duration_ms=round((time.monotonic() - started) * 1000.0),
     )
     emit_tool_observability_event(
         LOGGER,

@@ -16,13 +16,12 @@ from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from ..errors import classify_error
-from .session_tracking import SessionTracker, get_session_id
-
 from ..utils.guidance_messages import (
     format_shaping_guidance,
     web_search_empty_guidance,
     web_search_specialized_gap_guidance,
 )
+from .session_tracking import SessionTracker, get_session_id
 
 logger = logging.getLogger(__name__)
 GEMINI_TOOLS = frozenset({"gemini_search"})
@@ -104,6 +103,7 @@ def _gemini_is_available() -> bool:
     """Check whether the gemini provider is configured."""
     try:
         import os
+
         from ..settings import settings
 
         return bool(settings.gemini_api_key or os.environ.get("GEMINI_API_KEY"))
@@ -287,9 +287,13 @@ def _guide_error(data: dict) -> tuple[str, list[str], list[str]]:
     next_tools: list[str] = []
     if err_type in ("rate_limit_exceeded", "rate_limit", "http_429"):
         next_tools = ["quick_web_search", "gemini_search"]
-    elif err_type in ("forbidden", "unauthorized", "auth", "http_401", "http_403"):
-        next_tools = ["quick_web_search"]
-    elif err_type in ("network", "timeout", "http_502", "http_503", "http_504"):
+    elif err_type in ("forbidden", "unauthorized", "auth", "http_401", "http_403") or err_type in (
+        "network",
+        "timeout",
+        "http_502",
+        "http_503",
+        "http_504",
+    ):
         next_tools = ["quick_web_search"]
     elif err_type in ("validation_error", "value_error", "content"):
         next_tools = ["web_search", "quick_web_search"]
@@ -422,8 +426,8 @@ def create_dynamic_guidance_middleware() -> DynamicGuidanceMiddleware:
 
 
 __all__ = [
-    "GEMINI_TOOLS",
     "GEMINI_QUERY_ADVISORY",
+    "GEMINI_TOOLS",
     "DynamicGuidanceMiddleware",
     "create_dynamic_guidance_middleware",
 ]

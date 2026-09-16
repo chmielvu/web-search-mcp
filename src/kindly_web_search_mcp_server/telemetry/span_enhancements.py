@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+import contextlib
 from typing import Any
 
 from opentelemetry import trace
 
-from .records_core import record_rrf_score
 from .attributes import (
     ERROR_TYPE,
     PROVIDER_NAME,
@@ -27,6 +27,7 @@ from .attributes import (
     RRF_PROVIDER_CONTRIBUTION,
     SEARCH_NUM_RESULTS_RETURNED,
 )
+from .records_core import record_rrf_score
 
 # ============================================================================
 # SPAN ENHANCEMENT FUNCTIONS
@@ -62,11 +63,9 @@ def add_results_to_span(
         # Extract domain
         domain = ""
         if link:
-            try:
+            with contextlib.suppress(Exception):
                 parsed = urlparse(link)
                 domain = parsed.hostname or ""
-            except Exception:
-                pass
 
         # Base attributes
         attrs = {

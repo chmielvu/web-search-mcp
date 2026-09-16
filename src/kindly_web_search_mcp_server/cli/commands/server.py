@@ -4,7 +4,6 @@ from typing import Annotated
 
 import typer
 
-
 server_app = typer.Typer(no_args_is_help=False)
 
 

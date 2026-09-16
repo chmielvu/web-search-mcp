@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from .errors import build_errors_columns
 from .events import build_events_columns
 from .providers import build_providers_columns

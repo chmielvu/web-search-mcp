@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
-
+from ..documents import build_thread_document
 from ..http_utils import raise_for_status, request_with_redirect_validation
 from ..models import (
     AcquisitionError,
@@ -17,8 +17,6 @@ from ..models import (
     ThreadDocument,
     ThreadMessage,
 )
-from ..documents import build_thread_document
-
 
 STACKEXCHANGE_API_BASE_URL = "https://api.stackexchange.com/2.3"
 

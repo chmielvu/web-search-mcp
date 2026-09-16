@@ -89,10 +89,7 @@ def _normalize_pbn(item: dict) -> AcademicPaper | None:
     venue = str(venue_raw).strip() if venue_raw else None
 
     doi = item.get("doi")
-    if isinstance(doi, str) and doi.strip():
-        doi = doi.strip()
-    else:
-        doi = None
+    doi = doi.strip() if isinstance(doi, str) and doi.strip() else None
 
     return AcademicPaper(
         title=title,
@@ -164,7 +161,7 @@ async def search_pbn(
             resp = await client.post(_PBN_API_URL, json=payload, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001 - providers must never raise
+    except Exception as exc:
         logger.warning("PBN search failed: %s", exc)
         return []
 

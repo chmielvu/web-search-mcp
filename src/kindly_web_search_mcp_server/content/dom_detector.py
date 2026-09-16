@@ -35,6 +35,7 @@ rules:
 
 from __future__ import annotations
 
+import contextlib
 import re
 from dataclasses import dataclass
 from typing import Literal
@@ -347,12 +348,10 @@ def extract_dom_signals(
         resolved_title = _node_text(title_node) if title_node is not None else ""
 
     structured = None
-    try:
-        structured = doc.structured_data()
-    except (RecursionError, ValueError):
+    with contextlib.suppress(RecursionError, ValueError):
         # A malformed or excessively nested metadata block must not prevent
         # ordinary DOM signals from selecting a route.
-        pass
+        structured = doc.structured_data()
     json_ld = getattr(structured, "json_ld", []) if structured is not None else []
     microdata = getattr(structured, "microdata", []) if structured is not None else []
     rdfa = getattr(structured, "rdfa", []) if structured is not None else []

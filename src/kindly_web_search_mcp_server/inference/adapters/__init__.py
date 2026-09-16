@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+from . import genai as _genai
+from . import hf_chat as _hf_chat
+
 # Import adapters to trigger self-registration
 from . import openai as _openai
-from . import hf_chat as _hf_chat
-from . import genai as _genai
 from . import voyage as _voyage

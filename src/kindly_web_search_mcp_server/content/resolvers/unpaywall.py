@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..http_utils import SafeFetchError, safe_fetch_url
-from ..models import AcquisitionError, FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ..models import AcquisitionError, FetchContext, ParsedURL, RawDocument, ResolverTarget
 from ._bridge import _text_document
 from .files import convert_pdf_to_markdown
 

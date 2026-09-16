@@ -77,10 +77,7 @@ def _normalize_radon(item: dict) -> AcademicPaper | None:
         venue = str(item["publisher"]).strip() or None
 
     doi = item.get("doi")
-    if isinstance(doi, str) and doi.strip():
-        doi = doi.strip()
-    else:
-        doi = None
+    doi = doi.strip() if isinstance(doi, str) and doi.strip() else None
 
     url = item.get("publicUri") or _RADON_API_URL
     if url:
@@ -130,7 +127,7 @@ async def search_radon(
             resp = await client.get(_RADON_API_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001 - providers must never raise
+    except Exception as exc:
         logger.warning("RAD-on search failed: %s", exc)
         return []
 

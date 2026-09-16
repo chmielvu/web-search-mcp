@@ -193,13 +193,27 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501"]  # line length is the formatter's job
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",  # line length is the formatter's job
+    "B008",  # FastMCP resolves parameters from their default annotations
+]
 
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+```
 
+`I`, `UP`, `B`, `C4`, `SIM`, and `RUF` are enforced, so imports must be sorted, typing
+imports must be modern (`collections.abc`, builtin generics, PEP 695 where the code already
+uses it), and swallowed exceptions must say so (`contextlib.suppress`) rather than hiding in
+`except: pass`. Per-file ignores exist for the two patterns that are deliberate here — the
+typographic characters documented in `utils/text_clean.py`, and Typer's repeated-option default
+in `cli/commands/search.py`.
+
+The type-checker configuration:
+
+```toml
 [tool.ty.environment]
 python = ".venv"
 python-version = "3.12"
@@ -214,7 +228,8 @@ uv run ruff format --check src/
 uv run ty check src
 ```
 
-Widening the ruff rule set (`I`, `B`, `C4`, `UP`, `SIM`) is a deliberate, standalone change: it needs a repo-wide fix pass, so it is not smuggled into unrelated edits.
+Widening the ruff rule set further (`PERF`, `N`, `ANN`) is a deliberate, standalone change: it
+needs a repo-wide fix pass, so it is not smuggled into unrelated edits.
 
 ### Type checking
 

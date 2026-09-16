@@ -21,10 +21,10 @@ from typing import Literal
 from ..search.intents import SearchIntent
 
 __all__ = [
-    "FallbackUnderstanding",
     "TIME_CURRENT",
     "TIME_HISTORICAL",
     "TIME_RECENT",
+    "FallbackUnderstanding",
     "resolve_fallback_understanding",
 ]
 
@@ -134,7 +134,7 @@ def _extract_compared(
                     cursor = idx + len(part)
     deduped: list[str] = []
     deduped_spans: list[tuple[int, int]] = []
-    for surface, span in zip(entities, spans):
+    for surface, span in zip(entities, spans, strict=False):
         key = surface.casefold()
         if key not in {d.casefold() for d in deduped}:
             deduped.append(surface)

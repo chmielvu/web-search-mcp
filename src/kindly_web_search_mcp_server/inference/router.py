@@ -7,10 +7,10 @@ import time
 from dataclasses import dataclass
 from typing import Any
 
+from ..telemetry.phoenix_tracing import LLMTraceContext
 from .chain import ChainSpec, get_chain
 from .engine import ChainExhaustedError, current_operation, current_run_key, execute_with_fallback
 from .types import LLMGeneration
-from ..telemetry.phoenix_tracing import LLMTraceContext
 
 LOGGER = logging.getLogger(__name__)
 

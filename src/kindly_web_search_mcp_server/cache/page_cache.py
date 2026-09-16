@@ -16,6 +16,8 @@ from ..telemetry import record_cache_lookup
 from .observability import emit_cache_lookup_event, emit_cache_store_event
 from .page_sqlite import (
     PAGE_CACHE_DEFAULT_TTL_SECONDS,
+)
+from .page_sqlite import (
     PageSQLiteCache as _PageSQLiteCache,
 )
 
@@ -42,7 +44,7 @@ class PageCache:
         """Return the number of cached page entries."""
         try:
             return self._backend.entry_count()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Page cache entry_count failed: %s", exc)
             return 0
 

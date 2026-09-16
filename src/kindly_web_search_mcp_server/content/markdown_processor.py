@@ -36,14 +36,14 @@ import logging
 import os
 import re
 import shutil
-import unicodedata
 import sys
+import unicodedata
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
-from typing import Any, Iterable, Literal, Sequence
+from typing import Any, Literal
 
 import markdown_it
 from chonkie import MarkdownChef
-
 from markdown_it.token import Token
 from mdformat import text as mdformat_text
 
@@ -213,10 +213,7 @@ class _Edit:
 
 def _overlaps_protected(protected: tuple[tuple[int, int], ...], start: int, end: int) -> bool:
     """True if ``[start, end)`` overlaps any protected range."""
-    for span_start, span_end in protected:
-        if start < span_end and span_start < end:
-            return True
-    return False
+    return any(start < span_end and span_start < end for span_start, span_end in protected)
 
 
 def _collect_edits(
@@ -336,7 +333,7 @@ def _repair_whitespace_links(text: str) -> tuple[str, bool]:
 # Content-shaped error pages (404 renders, bot walls) arrive with HTTP
 # 200 and otherwise-plausible markdown. Selection must not accept them.
 _ERROR_PAGE_TITLE_RE = re.compile(
-    r"^#\s+(?:404\s*[-–]?\s*)?(?:page\s+)?(?:not\s+found|404)\b[^\n]{0,80}\n",
+    r"^#\s+(?:404\s*[-–]?\s*)?(?:page\s+)?(?:not\s+found|404)\b[^\n]{0,80}\n",  # noqa: RUF001 - matches either dash
     re.IGNORECASE,
 )
 _ERROR_PAGE_BODY_RE = re.compile(
@@ -829,13 +826,13 @@ async def _run_rumdl(text: str) -> tuple[list[dict[str, Any]], Diagnostic | None
             process.communicate(neutralized.encode("utf-8")),
             timeout=RUMLDL_TIMEOUT_SECONDS,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         try:
             process.kill()
         finally:
             try:
                 await asyncio.wait_for(process.wait(), timeout=RUMLDL_REAP_SECONDS)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 LOGGER.warning(
                     "rumdl process did not exit after kill within %ss", RUMLDL_REAP_SECONDS
                 )
@@ -1077,10 +1074,9 @@ def _check_structures(text: str) -> _StructuralFindings:
                     current_row = 0
                 elif row_token.type in {"td_open", "th_open"}:
                     current_row += 1
-                elif row_token.type in {"tr_close", "thead_close", "tbody_close"}:
-                    if current_row:
-                        row_counts.append(current_row)
-                        current_row = 0
+                elif row_token.type in {"tr_close", "thead_close", "tbody_close"} and current_row:
+                    row_counts.append(current_row)
+                    current_row = 0
             malformed = False
             if row_counts:
                 head = row_counts[0]
@@ -1145,7 +1141,7 @@ def _canonicalize_with_mdformat(text: str) -> tuple[str | None, Diagnostic | Non
             options={"wrap": "keep", "number": False, "end-of-line": "lf"},
             codeformatters=(),
         )
-    except Exception as exc:  # noqa: BLE001 — mdformat raises ValueError on unsupported dialect
+    except Exception as exc:
         return None, Diagnostic(
             code="mdformat_failed",
             message=f"mdformat refused to canonicalize: {type(exc).__name__}: {str(exc)[:200]}",
@@ -1492,7 +1488,7 @@ def _build_quality_report(
         and structural.fence_errors == 0
     )
     if substantive == 0 and "empty_content" not in flags:
-        flags = ("empty_content",) + flags
+        flags = ("empty_content", *flags)
     return QualityReport(
         accepted=accepted,
         score=score,

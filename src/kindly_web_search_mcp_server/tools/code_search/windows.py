@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from .models import CodeSearchHit, build_location_metadata
 from .query import QueryPlan
@@ -381,11 +382,11 @@ def _merge_candidates(left: CandidateWindow, right: CandidateWindow) -> Candidat
         window = left.window.union(right.window)
     visible_lines = tuple(
         sorted(
-            set(
+            {
                 line
                 for line in (*left.match_lines, *right.match_lines)
                 if window.start <= line <= window.end
-            )
+            }
         )
     )
     return CandidateWindow(

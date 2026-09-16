@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import logging
-from typing import Any, Callable, Coroutine
+from collections.abc import Callable, Coroutine
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,7 @@ class SingleFlight:
                     asyncio.shield(existing_future),
                     timeout=timeout_seconds,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 logger.warning(
                     "SingleFlight: waiter timeout for key=%s after %.1fs",
                     key[:16],
@@ -86,16 +87,14 @@ class SingleFlight:
             )
             future.set_result(result)
             return result
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning(
                 "SingleFlight: initiator timeout for key=%s after %.1fs",
                 key[:16],
                 effective_initiator_timeout,
             )
             future.set_exception(
-                asyncio.TimeoutError(
-                    f"SingleFlight initiator timeout after {effective_initiator_timeout}s"
-                )
+                TimeoutError(f"SingleFlight initiator timeout after {effective_initiator_timeout}s")
             )
             raise
         except asyncio.CancelledError:

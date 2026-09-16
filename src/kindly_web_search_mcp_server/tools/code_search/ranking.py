@@ -5,8 +5,8 @@ from __future__ import annotations
 import math
 import re
 from collections import defaultdict
-from datetime import datetime, timezone
-from typing import Iterable
+from collections.abc import Iterable
+from datetime import UTC, datetime
 from urllib.parse import urldefrag, urlsplit, urlunsplit
 
 from .models import CodeSearchHit
@@ -98,8 +98,8 @@ def _freshness(value: object) -> float:
     try:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        age_days = max(0.0, (datetime.now(timezone.utc) - parsed).total_seconds() / 86400)
+            parsed = parsed.replace(tzinfo=UTC)
+        age_days = max(0.0, (datetime.now(UTC) - parsed).total_seconds() / 86400)
         return max(0.0, 1.0 - age_days / 365.0)
     except ValueError:
         return 0.5
@@ -108,7 +108,7 @@ def _freshness(value: object) -> float:
 def _noise(hit: CodeSearchHit) -> float:
     path = (hit.path or "").casefold()
     repository = (hit.repository or "").casefold()
-    parts = set(part for part in re.split(r"[/\\]", path) if part)
+    parts = {part for part in re.split(r"[/\\]", path) if part}
     score = 0.0
     if parts & _NOISY_PATH_PARTS:
         score += 1.0
@@ -141,9 +141,9 @@ def rank_candidates(
             if isinstance(channel_rank, int)
         ) or 1.0 / (_RRF_K + max(1, rank))
 
-        provider_agreement = min(1.0, len(set(str(item) for item in providers)) / 3.0)
+        provider_agreement = min(1.0, len({str(item) for item in providers}) / 3.0)
         variant_agreement = min(
-            1.0, len(set(str(item) for item in variants)) / max(1, len(plan.variants))
+            1.0, len({str(item) for item in variants}) / max(1, len(plan.variants))
         )
         popularity = min(
             1.0, math.log1p(float(hit.source_metadata.get("stars") or 0)) / math.log1p(100_000)
@@ -172,7 +172,7 @@ def rank_candidates(
         )
         reasons: list[str] = list(dict.fromkeys(hit.reasons))
         if provider_agreement:
-            reasons.append(f"provider agreement: {len(set(str(item) for item in providers))}")
+            reasons.append(f"provider agreement: {len({str(item) for item in providers})}")
         if variant_agreement:
             reasons.append("matched multiple deterministic variants")
         if noise:

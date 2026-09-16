@@ -10,6 +10,7 @@ Uses the arxiv Python SDK (pip install arxiv):
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import arxiv
@@ -84,10 +85,8 @@ def _normalize_result(result: arxiv.Result) -> AcademicPaper:
 
     year = None
     if result.published:
-        try:
+        with contextlib.suppress(AttributeError, TypeError):
             year = result.published.year
-        except (AttributeError, TypeError):
-            pass
 
     primary_category = result.primary_category if hasattr(result, "primary_category") else None
 

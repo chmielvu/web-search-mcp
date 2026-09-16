@@ -7,10 +7,10 @@ raw HTTP instrumentation are dropped.
 
 from __future__ import annotations
 
-import os
 import contextlib
-import sys
 import logging
+import os
+import sys
 from typing import Any
 
 from ..settings import settings
@@ -30,24 +30,18 @@ def _redirect_stdout_to_stderr():
     has_dup = False
     saved_fd = -1
     try:
-        try:
+        with contextlib.suppress(OSError, AttributeError):
             saved_fd = os.dup(1)
             os.dup2(2, 1)
             has_dup = True
-        except (OSError, AttributeError):
-            pass
         try:
             yield
         finally:
             if has_dup and saved_fd != -1:
-                try:
+                with contextlib.suppress(OSError):
                     os.dup2(saved_fd, 1)
-                except OSError:
-                    pass
-                try:
+                with contextlib.suppress(OSError):
                     os.close(saved_fd)
-                except OSError:
-                    pass
     finally:
         sys.stdout = old_stdout
         if old_sys_stdout is not None:
@@ -76,18 +70,19 @@ def init_telemetry(
         return
 
     with _redirect_stdout_to_stderr():
-        from opentelemetry import trace, metrics as otel_metrics
-        from opentelemetry.sdk.resources import Resource
-        from opentelemetry.sdk.trace import TracerProvider
-        from opentelemetry.sdk.trace.export import BatchSpanProcessor
+        from opentelemetry import metrics as otel_metrics
+        from opentelemetry import trace
+        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
+            OTLPMetricExporter,
+        )
         from opentelemetry.exporter.otlp.proto.http.trace_exporter import (
             OTLPSpanExporter as HTTPOTLPSpanExporter,
         )
         from opentelemetry.sdk.metrics import MeterProvider
         from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
-        from opentelemetry.exporter.otlp.proto.http.metric_exporter import (
-            OTLPMetricExporter,
-        )
+        from opentelemetry.sdk.resources import Resource
+        from opentelemetry.sdk.trace import TracerProvider
+        from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
         from ._internal import (
             _OpenInferenceFilteringSpanExporter,

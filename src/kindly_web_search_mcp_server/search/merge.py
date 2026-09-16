@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Sequence
 
 from ..models import WebSearchResult
 from ..utils.url_canonicalize import canonicalize_url

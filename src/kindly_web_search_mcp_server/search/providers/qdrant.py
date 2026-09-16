@@ -10,13 +10,13 @@ from collections.abc import Callable, Sequence
 import httpx
 from qdrant_client import AsyncQdrantClient, models
 
-from ...ml import embed_query
 from ...index.bm25_encoder import encode_bm25
 from ...index.web_results_index import COLLECTION_NAME
+from ...ml import embed_query
 from ...models import WebSearchResult
 from ...settings import settings
-from .base import ProviderRequestError, provider_retry_max_retries, run_clientless_provider
 from ..options import SearchOptions
+from .base import ProviderRequestError, provider_retry_max_retries, run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
 
@@ -66,7 +66,7 @@ async def _embed_qdrant_query(query: str, *, deadline: float = 15.0) -> list[flo
     # embedding service doesn't block the search pipeline indefinitely.
     try:
         return await asyncio.wait_for(task, timeout=deadline)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         LOGGER.warning(
             "Qdrant embedding for %r timed out after %.1fs",
             query[:80],
@@ -213,4 +213,4 @@ async def search_qdrant(
     )
 
 
-__all__ = ["search_qdrant", "QdrantSearchError", "QdrantConfigError"]
+__all__ = ["QdrantConfigError", "QdrantSearchError", "search_qdrant"]

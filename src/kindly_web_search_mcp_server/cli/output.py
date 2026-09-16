@@ -5,8 +5,8 @@ import shlex
 import sys
 from datetime import UTC, datetime
 from typing import Any
-from .runtime import get_runtime
 
+from .runtime import get_runtime
 
 SCHEMA_VERSION = "1.0"
 

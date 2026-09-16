@@ -20,12 +20,12 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
+from .analytics.producers import emit_tool_observability_event
 from .models import TokenUsage
 from .settings import settings
 from .tools._helpers import _record_tool_failure, _record_tool_success
 from .tools.catalog import tool_kwargs
 from .utils.http_client import get_http_client
-from .analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ class DeepResearchResponse(BaseModel):
     visited_urls: list[str] = Field(default_factory=list)
     read_urls: list[str] = Field(default_factory=list)
     all_urls: list[str] = Field(default_factory=list)
-    usage: "TokenUsage | None" = None
+    usage: TokenUsage | None = None
     report_markdown: str = ""
 
 
@@ -502,10 +502,10 @@ def register_deep_research(mcp: Any) -> None:
 
 __all__ = [
     "DEPTH_ALIASES",
+    "RESEARCH_PRESETS",
     "DeepResearchReference",
     "DeepResearchResponse",
     "TokenUsage",
-    "RESEARCH_PRESETS",
     "deep_research",
     "register_deep_research",
 ]

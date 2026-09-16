@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import io
 import os
 import shutil
@@ -20,15 +21,15 @@ from ....utils.paths import CACHE_DIR
 from ..github import _GITHUB_API_URL, _headers, _retry_after, _token
 from ..tree_sitter_evidence import language_for_path
 from .models import (
+    _SKIP_DIRS,
+    _SKIP_SUFFIXES,
+    _SPARSE_SKIP_PATTERNS,
     LOGGER,
     MAX_ARCHIVE_BYTES,
     MAX_EXTRACTED_BYTES,
     MAX_FILE_BYTES,
     MAX_FILES,
     SnapshotError,
-    _SKIP_DIRS,
-    _SKIP_SUFFIXES,
-    _SPARSE_SKIP_PATTERNS,
 )
 
 
@@ -37,14 +38,10 @@ def _safe_rmtree(path: Path | str) -> None:
     target = Path(path)
     if not target.exists():
         return
-    try:
+    with contextlib.suppress(Exception):
         for p in target.rglob("*"):
-            try:
+            with contextlib.suppress(Exception):
                 os.chmod(p, stat.S_IWRITE)
-            except Exception:
-                pass
-    except Exception:
-        pass
     shutil.rmtree(target, ignore_errors=True)
 
 

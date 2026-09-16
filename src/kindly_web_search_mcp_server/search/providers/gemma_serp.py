@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from datetime import date
 import json
 import os
 import re
+from datetime import date
 from typing import Any
 from urllib.parse import urlparse
 
@@ -14,9 +14,9 @@ import httpx
 from ...models import WebSearchResult
 from ...settings import settings
 from .base import (
+    _RETRYABLE_HTTP_STATUSES,
     ProviderRequestError,
     ProviderRequestMetadata,
-    _RETRYABLE_HTTP_STATUSES,
     _parse_retry_after,
     _with_metadata,
     get_provider_request_metadata,

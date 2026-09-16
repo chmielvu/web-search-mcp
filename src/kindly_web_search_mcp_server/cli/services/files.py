@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import tempfile
@@ -23,10 +24,8 @@ def _atomic_write(path: str | Path, content: str) -> str:
             os.fsync(handle.fileno())
         os.replace(temporary, target)
     except Exception:
-        try:
+        with contextlib.suppress(FileNotFoundError):
             os.unlink(temporary)
-        except FileNotFoundError:
-            pass
         raise
     return str(target)
 

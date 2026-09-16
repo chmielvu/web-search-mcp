@@ -8,7 +8,8 @@ P2 Pattern: Typed Pydantic output schemas from Brave/Tavily MCP
 
 from __future__ import annotations
 
-from typing import Any, Literal, Sequence
+from collections.abc import Sequence
+from typing import Any, Literal
 from urllib.parse import urlsplit
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -38,7 +39,7 @@ class TokenUsage(BaseModel):
     provider: str | None = Field(default=None, description="Inference backend name.")
 
     @classmethod
-    def from_payload(cls, payload: dict[str, Any] | None) -> "TokenUsage | None":
+    def from_payload(cls, payload: dict[str, Any] | None) -> TokenUsage | None:
         """Build from a summary/LLM payload carrying llm_usage_fields keys."""
         if not isinstance(payload, dict):
             return None
@@ -447,7 +448,7 @@ class CrawlInteraction(_PublicCrawlModel):
     )
 
     @model_validator(mode="after")
-    def _check_script_limits(self) -> "CrawlInteraction":
+    def _check_script_limits(self) -> CrawlInteraction:
         scripts = [*(self.javascript_before_wait or ()), *(self.javascript or ())]
         if len(scripts) > 10:
             raise ValueError("interaction accepts at most 10 JavaScript snippets")
@@ -506,7 +507,7 @@ class CrawlWebRequest(_PublicCrawlModel):
         return urls
 
     @model_validator(mode="after")
-    def _check_seed_page_budget(self) -> "CrawlWebRequest":
+    def _check_seed_page_budget(self) -> CrawlWebRequest:
         if self.max_pages < len(self.urls):
             raise ValueError("max_pages cannot be smaller than the number of seed URLs")
         return self

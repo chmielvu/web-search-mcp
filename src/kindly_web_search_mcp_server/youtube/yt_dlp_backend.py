@@ -39,8 +39,8 @@ def ytdlp_extract_subtitles(
     """
     try:
         import yt_dlp
-    except ImportError:
-        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp")
+    except ImportError as exc:
+        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp") from exc
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     target_lang = language or "en"
@@ -185,8 +185,8 @@ def ytdlp_extract_metadata(video_id: str) -> dict[str, Any]:
     """
     try:
         import yt_dlp
-    except ImportError:
-        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp")
+    except ImportError as exc:
+        raise YouTubeError("yt-dlp not installed. Install with: pip install yt-dlp") from exc
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 

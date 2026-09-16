@@ -6,7 +6,6 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 
-
 DEFAULT_PROFILE_TOOLS = frozenset(
     {
         "quick_web_search",

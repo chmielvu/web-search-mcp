@@ -14,6 +14,7 @@ cycle is broken by the move itself).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 from typing import Any
@@ -21,9 +22,9 @@ from uuid import uuid4
 
 from ...settings import settings
 from ...utils.observability import (
+    _normalize_for_analytics,
     _normalize_for_body,
     _normalize_for_extra,
-    _normalize_for_analytics,
     _record_key,
     current_trace_context,
     get_current_run_key,
@@ -32,11 +33,8 @@ from ...utils.observability import (
     serialize_tool_event_fields,
     set_current_tool_call_id,
 )
-
 from ..events import PERSISTED_EVENT_PREFIXES
-
 from ..ids import _canonical_result_id as _cri
-
 
 __all__ = [
     "_insert_tool_call_analytics",
@@ -116,19 +114,15 @@ def _resolve_session_id() -> str | None:
 
         ctx = get_context()
         if ctx is not None:
-            try:
+            with contextlib.suppress(Exception):
                 session_id = ctx.session_id
                 if session_id:
                     return str(session_id)
-            except Exception:
-                pass
-            try:
+            with contextlib.suppress(Exception):
                 client_id = ctx.client_id
                 if client_id:
                     return str(client_id)
-            except Exception:
-                pass
-    except Exception:  # noqa: BLE001  # outside a request context
+    except Exception:  # outside a request context
         pass
     return None
 

@@ -5,8 +5,7 @@ chain registries.  Importing this module is the single entry point that
 ensures all models, providers, and chains are available.
 """
 
-from . import catalog as _catalog  # noqa: F401 — registers models + chains
-
+from . import catalog as _catalog
 from .chain import ChainSpec, get_chain, list_chains
 from .engine import ChainExhaustedError, ExecutionResult, execute_with_fallback, is_retryable_error
 from .registry import (
@@ -33,7 +32,6 @@ from .types import ModelCapability, ModelSpec
 from .validation import describe_catalog, validate_catalog
 
 __all__ = [
-    "is_retryable_error",
     "ChainSpec",
     "ExecutionResult",
     "ModelCapability",
@@ -47,18 +45,19 @@ __all__ = [
     "as_openai",
     "as_rerank",
     "define_model",
+    "describe_catalog",
     "execute_with_fallback",
     "get_chain",
     "get_model",
     "get_provider",
     "get_providers_for_model",
+    "is_retryable_error",
+    "list_chains",
     "list_model_specs",
     "list_models",
     "list_providers",
-    "list_chains",
     "normalize_model_id",
     "register_provider_adapter",
     "resolve_model_id",
-    "describe_catalog",
     "validate_catalog",
 ]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import copy
 import logging
 import threading
@@ -14,7 +15,7 @@ from typing import Any
 from ..models import WebSearchResult
 from ..prompts.rerank_llm import load_rerank_system_message
 from ..settings import settings
-from .models import FINAL_RESULT_LIMIT, RerankResult, RankedStageOutcome
+from .models import FINAL_RESULT_LIMIT, RankedStageOutcome, RerankResult
 from .utils import _apply_ranked_stage, _failed_stage
 
 logger = logging.getLogger(__name__)
@@ -41,10 +42,11 @@ class _CoordinatorGuardTimeout(TimeoutError):
 def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
     """Lazy-load rank_llm SafeOpenai path to avoid pulling in vllm or litellm."""
     import sys
+
     import huggingface_hub
 
     if not hasattr(huggingface_hub, "is_offline_mode"):
-        setattr(huggingface_hub, "is_offline_mode", lambda: False)
+        huggingface_hub.is_offline_mode = lambda: False
 
     # NOTE: load-bearing stub. rank_llm's listwise package eagerly imports
     # vllm (rank_llm/rerank/listwise/__init__.py -> rank_listwise_os_llm.py),
@@ -60,8 +62,8 @@ def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
         if mod not in sys.modules:
             sys.modules[mod] = MagicMock()
 
-    from rank_llm.data import Candidate, Query, Request  # noqa: PLC0415
-    from rank_llm.rerank.listwise.rank_gpt import SafeOpenai  # noqa: PLC0415
+    from rank_llm.data import Candidate, Query, Request
+    from rank_llm.rerank.listwise.rank_gpt import SafeOpenai
 
     return Candidate, Query, Request, SafeOpenai
 
@@ -69,10 +71,11 @@ def _load_rank_llm_openai() -> tuple[Any, Any, Any, Any]:
 def _load_rank_llm_genai() -> Any:
     """Lazy-load SafeGenai from rank_llm without touching the litellm path."""
     import sys
+
     import huggingface_hub
 
     if not hasattr(huggingface_hub, "is_offline_mode"):
-        setattr(huggingface_hub, "is_offline_mode", lambda: False)
+        huggingface_hub.is_offline_mode = lambda: False
     from unittest.mock import MagicMock
 
     for mod in (
@@ -83,7 +86,7 @@ def _load_rank_llm_genai() -> Any:
         if mod not in sys.modules:
             sys.modules[mod] = MagicMock()
 
-    from rank_llm.rerank.listwise.rank_gemini import SafeGenai  # noqa: PLC0415
+    from rank_llm.rerank.listwise.rank_gemini import SafeGenai
 
     return SafeGenai
 
@@ -275,13 +278,11 @@ async def _run_coordinator(
         async def _cancel_and_drain() -> None:
             if not task.done():
                 task.cancel()
-            try:
+            # Cancellation and provider failures are intentionally consumed
+            # after the coordinator task has been awaited, preventing unhandled
+            # RankLLM child-task warnings on the MCP event loop.
+            with contextlib.suppress(BaseException):
                 await task
-            except BaseException:
-                # Cancellation and provider failures are intentionally consumed
-                # after the coordinator task has been awaited, preventing
-                # unhandled RankLLM child-task warnings on the MCP event loop.
-                pass
 
         task = asyncio.create_task(
             coordinator.rerank_batch_async(

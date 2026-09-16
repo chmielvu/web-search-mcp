@@ -13,11 +13,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.exceptions import ToolError
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 
-from .session_tracking import SessionTracker, get_session_id
 from ..analytics.producers import emit_observability_event
+from .session_tracking import SessionTracker, get_session_id
 
 logger = logging.getLogger(__name__)
 

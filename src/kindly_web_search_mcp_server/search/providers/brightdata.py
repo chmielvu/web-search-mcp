@@ -339,7 +339,7 @@ def _retry_delay(error: ProviderRequestError, remaining_seconds: float) -> float
     return delay if delay < remaining_seconds else None
 
 
-async def _run_page(
+async def _run_page[TResponse](
     provider_name: str,
     query: str,
     page_limit: int,
@@ -377,7 +377,7 @@ async def _run_page(
     return []
 
 
-async def _run_paginated(
+async def _run_paginated[TResponse](
     provider_name: str,
     query: str,
     num_results: int,

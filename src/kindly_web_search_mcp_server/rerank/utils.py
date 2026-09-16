@@ -15,7 +15,7 @@ from ..analytics.rerank_telemetry import (
 from ..models import WebSearchResult
 from ..settings import settings
 from ..utils.url_canonicalize import canonicalize_url
-from .models import RerankResult, RankedStageOutcome
+from .models import RankedStageOutcome, RerankResult
 
 
 def normalize_scores_minmax(scores: list[float]) -> list[float]:

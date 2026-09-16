@@ -6,8 +6,9 @@ import copy
 import hashlib
 import time
 from collections import OrderedDict
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 
 def compute_cache_key(

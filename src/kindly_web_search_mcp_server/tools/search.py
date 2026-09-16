@@ -1,31 +1,31 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
 from typing import Annotated, Literal, cast
-
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from opentelemetry import trace
 from pydantic import Field
 
+from ..analytics.producers import emit_tool_observability_event
 from ..errors import raise_tool_error
 from ..models import ProviderWarning, WebSearchPublicResponse, WebSearchResponse
 from ..search.filters import FilterValidationError, normalize_locale, resolve_window
 from ..search.options import SearchOptions
 from ..telemetry import (
+    SEARCH_QUERY,
     create_chain_span,
     record_search_request,
-    SEARCH_QUERY,
 )
 from ._helpers import (
     _record_tool_failure,
     _record_tool_success,
     _resolve_session_id,
 )
-from ..analytics.producers import emit_tool_observability_event
 
 LOGGER = logging.getLogger(__name__)
 
@@ -280,10 +280,8 @@ async def web_search(
         domain_boost=tuple(domain_boost or []),
         pre_warnings=tuple(filter_warnings),
     )
-    try:
+    with contextlib.suppress(Exception):
         await ctx.report_progress(progress=5, total=100, message="Planning search...")
-    except Exception:
-        pass
     with create_chain_span(
         "web_search",
         attributes={
@@ -347,13 +345,9 @@ async def web_search(
     for warning in warnings:
         provider = warning.provider if isinstance(warning, ProviderWarning) else None
         message = warning.error if isinstance(warning, ProviderWarning) else str(warning)
-        try:
+        with contextlib.suppress(Exception):
             await ctx.warning(f"Provider {provider or 'unknown'}: {message}")
-        except Exception:
-            pass
-    try:
+    with contextlib.suppress(Exception):
         await ctx.report_progress(progress=100, total=100, message="Done")
-    except Exception:
-        pass
     _record_tool_success("web_search")
     return to_public_web_search_from_run(run)

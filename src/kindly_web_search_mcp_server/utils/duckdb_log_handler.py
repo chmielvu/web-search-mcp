@@ -13,13 +13,14 @@ Architecture:
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import logging.handlers
 import queue
 import traceback
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -95,8 +96,8 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
 
     @staticmethod
     def _current_trace_context() -> dict[str, str]:
-        try:
-            from opentelemetry import trace as otel_trace  # noqa: PLC0415
+        with contextlib.suppress(Exception):
+            from opentelemetry import trace as otel_trace
 
             span = otel_trace.get_current_span()
             if span and span.is_recording():
@@ -105,8 +106,6 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
                     "trace_id": format(ctx.trace_id, "032x"),
                     "span_id": format(ctx.span_id, "016x"),
                 }
-        except Exception:  # noqa: BLE001
-            pass
         return {}
 
     # ── record extraction ───────────────────────────────────────────
@@ -131,8 +130,8 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
 
         return {
             "log_id": uuid.uuid4().hex,
-            "recorded_at": datetime.fromtimestamp(record.created, tz=timezone.utc),
-            "logged_at": datetime.now(tz=timezone.utc),
+            "recorded_at": datetime.fromtimestamp(record.created, tz=UTC),
+            "logged_at": datetime.now(tz=UTC),
             "pid": record.process,
             "logger_name": record.name,
             "level": record.levelname,
@@ -194,7 +193,7 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
             )
             self._total_inserted += len(records)
             self._flush_count += 1
-        except Exception:  # noqa: BLE001
+        except Exception:
             pass  # don't let insert errors crash the logging path
         finally:
             con.close()
@@ -214,7 +213,7 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
                     """
                 )
                 con.execute("CHECKPOINT;")
-            except Exception:  # noqa: BLE001
+            except Exception:
                 pass
             finally:
                 con.close()
@@ -311,12 +310,12 @@ def install_process_logging(
 def _load_settings() -> dict[str, Any]:
     """Lazy-load settings to avoid import cycles."""
     try:
-        from ..settings import settings as s  # noqa: PLC0415
+        from ..settings import settings as s
 
         return {
             "process_logs_enabled": getattr(s, "process_logs_enabled", True),
             "process_logs_duckdb_path": getattr(s, "process_logs_duckdb_path", ""),
             "process_logs_ttl_hours": getattr(s, "process_logs_ttl_hours", 48),
         }
-    except Exception:  # noqa: BLE001
+    except Exception:
         return {}

@@ -2,13 +2,14 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
-from collections.abc import Callable
-from datetime import datetime, timezone
-from hashlib import sha256
-from typing import Any, Awaitable
 import threading
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from hashlib import sha256
+from typing import Any
 
 from qdrant_client import AsyncQdrantClient, models
 
@@ -73,7 +74,7 @@ class WebResultsIndex:
         if self._collection_ok:
             return
         client = await self._ensure_client()
-        try:
+        with contextlib.suppress(Exception):
             info = await client.get_collection(COLLECTION_NAME)
             if info.status == "green":
                 vectors_config = info.config.params.vectors or {}
@@ -95,8 +96,6 @@ class WebResultsIndex:
             else:
                 self._collection_ok = True
                 return
-        except Exception:
-            pass
 
         try:
             await client.create_collection(
@@ -151,12 +150,14 @@ class WebResultsIndex:
 
         await self._ensure_collection()
         client = await self._ensure_client()
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         entities_json = [e for e in entities if e] if entities else None
 
         points: list[models.PointStruct] = []
-        for result, dense, sparse in zip(results, dense_embeddings, sparse_embeddings):
+        for result, dense, sparse in zip(
+            results, dense_embeddings, sparse_embeddings, strict=False
+        ):
             url = result.link.strip()
             if not url:
                 continue

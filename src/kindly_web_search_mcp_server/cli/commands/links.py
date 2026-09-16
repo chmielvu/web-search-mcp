@@ -1,16 +1,14 @@
 from __future__ import annotations
 
-
 from typing import Annotated
 
 import typer
 
 from ..errors import CliError
 from ..exit_codes import ExitCode
-from ..output import emit_json
 from ..outcome import raise_for_payload_error
+from ..output import emit_json
 from ..runtime import run_cli_async
-
 
 links_app = typer.Typer(no_args_is_help=True)
 

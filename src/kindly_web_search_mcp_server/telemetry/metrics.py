@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import threading
+
 from opentelemetry import metrics
 
 from .spans import get_meter
-import threading
 
 # ============================================================================
 # METRIC SINGLETONS
@@ -514,7 +515,6 @@ __all__ = [
     "get_cache_metrics",
     "get_circuit_metrics",
     "get_content_metrics",
-    "update_circuit_state",
     "get_gemini_metrics",
     "get_mcp_metrics",
     "get_provider_metrics",
@@ -525,4 +525,5 @@ __all__ = [
     "get_search_metrics",
     "get_search_total_metric",
     "get_youtube_metrics",
+    "update_circuit_state",
 ]

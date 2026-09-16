@@ -10,15 +10,15 @@ import logging
 import urllib.parse
 
 from ..http_utils import SafeFetchError, safe_fetch_url
+from ..machine_readable import detect_content_format, render_typed_content
 from ..models import (
     AcquisitionError,
     FetchContext,
+    ParsedURL,
     RawDocument,
     ResolverTarget,
     TextDocument,
-    ParsedURL,
 )
-from ..machine_readable import detect_content_format, render_typed_content
 
 LOGGER = logging.getLogger(__name__)
 

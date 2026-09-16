@@ -85,7 +85,7 @@ class TranscriptSQLiteCache:
     def ensure_store_schema(self, con: sqlite3.Connection) -> None:
         try:
             self._ensure_schema(con)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("Transcript cache schema creation failed: %s", exc)
 
     def entry_count(self) -> int:
@@ -99,7 +99,7 @@ class TranscriptSQLiteCache:
                     return int(row[0]) if row else 0
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("transcript_cache: entry_count failed: %s", exc)
                 return 0
 
@@ -184,7 +184,7 @@ class TranscriptSQLiteCache:
                     }
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("transcript_cache lookup failed for %s: %s", video_id, exc)
                 return None
 
@@ -287,7 +287,7 @@ class TranscriptSQLiteCache:
                         )
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("transcript_cache store failed for %s: %s", video_id, exc)
 
     def search_transcripts(self, query: str, limit: int = 10) -> list[dict[str, Any]]:
@@ -331,6 +331,6 @@ class TranscriptSQLiteCache:
                     return results
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("transcript_cache search failed for query %r: %s", query, exc)
                 return []

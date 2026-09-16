@@ -18,12 +18,12 @@ from .fetch import _resolve_main_commit
 from .models import (
     GRAPH_WAIT_SECONDS,
     MAX_CONTENT_CHARS,
+    TTL_SECONDS,
     QueryResult,
     RelatedSymbol,
     Snapshot,
     SnapshotError,
     SnapshotHit,
-    TTL_SECONDS,
 )
 from .store import (
     SnapshotManager,
@@ -32,15 +32,15 @@ from .store import (
 )
 
 __all__ = [
+    "TTL_SECONDS",
     "QueryResult",
     "RelatedSymbol",
     "Snapshot",
     "SnapshotError",
     "SnapshotHit",
     "SnapshotManager",
-    "TTL_SECONDS",
-    "_hf_code_embedding",
     "_cosine_similarity",
+    "_hf_code_embedding",
     "get_snapshot_manager",
     "reset_snapshot_manager_for_tests",
 ]

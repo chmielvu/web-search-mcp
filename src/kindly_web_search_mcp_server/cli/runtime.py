@@ -3,9 +3,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Coroutine
 from dataclasses import dataclass
-from typing import Any, Coroutine
-
+from typing import Any
 
 LOGGER = logging.getLogger(__name__)
 
@@ -85,15 +85,15 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
         try:
             return await coro
         finally:
-            from ..utils.background_tasks import drain_background_tasks
             from ..analytics.async_writes import (
                 drain_duckdb_writes,
                 shutdown_duckdb_write_executor,
             )
+            from ..content.remote_clients import close_camoufox_client, close_crawl4ai_client
             from ..search.outcomes import drain_search_outcomes
             from ..settings import settings
             from ..telemetry.init import shutdown_telemetry
-            from ..content.remote_clients import close_crawl4ai_client, close_camoufox_client
+            from ..utils.background_tasks import drain_background_tasks
             from ..utils.http_client import close_http_client
 
             shutdown_started = time.perf_counter()

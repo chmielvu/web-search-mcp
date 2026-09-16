@@ -1,6 +1,7 @@
 """Semantic Hugging Face Hub search adapter for ``code_search``."""
 
 from __future__ import annotations
+
 import asyncio
 import os
 import threading

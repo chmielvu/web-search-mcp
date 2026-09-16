@@ -7,7 +7,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-
+from ..documents import build_package_document
+from ..http_utils import fetch_json
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -17,8 +18,6 @@ from ..models import (
     RawDocument,
     ResolverTarget,
 )
-from ..documents import build_package_document
-from ..http_utils import fetch_json
 
 
 class NpmError(RuntimeError):
@@ -96,9 +95,9 @@ async def fetch_npm_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocumen
 __all__ = [
     "NpmError",
     "NpmTarget",
-    "parse_npm_url",
-    "match_npm",
     "fetch_npm_raw",
+    "match_npm",
+    "parse_npm_url",
 ]
 
 
@@ -131,7 +130,7 @@ def npm_package_document(data: dict[str, Any], target: ResolverTarget) -> Packag
     deps = latest_data.get("dependencies") or {}
     dependency_names: tuple[str, ...] = ()
     if isinstance(deps, dict):
-        dependency_names = tuple(name for name in deps.keys())
+        dependency_names = tuple(name for name in deps)
     links_pieces: list[dict[str, Any]] = []
     if data.get("homepage"):
         links_pieces.append({"label": "homepage", "href": str(data["homepage"])})

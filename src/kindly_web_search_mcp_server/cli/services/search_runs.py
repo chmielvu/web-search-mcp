@@ -5,8 +5,8 @@ from typing import Any
 
 import duckdb
 
-from ...analytics.writers import _db_path
 from ...analytics.formatting import json_safe_rows
+from ...analytics.writers import _db_path
 
 
 def _connect(db_path: str | None = None) -> duckdb.DuckDBPyConnection:

@@ -66,7 +66,7 @@ def describe_chain(name: str) -> dict[str, object]:
     for index, spec_id in enumerate(chain.model_spec_ids, start=1):
         try:
             spec = get_model(spec_id)
-        except Exception as exc:  # noqa: BLE001 - report broken refs without crashing inspection
+        except Exception as exc:
             steps.append(
                 {
                     "position": index,
@@ -82,7 +82,7 @@ def describe_chain(name: str) -> dict[str, object]:
         adapter_error: str | None = None
         try:
             get_provider(spec.provider)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             adapter_ok = False
             adapter_error = str(exc)
 
@@ -252,7 +252,7 @@ def validate_catalog() -> CatalogValidationReport:
         for spec_id in chain.model_spec_ids:
             try:
                 spec = get_model(spec_id)
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 issues.append(
                     CatalogIssue(
                         severity="error",

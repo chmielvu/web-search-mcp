@@ -25,7 +25,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from lingua import Language, LanguageDetectorBuilder
-from wordsegment import load as _ws_load, segment as _ws_segment
+from wordsegment import load as _ws_load
+from wordsegment import segment as _ws_segment
 
 from .text_clean import clean_query
 
@@ -174,9 +175,7 @@ def _is_eligible_token(token: str) -> bool:
     if core.casefold() in _MIN_PROTECTED_TOKENS:
         return False
     lower = token.lower()
-    if lower.startswith(_OPERATOR_PREFIXES):
-        return False
-    return True
+    return not lower.startswith(_OPERATOR_PREFIXES)
 
 
 # ---------------------------------------------------------------------------
@@ -545,7 +544,7 @@ def extract_search_ops(query: str) -> SearchOps:
     # Stage 3a — non-overlap union (H11): when candidates claim the same
     # surface, the longest span wins; ties break by class specificity. This
     # subsumes the old EXCLUDE-suppresses-inner-SITE/FILETYPE rule (-site:x,
-    # -filetype:y) and also fixes EXCLUDE×ENGINE claims like ``-lang:python``,
+    # -filetype:y) and also fixes EXCLUDE-and-ENGINE claims like ``-lang:python``,
     # whose overlapping spans previously BOTH survived — then sequential
     # right-to-left splicing used stale offsets and corrupted the query
     # (verified: "free" role shaped "-lang:python async tutorial" -> "rial").
@@ -610,7 +609,7 @@ class QueryFeatures:
 def build_query_features(
     query: str,
     *,
-    understanding: "QueryUnderstandingResult | Any | None" = None,
+    understanding: QueryUnderstandingResult | Any | None = None,
     support_terms=(),  # type: ignore[no-untyped-def]
 ) -> QueryFeatures:
     """Parse the query once: clean, ops, lang, preserved terms, understanding."""
@@ -765,7 +764,7 @@ def _trim_words(body: str, max_words: int, protected: list[tuple[int, int]]) -> 
     ]
     keep = set(range(len(words)))
     stop_order = [i for i in droppable if word_key(words[i]) in _TRIM_STOPWORDS]
-    tail_order = [i for i in sorted(droppable, reverse=True)]
+    tail_order = sorted(droppable, reverse=True)
     for pool in (stop_order, tail_order):
         for i in pool:
             if len(keep) <= max_words:

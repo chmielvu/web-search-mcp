@@ -11,10 +11,10 @@ import asyncio
 import logging
 from typing import Any
 
-from ...youtube.url_parser import parse_youtube_url
 from ...youtube.cascade import fetch_transcript_cascade
+from ...youtube.models import TranscriptBackendError, YouTubeError
+from ...youtube.url_parser import parse_youtube_url
 from ...youtube.yt_dlp_backend import ytdlp_extract_metadata
-from ...youtube.models import YouTubeError, TranscriptBackendError
 from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
 from ._bridge import bridge_text_producer
 
@@ -127,7 +127,7 @@ async def fetch_youtube_content_raw(
     try:
         target = parse_youtube_url(url)
     except YouTubeError as exc:
-        raise YoutubeResolverError(str(exc))
+        raise YoutubeResolverError(str(exc)) from exc
 
     video_id = target.video_id
 

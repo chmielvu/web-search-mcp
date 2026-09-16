@@ -15,19 +15,19 @@ ordering, the process-wide lock, and the materialized summary rebuilds.
 from __future__ import annotations
 
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 
 import duckdb
 
-from .dashboard_sql import _build_dashboard_view_sql
-from .fetch_observability_sql import _build_fetch_observability_view_sql
-from .funnel_sql import _build_funnel_uplift_view_sql
+from ...settings import settings
 from ..writers import (
     _db_path,
     ensure_store_schema,
     insert_table_freshness,
 )
-from ...settings import settings
+from .dashboard_sql import _build_dashboard_view_sql
+from .fetch_observability_sql import _build_fetch_observability_view_sql
+from .funnel_sql import _build_funnel_uplift_view_sql
 
 _LOCK = threading.Lock()
 
@@ -86,7 +86,7 @@ def _record_table_freshness(*, db_path: str) -> None:
                 rows.append(
                     {
                         "table_name": table_name,
-                        "checked_at": datetime.now(timezone.utc),
+                        "checked_at": datetime.now(UTC),
                         "max_recorded_at": latest,
                         "row_count": int(count or 0),
                     }

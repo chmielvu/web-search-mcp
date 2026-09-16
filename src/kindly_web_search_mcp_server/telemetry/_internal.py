@@ -1,27 +1,20 @@
 """Telemetry internal helpers, exporters, and endpoint resolution."""
 
 from __future__ import annotations
-from typing import Any, Sequence
 
 import logging
 import os
-from importlib.metadata import PackageNotFoundError, version as _package_version
+from collections.abc import Sequence
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _package_version
+from typing import TYPE_CHECKING, Any
 
 import httpx
 
 from .attributes import OPENINFERENCE_SPAN_KIND
-from typing import TYPE_CHECKING
-
 from .constants import _OTEL_SDK_AVAILABLE
 
-if TYPE_CHECKING:
-    from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
-    from opentelemetry.sdk.trace.export import (
-        BatchSpanProcessor,
-        SpanExporter,
-        SpanExportResult,
-    )
-elif _OTEL_SDK_AVAILABLE:
+if TYPE_CHECKING or _OTEL_SDK_AVAILABLE:
     from opentelemetry.sdk.trace import ReadableSpan, SpanProcessor
     from opentelemetry.sdk.trace.export import (
         BatchSpanProcessor,
@@ -88,7 +81,7 @@ def build_grafana_cloud_headers(
     # Basic auth: username = instance ID (numeric), password = API key (glc_...)
     import base64
 
-    token = base64.b64encode(f"{instance_id}:{api_key}".encode("utf-8")).decode("ascii")
+    token = base64.b64encode(f"{instance_id}:{api_key}".encode()).decode("ascii")
     auth = f"Basic {token}"
 
     headers = {"Authorization": auth}

@@ -9,16 +9,17 @@ were removed (2026-09-11); their ``_ensure_*`` constructors are gone.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 import duckdb
 
 from .connection import (
+    _LOCK,
     _db_path,
     _ensure_columns,
     _ensure_flockmtl_resources_table,
     _install_flockmtl_once,
-    _LOCK,
     ensure_flockmtl_loaded,
     ensure_flockmtl_resources,
 )
@@ -39,9 +40,9 @@ from .table_names import (
     _CSHV_TABLE_NAME,
     _CSP_TABLE_NAME,
     _CSQV_TABLE_NAME,
+    _CSR_TABLE_NAME,
     _CSREPO_TABLE_NAME,
     _CSRERANK_TABLE_NAME,
-    _CSR_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
     _GSR_TABLE_NAME,
@@ -51,9 +52,9 @@ from .table_names import (
     _PC_TABLE_NAME,
     _PR_TABLE_NAME,
     _QE_TABLE_NAME,
+    _QT_TABLE_NAME,
     _QUE_TABLE_NAME,
     _QV_TABLE_NAME,
-    _QT_TABLE_NAME,
     _QWSC_TABLE_NAME,
     _QWSR_TABLE_NAME,
     _RC_CAT_TABLE_NAME,
@@ -1388,10 +1389,8 @@ def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
     global _vss_installed
     try:
         if not _vss_installed:
-            try:
+            with contextlib.suppress(Exception):
                 connection.execute("INSTALL vss;")
-            except Exception:
-                pass
             _vss_installed = True
         ensure_vss_loaded(connection)
         connection.execute(
@@ -1401,7 +1400,7 @@ def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_cemb_hnsw "
             "ON candidate_embeddings USING HNSW (embedding);"
         )
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         _logger.warning(
             "vss extension unavailable — embedding tables work without HNSW "
             "(similarity search falls back to brute-force array_distance scan). "

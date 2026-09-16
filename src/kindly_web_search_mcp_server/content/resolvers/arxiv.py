@@ -1,19 +1,17 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import os
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-import contextlib
-import io
 from urllib.parse import unquote, urlparse
 
 import httpx
 
 from ...utils.environment import get_int_env
-
-
-from ..models import FetchContext, RawDocument, ResolverTarget, ParsedURL
+from ..models import FetchContext, ParsedURL, RawDocument, ResolverTarget
 from ._bridge import bridge_text_producer
 
 
@@ -255,13 +253,11 @@ def _pdf_bytes_to_markdown_best_effort(
 
     # Import layout helpers if available. This can improve downstream layout extraction.
     try:  # pragma: no cover
-        import pymupdf.layout  # type: ignore  # noqa: F401
+        import pymupdf.layout  # type: ignore
     except Exception:
         # Some installs may provide this as a standalone distribution.
-        try:  # pragma: no cover
+        with contextlib.suppress(Exception):
             import pymupdf_layout  # type: ignore  # noqa: F401
-        except Exception:
-            pass
 
     doc = pymupdf.open(stream=pdf_bytes, filetype="pdf")
     try:

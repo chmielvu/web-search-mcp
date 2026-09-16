@@ -18,6 +18,7 @@ Enable with ``GEMINI_SEARCH_BACKEND=antigravity``.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -266,7 +267,7 @@ async def _cancel_best_effort(
 ) -> None:
     try:
         await client.post(f"{INTERACTIONS_URL}/{interaction_id}/cancel", json={}, headers=headers)
-    except Exception as exc:  # noqa: BLE001 - cancel is best-effort cleanup
+    except Exception as exc:
         logger.debug("Antigravity cancel failed for %s: %s", interaction_id, exc)
 
 
@@ -290,12 +291,10 @@ async def call_antigravity_grounding(
         )
 
     if span is not None:
-        try:
+        with contextlib.suppress(Exception):
             span.set_attribute("llm.model_name", f"antigravity/{settings.antigravity_model}")
             span.set_attribute("search.backend", "antigravity")
             span.set_attribute("search.query", query[:500])
-        except Exception:  # noqa: BLE001 - telemetry must never break search
-            pass
 
     headers = _headers(api_key)
     payload = _build_payload(query, system_prompt, structured_output)
@@ -353,10 +352,8 @@ async def call_antigravity_grounding(
         duration_ms,
     )
     if span is not None:
-        try:
+        with contextlib.suppress(Exception):
             span.set_attribute("search.sources_count", len(result.sources))
             span.set_attribute("llm.token_count.total", result.total_tokens)
-        except Exception:  # noqa: BLE001
-            pass
 
     return result

@@ -146,7 +146,7 @@ async def embed_texts(
             resp.raise_for_status()
             raw_data = resp.json()
             break
-        except (asyncio.TimeoutError, httpx.TimeoutException) as e:
+        except (TimeoutError, httpx.TimeoutException) as e:
             if attempt < resolved_retries:
                 LOGGER.warning(
                     "fastembed embedding timeout attempt %d/%d, retrying in %.1fs",

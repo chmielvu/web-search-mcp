@@ -35,13 +35,13 @@ from .resolvers.huggingface import fetch_huggingface_raw, match_huggingface
 from .resolvers.llms_txt import fetch_llms_txt_raw, match_llms_txt
 from .resolvers.md_twin import fetch_md_twin_raw, match_md_twin
 from .resolvers.npm import fetch_npm_raw, match_npm
-from .resolvers.unpaywall import fetch_doi_raw, match_doi
 from .resolvers.pypi import fetch_pypi_raw, match_pypi
 from .resolvers.raw_text import fetch_raw_text_raw, match_raw_text
 from .resolvers.reddit import fetch_reddit_raw, match_reddit
 from .resolvers.stackexchange import fetch_stackexchange_raw, match_stackexchange
 from .resolvers.telegram import fetch_telegram_raw, match_telegram
 from .resolvers.twitter import fetch_twitter_raw, match_twitter
+from .resolvers.unpaywall import fetch_doi_raw, match_doi
 from .resolvers.wayback import fetch_wayback_raw, match_wayback
 from .resolvers.wikipedia import fetch_wikipedia_raw, match_wikipedia
 from .resolvers.youtube import fetch_youtube_raw, match_youtube
@@ -166,4 +166,4 @@ REGISTRY: tuple[ResolverSpec, ...] = (
 )
 
 
-__all__ = ["REGISTRY", "MatchFn", "FetchFn", "_build"]
+__all__ = ["REGISTRY", "FetchFn", "MatchFn", "_build"]

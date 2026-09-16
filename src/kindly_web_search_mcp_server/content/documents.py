@@ -28,7 +28,6 @@ from .models import (
     ThreadMessage,
 )
 
-
 # ---------------------------------------------------------------------------
 # Thread builders (Reddit-shaped reducer shared by every forum adapter)
 # ---------------------------------------------------------------------------

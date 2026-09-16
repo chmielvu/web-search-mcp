@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ..analytics.graph_store import load_latest_graph_index
 from ..utils.text_clean import clean_query as normalize_query
@@ -78,7 +78,7 @@ def expand_seed_queries(
         support_counts = tuple(
             (candidate, support_map.get(candidate, 0)) for candidate in candidates
         )
-        artifact_age = (datetime.now(timezone.utc) - index.built_at).total_seconds()
+        artifact_age = (datetime.now(UTC) - index.built_at).total_seconds()
         common = {
             "artifact_age_seconds": artifact_age,
             "candidate_support_counts": support_counts,

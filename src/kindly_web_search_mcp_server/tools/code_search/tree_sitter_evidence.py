@@ -8,12 +8,12 @@ syntax-aware evidence.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, cast
-
 
 AstRole = Literal["definition", "callsite", "import", "structure"]
 AstStatus = Literal[
@@ -347,11 +347,9 @@ def classify_source(
         return AstClassification(
             status, resolved_language, _parser_version(), len(source_bytes), error=error
         )
-    try:
+    with contextlib.suppress(AttributeError, TypeError, ValueError):
         timeout_micros = int(float(os.environ.get("TREE_SITTER_PARSE_TIMEOUT_MS", "100")) * 1000)
         parser.timeout_micros = max(1, timeout_micros)
-    except (AttributeError, TypeError, ValueError):
-        pass
     try:
         tree = parser.parse(source_bytes)
         root = tree.root_node

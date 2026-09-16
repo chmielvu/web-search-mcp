@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 from urllib.parse import urlparse
 
-
 _GITHUB_HOSTS = {"github.com", "www.github.com"}
 # H16: segment validation — the old ^[^/\s]+/[^/\s]+$ accepted "owner/.."
 # (traversal-looking identity later used verbatim in API paths) and

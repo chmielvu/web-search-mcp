@@ -5,6 +5,7 @@ import importlib.metadata
 import tomllib
 from pathlib import Path
 from typing import Any
+
 from .introspection import build_schema_payload, find_command_node
 from .skill_paths import (
     AGENT_BRIEF_PATH,
@@ -72,7 +73,7 @@ def _first_paragraph(path: Path) -> str:
     return _read_text(path)
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def rules_catalog() -> list[dict[str, Any]]:
     rules: list[dict[str, Any]] = []
     if AGENT_RULES_DIR.exists():
@@ -89,7 +90,7 @@ def rules_catalog() -> list[dict[str, Any]]:
     return rules
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def rules_full() -> list[dict[str, Any]]:
     """Return full .md content for every agent rule, per v0.2.0 R1."""
     rules: list[dict[str, Any]] = []
@@ -102,7 +103,7 @@ def rules_full() -> list[dict[str, Any]]:
     return rules
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def skill_catalog() -> list[dict[str, Any]]:
     skills: list[dict[str, Any]] = []
     for name, path, command in (

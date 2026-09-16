@@ -15,6 +15,7 @@ Output format: [{"text": str, "start": float, "duration": float}, ...]
 from __future__ import annotations
 
 import base64
+import contextlib
 import json
 import logging
 import os
@@ -140,8 +141,8 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
     """
     try:
         import yt_dlp
-    except ImportError:
-        raise CfWhisperError("yt-dlp not installed. Install with: pip install yt-dlp")
+    except ImportError as exc:
+        raise CfWhisperError("yt-dlp not installed. Install with: pip install yt-dlp") from exc
 
     url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -222,10 +223,10 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
     except Exception as exc:
         raise CfWhisperError(
             f"Audio download failed for video {video_id}: {type(exc).__name__}: {exc}"
-        )
+        ) from exc
     finally:
         # Cleanup temp files
-        try:
+        with contextlib.suppress(OSError):
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
             base = tmp_path.replace(".mp3", "")
@@ -233,8 +234,6 @@ def _download_audio(video_id: str, max_seconds: int = 600) -> bytes:
                 candidate = base + ext
                 if os.path.exists(candidate):
                     os.unlink(candidate)
-        except OSError:
-            pass
 
 
 class CobaltAudioError(RuntimeError):
@@ -385,12 +384,16 @@ def fetch_cloudflare_transcript_sync(
         status = exc.response.status_code
         if status == 429:
             logger.warning("Cloudflare Whisper rate limited (429) for video %s, skipping", video_id)
-            raise CfWhisperError("Cloudflare Whisper rate limited (429)")
-        raise CfWhisperError(f"Cloudflare API returned HTTP {status}: {exc.response.text[:200]}")
-    except httpx.TimeoutException:
-        raise CfWhisperError(f"Cloudflare API timed out for video {video_id} (300s timeout)")
+            raise CfWhisperError("Cloudflare Whisper rate limited (429)") from exc
+        raise CfWhisperError(
+            f"Cloudflare API returned HTTP {status}: {exc.response.text[:200]}"
+        ) from exc
+    except httpx.TimeoutException as exc:
+        raise CfWhisperError(
+            f"Cloudflare API timed out for video {video_id} (300s timeout)"
+        ) from exc
     except Exception as exc:
-        raise CfWhisperError(f"Cloudflare API request failed: {type(exc).__name__}: {exc}")
+        raise CfWhisperError(f"Cloudflare API request failed: {type(exc).__name__}: {exc}") from exc
 
     # Step 3: Parse segments
     return _parse_cloudflare_response(data)
@@ -527,10 +530,7 @@ def _call_space_via_client(space_id: str, video_id: str, timeout: float) -> list
 
 def _result_to_segments(result: Any) -> list[dict[str, Any]]:
     """Convert a gradio_client predict result into cascade segment dicts."""
-    if isinstance(result, (tuple, list)):
-        payload = result[0] if result else ""
-    else:
-        payload = result
+    payload = (result[0] if result else "") if isinstance(result, (tuple, list)) else result
     text = str(payload or "").strip()
     if not text:
         raise WhisperClientError("Space returned an empty transcript")

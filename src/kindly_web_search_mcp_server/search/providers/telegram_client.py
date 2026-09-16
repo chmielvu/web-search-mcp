@@ -7,7 +7,6 @@ receive_updates=False — no event handlers, search-only mode.
 
 from __future__ import annotations
 
-
 import asyncio
 import logging
 

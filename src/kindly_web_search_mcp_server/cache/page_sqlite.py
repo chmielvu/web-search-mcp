@@ -81,7 +81,7 @@ class PageSQLiteCache:
         """Isolated schema check for write paths, logging non-fatal warnings."""
         try:
             self._ensure_schema(con)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             logger.warning("page_cache: skipped schema initialization/migration: %s", exc)
 
     def entry_count(self) -> int:
@@ -95,7 +95,7 @@ class PageSQLiteCache:
                     return int(row[0]) if row else 0
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("page_cache: entry_count failed: %s", exc)
                 return 0
 
@@ -174,7 +174,7 @@ class PageSQLiteCache:
                     }
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("page_cache lookup failed for %s: %s", canonical_url, exc)
                 return None
 
@@ -224,7 +224,7 @@ class PageSQLiteCache:
                 from urllib.parse import urlparse
 
                 domain = urlparse(canonical_url).netloc
-            except Exception:  # noqa: BLE001
+            except Exception:
                 domain = ""
 
         word_count = len(page_content.split())
@@ -272,6 +272,6 @@ class PageSQLiteCache:
                         )
                 finally:
                     con.close()
-            except Exception as exc:  # noqa: BLE001
+            except Exception as exc:
                 logger.warning("page_cache store failed for %s: %s", canonical_url, exc)
                 raise

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor, wait
-import logging
 from threading import Lock
 
 from ..utils.background_tasks import fire_and_forget

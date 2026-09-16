@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -10,8 +11,8 @@ from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import Field
 
-
 from ..analytics.judge_runner import run_judge_evaluation
+from ..analytics.producers import emit_tool_observability_event
 from ..errors import raise_tool_error
 from ..models import GeminiSearchResponse, GrokSearchResponse, fetch_next
 from ..search.gemini_search_tool import gemini_search_with_grounding
@@ -19,7 +20,6 @@ from ..search.providers.grok import grok_search as _grok_search_core
 from ..settings import settings
 from ..telemetry import record_gemini_search
 from ..utils.background_tasks import fire_and_forget
-from ..analytics.producers import emit_tool_observability_event
 from ._helpers import _record_tool_failure, _record_tool_success, _resolve_session_id
 
 LOGGER = logging.getLogger(__name__)
@@ -138,7 +138,7 @@ async def gemini_search(
             )
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
-            try:
+            with contextlib.suppress(Exception):
                 _run_key = str(uuid.uuid4())
                 all_chunks = result.sources
                 _judge_results = [
@@ -164,8 +164,6 @@ async def gemini_search(
                     ),
                     name=f"judge-gemini-{_run_key[:8]}",
                 )
-            except Exception:
-                pass
 
         next_hints = fetch_next(
             [
@@ -350,7 +348,7 @@ async def grok_search(
 
         await ctx.report_progress(progress=100, total=100, message="Done")
         if settings.judge_evaluation_enabled:
-            try:
+            with contextlib.suppress(Exception):
                 _run_key = str(uuid.uuid4())
                 _judge_results = [
                     type(
@@ -379,8 +377,6 @@ async def grok_search(
                     ),
                     name=f"judge-grok-{_run_key[:8]}",
                 )
-            except Exception:
-                pass
 
         next_hints = fetch_next(
             [

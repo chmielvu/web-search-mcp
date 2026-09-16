@@ -5,16 +5,15 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from ..analytics.producers import emit_observability_event
 from ..models import WebSearchResult
 from ..telemetry import RERANK_INPUT_COUNT, RERANK_OUTPUT_COUNT, RERANK_STAGE, record_rerank_stage
-from ..analytics.producers import emit_observability_event
 from ..utils.observability import serialize_search_results
 from ..utils.url_canonicalize import canonicalize_url
 from .async_writes import dispatch_duckdb_write
-from .writers import insert_funnel_uplift_batches
-
 from .ids import _candidate_id, _canonical_result_id
 from .rerank_candidate_writes import insert_rerank_candidate_rows_batch
+from .writers import insert_funnel_uplift_batches
 
 
 def emit_rerank_summary(

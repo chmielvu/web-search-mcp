@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import asyncio
 import logging
 import math
 import time
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -17,8 +17,8 @@ from ..ml import (
     embed_texts,
 )
 from ..models import WebSearchResult
-from ..utils.url_canonicalize import canonicalize_url
 from ..settings import settings
+from ..utils.url_canonicalize import canonicalize_url
 from .models import (
     CROSS_ENCODER_INPUT_LIMIT,
     CandidateEmbedding,

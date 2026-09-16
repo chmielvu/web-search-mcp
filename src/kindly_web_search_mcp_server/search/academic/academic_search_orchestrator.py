@@ -23,8 +23,8 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from ...models import AcademicPaper, AcademicSearchResponse, ProviderWarning
 from ...analytics.producers import emit_observability_event
+from ...models import AcademicPaper, AcademicSearchResponse, ProviderWarning
 from .academic_arxiv import search_arxiv
 from .academic_core import search_core
 from .academic_crossref import search_crossref

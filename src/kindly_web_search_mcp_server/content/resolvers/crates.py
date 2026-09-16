@@ -6,16 +6,21 @@ renderer in :mod:`kindly_web_search_mcp_server.content.packages`.
 
 from __future__ import annotations
 
-import tarfile
-import zipfile
-from io import BytesIO
-
 import re
+import tarfile
 import urllib.parse
+import zipfile
 from dataclasses import dataclass
+from io import BytesIO
 from typing import Any
 
-
+from ..documents import _as_dict, build_package_document
+from ..http_utils import (
+    bytes_with_cap,
+    fetch_json,
+    raise_for_status,
+    request_with_redirect_validation,
+)
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -24,13 +29,6 @@ from ..models import (
     ParsedURL,
     RawDocument,
     ResolverTarget,
-)
-from ..documents import _as_dict, build_package_document
-from ..http_utils import (
-    bytes_with_cap,
-    fetch_json,
-    raise_for_status,
-    request_with_redirect_validation,
 )
 
 
@@ -110,9 +108,9 @@ async def fetch_crates_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocu
 __all__ = [
     "CratesError",
     "CratesTarget",
-    "parse_crates_url",
-    "match_crates",
     "fetch_crates_raw",
+    "match_crates",
+    "parse_crates_url",
 ]
 
 

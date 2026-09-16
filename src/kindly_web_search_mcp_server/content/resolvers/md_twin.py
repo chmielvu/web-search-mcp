@@ -16,7 +16,6 @@ The match is pure URL shaping; no network happens before ``fetch``.
 from __future__ import annotations
 
 import re
-
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
@@ -184,4 +183,4 @@ async def fetch_md_twin_raw(target: ResolverTarget, ctx: FetchContext) -> RawDoc
     )
 
 
-__all__ = ["md_twin_url", "match_md_twin", "fetch_md_twin_raw"]
+__all__ = ["fetch_md_twin_raw", "match_md_twin", "md_twin_url"]

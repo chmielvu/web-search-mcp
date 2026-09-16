@@ -1,7 +1,9 @@
 """Sourcegraph stream-first code-search adapter with GraphQL fallback."""
 
 from __future__ import annotations
+
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -27,14 +29,12 @@ _NETWORK_EXCEPTIONS = (httpx.TransportError, httpx.TimeoutException, TimeoutErro
 
 
 def _resolve_max_retries() -> int:
-    try:
+    with contextlib.suppress(ImportError, AttributeError):
         from ...search.providers.base import provider_retry_max_retries
 
         retries = provider_retry_max_retries("sourcegraph")
         if isinstance(retries, int) and retries >= 0:
             return retries
-    except (ImportError, AttributeError):
-        pass
     return 1
 
 
@@ -488,7 +488,7 @@ async def _graphql_search_variant(
             )
             last_response = response
             last_exc = None
-        except (httpx.HTTPError, TimeoutError, OSError) as exc:
+        except (httpx.HTTPError, OSError) as exc:
             last_exc = exc
             last_response = None
             is_transport = isinstance(exc, _NETWORK_EXCEPTIONS)
@@ -649,7 +649,7 @@ async def _stream_search_variant(
             )
             last_response = response
             last_exc = None
-        except (asyncio.TimeoutError, httpx.TimeoutException) as exc:
+        except (TimeoutError, httpx.TimeoutException) as exc:
             last_exc = exc
             last_response = None
             # SSE total timeout — fallback to GraphQL immediately, no retry on TimeoutError
@@ -659,7 +659,7 @@ async def _stream_search_variant(
                 query_variant[:80],
             )
             break
-        except (httpx.HTTPError, TimeoutError, OSError) as exc:
+        except (httpx.HTTPError, OSError) as exc:
             last_exc = exc
             last_response = None
             is_transport = isinstance(exc, _NETWORK_EXCEPTIONS)

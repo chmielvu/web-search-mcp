@@ -7,21 +7,22 @@ from typing import Annotated
 import click
 import typer
 
+from ..utils.logging import configure_logging
 from . import bootstrap  # noqa: F401
 from .commands import (
     ai,
     analytics,
     content,
     doctor,
-    getskill,
-    jobs,
-    inference,
     feedback,
+    getskill,
+    inference,
+    jobs,
     links,
     reference,
     research,
-    schema,
     results,
+    schema,
     search,
     server,
     sitemap,
@@ -30,11 +31,9 @@ from .commands import (
 )
 from .errors import CliError, match_hint_rule
 from .exit_codes import ExitCode
-from .output import emit_error, emit_json
 from .metadata import build_full_help_payload, cli_brief, cli_version, command_path_tokens
+from .output import emit_error, emit_json
 from .runtime import set_runtime
-from ..utils.logging import configure_logging
-
 
 app = typer.Typer(
     name="web-search-cli",

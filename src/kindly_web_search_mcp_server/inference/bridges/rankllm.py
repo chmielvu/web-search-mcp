@@ -7,18 +7,18 @@ import logging
 from typing import Any
 
 from ...models import WebSearchResult
-from ...settings import settings
 from ...rerank.llm import (
     LLMRerankOutcome,
     _build_request,
+    _CoordinatorGuardTimeout,
     _get_gemini_coordinator,
     _get_openrouter_coordinator,
     _run_coordinator,
-    _CoordinatorGuardTimeout,
 )
+from ...settings import settings
 from ..chain import get_chain
-from ..types import ModelSpec
 from ..engine import ChainExhaustedError, execute_with_fallback
+from ..types import ModelSpec
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +65,7 @@ async def rerank_with_rankllm_bridge(
             ),
             timeout=settings.rankllm_timeout_seconds,
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         logger.warning(
             "RankLLM fallback chain exceeded its total timeout of %.1fs; failing open",
             settings.rankllm_timeout_seconds,

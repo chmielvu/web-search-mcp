@@ -111,13 +111,27 @@ exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "W"]
-ignore = ["E501"]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
+ignore = [
+    "E501",  # line length is the formatter's job
+    # FastMCP resolves parameters from their default annotations, and Typer uses
+    # default values for options — a call in a default declares a dependency here,
+    # it is not the shadowing accident B008 exists to catch.
+    "B008",
+]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]
 
 "src/kindly_web_search_mcp_server/analytics/app.py" = ["E402"]
+
+# The module documents the typographic characters it normalizes, so the character
+# names in those comments are the subject of the comment, not accidental lookalikes.
+"src/kindly_web_search_mcp_server/utils/text_clean.py" = ["RUF003"]
+
+# Typer collects repeated options into the default list object, which is the
+# documented way to declare a multi-value option.
+"src/kindly_web_search_mcp_server/cli/commands/search.py" = ["B006"]
 
 [tool.ruff.format]
 quote-style = "double"

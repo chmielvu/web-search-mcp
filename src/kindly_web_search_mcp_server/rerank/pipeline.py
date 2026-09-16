@@ -8,6 +8,7 @@ from typing import Any
 
 from opentelemetry import trace
 
+from ..analytics.producers import emit_observability_event
 from ..analytics.rerank_telemetry import emit_rerank_summary, record_bi_encoder_stage
 from ..ml import embed_query
 from ..models import WebSearchResult
@@ -18,9 +19,13 @@ from ..prompts.rerank import (
     build_voyage_instruction,
 )
 from ..settings import settings
-from ..telemetry import INPUT_MIME_TYPE, INPUT_VALUE, RERANK_INPUT_COUNT, SEARCH_QUERY
-from ..telemetry import record_rerank_stage
-from ..analytics.producers import emit_observability_event
+from ..telemetry import (
+    INPUT_MIME_TYPE,
+    INPUT_VALUE,
+    RERANK_INPUT_COUNT,
+    SEARCH_QUERY,
+    record_rerank_stage,
+)
 from .bi_encoder import bi_encoder_rank, run_conditional_bi_encoder
 from .cross_encoder import run_cross_encoder_stage
 from .llm import run_llm_stage
@@ -29,9 +34,9 @@ from .models import (
     CROSS_ENCODER_INPUT_LIMIT,
     FINAL_RESULT_LIMIT,
     RANKLLM_INPUT_LIMIT,
+    RerankOutput,
     RerankOverflowItem,
     RerankOverflowStage,
-    RerankOutput,
     RerankStageSummary,
 )
 

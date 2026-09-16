@@ -450,10 +450,7 @@ def _item_error(item: Mapping[str, object]) -> ContentError:
     """Convert a failed Crawl4AI result into a stable content error."""
     status_code = item.get("status_code") or item.get("status")
     http_status = status_code if isinstance(status_code, int) else None
-    if http_status in {401, 403, 429}:
-        status = "blocked"
-    else:
-        status = "error"
+    status = "blocked" if http_status in {401, 403, 429} else "error"
     message = item.get("error") or item.get("message") or "Crawl4AI failed to process this page."
     retryable = bool(item.get("retryable")) or bool(http_status and http_status >= 500)
     return ContentError(

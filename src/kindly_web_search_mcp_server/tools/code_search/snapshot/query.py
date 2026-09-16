@@ -27,8 +27,8 @@ from .scan import (
     _first_match_snippet,
     _iter_files,
     _list_tree,
-    _merge_hits,
     _matches_filters,
+    _merge_hits,
     _read_text,
     _scan_literal,
     _scan_regex,
@@ -37,7 +37,7 @@ from .scan import (
 
 
 def _fts_hits(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     repo_key: str,
     query: str,
     *,
@@ -97,7 +97,7 @@ def _fts_hits(
 
 
 def _neighbors(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     repo_key: str,
     name: str | None,
     path: str,
@@ -137,7 +137,7 @@ def _neighbors(
 
 
 def _symbol_at(
-    manager: "SnapshotManager", repo_key: str, path: str, line: int
+    manager: SnapshotManager, repo_key: str, path: str, line: int
 ) -> tuple[str, str | None, str] | None:
     with manager._lock:
         con = _connect(manager)
@@ -155,7 +155,7 @@ def _symbol_at(
 
 
 def _hit_from_file(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     path: str,
     query: str,
@@ -176,7 +176,7 @@ def _hit_from_file(
 
 
 def _graph_hits(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     symbol: str,
     *,
@@ -229,7 +229,7 @@ def _graph_hits(
     ]
 
 
-def _architecture(manager: "SnapshotManager", snapshot: Snapshot) -> dict[str, Any]:
+def _architecture(manager: SnapshotManager, snapshot: Snapshot) -> dict[str, Any]:
     with manager._lock:
         con = _connect(manager)
         try:
@@ -264,7 +264,7 @@ def _architecture(manager: "SnapshotManager", snapshot: Snapshot) -> dict[str, A
 
 
 def _search_hits(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     query: str,
     *,
@@ -377,7 +377,7 @@ def _search_hits(
 
 
 async def _semantic_search_hits(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     query: str,
     *,
@@ -424,7 +424,7 @@ async def _semantic_search_hits(
         return []
     embeddings = await _hf_batch_code_embeddings(candidate_texts, max_chars=2000)
     scored: list[tuple[float, Path]] = []
-    for path, emb in zip(candidate_paths, embeddings):
+    for path, emb in zip(candidate_paths, embeddings, strict=False):
         if emb is None:
             continue
         sim = _cosine_similarity(query_emb, emb)
@@ -437,14 +437,13 @@ async def _semantic_search_hits(
             scored.append((sim, path))
     # Adaptive relaxation: if strict 0.60 yields <3 hits but we have high-ish scores, relax to 0.50
     if len(scored) < 3:
-        for path, emb in zip(candidate_paths, embeddings):
+        for path, emb in zip(candidate_paths, embeddings, strict=False):
             if emb is None:
                 continue
             sim = _cosine_similarity(query_emb, emb)
-            if 0.50 < sim <= 0.60:
-                # avoid duplicates already in scored
-                if not any(p == path for _, p in scored):
-                    scored.append((sim, path))
+            # avoid duplicates already in scored
+            if 0.50 < sim <= 0.60 and not any(p == path for _, p in scored):
+                scored.append((sim, path))
     if not scored:
         return []
     scored.sort(key=lambda x: x[0], reverse=True)
@@ -483,7 +482,7 @@ async def _semantic_search_hits(
 
 
 async def _search_hits_async(
-    manager: "SnapshotManager",
+    manager: SnapshotManager,
     snapshot: Snapshot,
     query: str,
     *,

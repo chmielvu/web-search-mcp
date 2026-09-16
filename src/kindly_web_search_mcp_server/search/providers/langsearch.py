@@ -8,11 +8,13 @@ Response: Bing-compatible JSON under data.webPages.value
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+
 from ...models import WebSearchResult
 from ...settings import get_env_value, settings
 from ..filters import langsearch_freshness
@@ -103,10 +105,8 @@ async def search_langsearch(
                 continue
             snippet = item.get("snippet") or ""
             domain: str | None = None
-            try:
+            with contextlib.suppress(ValueError):
                 domain = urlparse(link).hostname
-            except ValueError:
-                pass
             results.append(
                 WebSearchResult(
                     title=title.strip(),

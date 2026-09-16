@@ -9,8 +9,8 @@ import logging
 from typing import Any
 
 __all__ = [
-    "_persist_quick_web_search_analytics",
     "_persist_gemini_search_analytics",
+    "_persist_quick_web_search_analytics",
 ]
 
 

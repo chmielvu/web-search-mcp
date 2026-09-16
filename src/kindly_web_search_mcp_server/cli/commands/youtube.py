@@ -1,14 +1,13 @@
 from __future__ import annotations
 
-import asyncio
 from typing import Annotated, Literal
 
 import typer
 
 from ..errors import CliError
 from ..exit_codes import ExitCode
-from ..output import emit_json
 from ..outcome import raise_for_payload_error
+from ..output import emit_json
 from ..runtime import run_cli_async
 from ..services.files import write_json_atomic
 
@@ -56,7 +55,7 @@ def transcript_cmd(
                 summary_focus=summary_focus,
             )
         )
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         raise CliError(
             kind="timeout",
             message=f"Transcript fetch timed out for {video_id_or_url}",

@@ -5,7 +5,7 @@ from __future__ import annotations
 import fnmatch
 import re
 from collections import Counter
-from typing import Iterable
+from collections.abc import Iterable
 
 from .models import CodeSearchHit, CodeSearchRequest, Diagnostic
 from .query import QueryPlan
@@ -106,9 +106,12 @@ def _language_key(value: str) -> str:
 def _language_matches(hit: CodeSearchHit, language: str) -> bool | None:
     expected = _language_key(language)
     metadata_language = hit.source_metadata.get("language")
-    if isinstance(metadata_language, str) and metadata_language.strip():
-        if _language_key(metadata_language) != expected:
-            return False
+    if (
+        isinstance(metadata_language, str)
+        and metadata_language.strip()
+        and _language_key(metadata_language) != expected
+    ):
+        return False
     path = _normalized_path(hit.path)
     if not path:
         return None

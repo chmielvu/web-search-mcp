@@ -36,7 +36,7 @@ def _check_duckdb_file(path: Path) -> dict:
         conn.execute("SELECT 1").fetchone()
         conn.close()
         return {"name": f"duckdb_file_{name}", "ok": True, "path": str(path)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"name": f"duckdb_file_{name}", "ok": False, "path": str(path), "error": str(exc)}
 
 
@@ -56,7 +56,7 @@ def _check_sqlite_file(path: Path) -> dict:
         conn.execute("SELECT 1")
         conn.close()
         return {"name": f"sqlite_file_{name}", "ok": True, "path": str(path)}
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"name": f"sqlite_file_{name}", "ok": False, "path": str(path), "error": str(exc)}
 
 
@@ -88,7 +88,7 @@ def _check_analytics_schema() -> dict:
             "missing_tables": sorted(missing_tables),
             "missing_views": sorted(missing_views),
         }
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         return {"name": "analytics_schema", "ok": False, "error": str(exc)}
 
 

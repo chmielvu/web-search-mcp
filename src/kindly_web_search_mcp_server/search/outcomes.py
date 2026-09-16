@@ -1,9 +1,11 @@
 """Detached background persistence lifecycle for completed searches."""
 
 from __future__ import annotations
+
 import asyncio
 import logging
 from typing import Any
+
 from ..analytics.ids import _candidate_id, _canonical_result_id
 from ..utils.url_canonicalize import extract_domain_from_url
 
@@ -13,6 +15,10 @@ _OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
 
 async def persist_search_outcome(run):
     from ..analytics.async_writes import dispatch_duckdb_write
+    from ..analytics.training.query_understanding_jsonl import (
+        append_query_outcome_record,
+        rewritten_slots_payload,
+    )
     from ..analytics.writers import (
         insert_candidate_embeddings,
         insert_final_results,
@@ -23,12 +29,7 @@ async def persist_search_outcome(run):
         insert_search_candidates,
         insert_search_run,
     )
-
     from ..settings import settings
-    from ..analytics.training.query_understanding_jsonl import (
-        append_query_outcome_record,
-        rewritten_slots_payload,
-    )
     from .diagnostics import build_diagnostics
 
     outcome = run.snapshot()

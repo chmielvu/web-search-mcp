@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from contextlib import AbstractContextManager
-from typing import Any, Mapping
+from typing import Any
 from urllib.parse import urlparse
 
 from opentelemetry import metrics, trace
 
-from .phoenix_tracing import current_openinference_attributes
 from .attributes import (
     CACHE_TYPE,
     CIRCUIT_STATE,
@@ -45,6 +45,7 @@ from .attributes import (
     SERVER_PORT,
     URL_FULL,
 )
+from .phoenix_tracing import current_openinference_attributes
 
 
 def get_tracer(name: str = "web-search-mcp") -> trace.Tracer:

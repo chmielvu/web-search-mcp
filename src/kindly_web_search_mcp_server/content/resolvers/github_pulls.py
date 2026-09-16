@@ -7,8 +7,8 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from ..documents import build_thread_document
 from ..github_api import graphql_paginate_comments, resolve_github_token, thread_values
-
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -18,7 +18,6 @@ from ..models import (
     ResolverTarget,
     ThreadMessage,
 )
-from ..documents import build_thread_document
 
 
 class GitHubPullError(RuntimeError):
@@ -205,7 +204,7 @@ async def fetch_github_pull_raw(target: ResolverTarget, ctx: FetchContext) -> Ra
 __all__ = [
     "GitHubPullError",
     "GitHubPullTarget",
-    "parse_github_pull_url",
-    "match_github_pull",
     "fetch_github_pull_raw",
+    "match_github_pull",
+    "parse_github_pull_url",
 ]

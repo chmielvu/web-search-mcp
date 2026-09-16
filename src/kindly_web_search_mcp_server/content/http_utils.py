@@ -18,8 +18,9 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Any, Iterable
+from typing import Any
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -45,9 +46,7 @@ def _is_public_host(host: str) -> bool:
         return False
     if lowered.endswith(".localhost") or lowered.endswith(".local"):
         return False
-    if lowered.endswith(".internal"):
-        return False
-    return True
+    return not lowered.endswith(".internal")
 
 
 def _validate_public_hostname(url: str) -> None:
@@ -388,10 +387,7 @@ def _is_raw_or_text_url(url: str) -> bool:
         if ("github.com" in host or "gitlab.com" in host) and "/raw/" in parsed.path.lower():
             return True
         path = parsed.path.lower()
-        for ext in _RAW_TEXT_EXTENSIONS:
-            if path.endswith(ext):
-                return True
-        return False
+        return any(path.endswith(ext) for ext in _RAW_TEXT_EXTENSIONS)
     except Exception:
         return False
 
@@ -622,15 +618,15 @@ async def safe_fetch_url(
 
 
 __all__ = [
-    # borrowed-context transport
-    "request_with_redirect_validation",
-    "raise_for_status",
-    "bytes_with_cap",
-    "fetch_json",
-    "fetch_text",
     # standalone SSRF-guarded fetch
     "SafeFetchError",
     "SafeFetchResult",
+    "bytes_with_cap",
+    "fetch_json",
+    "fetch_text",
+    "raise_for_status",
+    # borrowed-context transport
+    "request_with_redirect_validation",
     "safe_fetch_url",
     "validate_public_url",
 ]

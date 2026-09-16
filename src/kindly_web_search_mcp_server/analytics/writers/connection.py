@@ -28,6 +28,7 @@ specific `connection` that will use them.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from pathlib import Path
@@ -94,10 +95,8 @@ def _install_flockmtl_once() -> bool:
             )
             return False
         finally:
-            try:
+            with contextlib.suppress(Exception):
                 connection.close()
-            except Exception:
-                pass
 
 
 # Judge SQL-native fallback registry points at NanoGPT (OpenAI-compatible,
@@ -406,10 +405,8 @@ def _ensure_flockmtl_secret(connection: duckdb.DuckDBPyConnection) -> None:
             _JUDGE_FALLBACK_MODEL_ID,
         )
         return
-    try:
+    with contextlib.suppress(duckdb.Error):
         connection.execute("DROP SECRET IF EXISTS __default_openai")
-    except duckdb.Error:
-        pass
     safe_key = api_key.replace("'", "''")
     safe_url = base_url.replace("'", "''")
     connection.execute(
@@ -636,12 +633,12 @@ def ensure_flockmtl(connection: duckdb.DuckDBPyConnection) -> bool:
 
 
 __all__ = [
+    "FLOCKMTL_EXTENSION_NAME",
     "_LOCK",
     "_db_path",
     "_ensure_columns",
+    "duckdb",
     "ensure_flockmtl",
     "ensure_flockmtl_loaded",
     "ensure_flockmtl_resources",
-    "duckdb",
-    "FLOCKMTL_EXTENSION_NAME",
 ]

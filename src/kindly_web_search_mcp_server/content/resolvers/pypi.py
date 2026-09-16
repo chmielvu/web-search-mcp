@@ -7,7 +7,8 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-
+from ..documents import _as_dict, _as_str, _link_from_pairs, build_package_document
+from ..http_utils import fetch_json
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -17,8 +18,6 @@ from ..models import (
     RawDocument,
     ResolverTarget,
 )
-from ..documents import _as_dict, _as_str, _link_from_pairs, build_package_document
-from ..http_utils import fetch_json
 
 
 class PyPIError(RuntimeError):
@@ -102,9 +101,9 @@ async def fetch_pypi_raw(target: ResolverTarget, ctx: FetchContext) -> RawDocume
 __all__ = [
     "PyPIError",
     "PyPITarget",
-    "parse_pypi_url",
-    "match_pypi",
     "fetch_pypi_raw",
+    "match_pypi",
+    "parse_pypi_url",
 ]
 
 
@@ -127,10 +126,7 @@ def pypi_package_document(data: dict[str, Any], target: ResolverTarget) -> Packa
     description = str(info.get("description") or "")
     requires_dist = info.get("requires_dist") or []
     project_urls = info.get("project_urls") or {}
-    if isinstance(project_urls, dict):
-        links = _link_from_pairs(project_urls)
-    else:
-        links = ()
+    links = _link_from_pairs(project_urls) if isinstance(project_urls, dict) else ()
     requires_python = info.get("requires_python")
     readme_format = (
         "text/markdown" if str(description).lstrip().startswith(("#", "!")) else "text/plain"

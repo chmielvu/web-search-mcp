@@ -15,7 +15,6 @@ from typing import Annotated, Any, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-
 T = TypeVar("T")
 
 

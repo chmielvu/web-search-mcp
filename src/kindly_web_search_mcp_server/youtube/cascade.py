@@ -17,8 +17,9 @@ import logging
 from typing import Any
 
 from ..settings import settings
-from .models import YouTubeError, TranscriptBackendError
-from .transcript import fetch_transcript_data, calculate_total_duration
+from .models import TranscriptBackendError, YouTubeError
+from .quality import normalize_transcript_segments
+from .transcript import calculate_total_duration, fetch_transcript_data
 from .whisper import (
     CfWhisperError,
     WhisperClientError,
@@ -26,7 +27,6 @@ from .whisper import (
     fetch_hf_space_transcript_sync,
 )
 from .yt_dlp_backend import ytdlp_extract_subtitles
-from .quality import normalize_transcript_segments
 
 logger = logging.getLogger(__name__)
 

@@ -30,7 +30,6 @@ only finalization path runs through ``finalize_artifact``.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -43,6 +42,14 @@ from ..settings import settings
 from ..telemetry import record_content_error
 from ..utils.url_canonicalize import canonicalize_url
 from .constructor import ContentArtifact, ContentError, finalize_artifact
+from .dom_detector import RouteDecision, analyze_html
+from .http_utils import safe_fetch_url
+from .jina_reader import (
+    JinaReaderError,
+)
+from .jina_reader import (
+    fetch_raw_document as fetch_jina_raw_document,
+)
 from .markdown_processor import MarkdownProcessor
 from .models import (
     AcquisitionError,
@@ -51,8 +58,8 @@ from .models import (
     FetchContext,
     FetchOptions,
     ParsedURL,
-    ProcessingMode,
     ProcessedMarkdown,
+    ProcessingMode,
     QualityReport,
     RawDocument,
     ResolverSpec,
@@ -65,16 +72,10 @@ from .remote_clients import (
     get_camoufox_client,
     get_crawl4ai_client,
 )
-from .resolvers.wayback import fetch_wayback_raw
 from .renderers import render_raw_document
-from .resolvers.files import DOC_EXTENSIONS
 from .resolver_registry import REGISTRY
-from .dom_detector import RouteDecision, analyze_html
-from .http_utils import safe_fetch_url
-from .jina_reader import (
-    JinaReaderError,
-    fetch_raw_document as fetch_jina_raw_document,
-)
+from .resolvers.files import DOC_EXTENSIONS
+from .resolvers.wayback import fetch_wayback_raw
 
 LOGGER = logging.getLogger(__name__)
 
@@ -788,7 +789,7 @@ async def fetch_content_artifact(
                         selection_reason=f"dom_route:{decision.route}",
                         candidate=jina_candidate,
                     )
-                except (JinaReaderError, httpx.HTTPError, asyncio.TimeoutError) as exc:
+                except (TimeoutError, JinaReaderError, httpx.HTTPError) as exc:
                     LOGGER.debug("Jina generic failed: %s", exc)
                     failure = _acquisition_error_to_failure(exc, fallback_code="jina_unavailable")
                     attempts.record_outcome(

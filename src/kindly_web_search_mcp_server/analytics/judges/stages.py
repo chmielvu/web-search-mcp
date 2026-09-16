@@ -11,6 +11,7 @@ orchestrator (``_judge_chain_call``), the FlockMTL-template renderer
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import re
@@ -318,9 +319,9 @@ def _get_gemini_client() -> Any:
     global _GEMINI_CLIENT, _GEMINI_CLIENT_KEY
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
-    if _GEMINI_CLIENT is None or _GEMINI_CLIENT_KEY != settings.gemini_api_key:
+    if _GEMINI_CLIENT is None or settings.gemini_api_key != _GEMINI_CLIENT_KEY:
         with _GEMINI_CLIENT_LOCK:
-            if _GEMINI_CLIENT is None or _GEMINI_CLIENT_KEY != settings.gemini_api_key:
+            if _GEMINI_CLIENT is None or settings.gemini_api_key != _GEMINI_CLIENT_KEY:
                 from google import genai  # type: ignore[import-untyped]
 
                 _GEMINI_CLIENT = genai.Client(api_key=settings.gemini_api_key)
@@ -564,18 +565,14 @@ def _parse_result(raw: str | None) -> dict | None:
     # Tier 0: JSON array wrapper — some :thinking models emit a list of
     # feedback objects instead of the bare schema object; judge the first.
     if raw.startswith("["):
-        try:
+        with contextlib.suppress(Exception):
             arr = json.loads(raw)
             if isinstance(arr, list) and arr and isinstance(arr[0], dict):
                 return arr[0]
-        except Exception:
-            pass
     # Tier 1: pure JSON (schema-strict path).
     if raw.startswith("{") and raw.endswith("}"):
-        try:
+        with contextlib.suppress(Exception):
             return json.loads(raw)
-        except Exception:
-            pass
     # Tier 2: [RESULT] JSON split.
     marker = raw.find("[RESULT]")
     if marker >= 0:
@@ -585,15 +582,11 @@ def _parse_result(raw: str | None) -> dict | None:
         except Exception:
             m = re.search(r"\{.*\}", tail, re.DOTALL)
             if m:
-                try:
+                with contextlib.suppress(Exception):
                     return json.loads(m.group(0))
-                except Exception:
-                    pass
     # Tier 3: first {...} block anywhere in raw.
     m = re.search(r"\{.*\}", raw, re.DOTALL)
     if m:
-        try:
+        with contextlib.suppress(Exception):
             return json.loads(m.group(0))
-        except Exception:
-            pass
     return None

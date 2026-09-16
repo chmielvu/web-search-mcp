@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 import uuid
@@ -20,18 +21,14 @@ _FALLBACK_SESSION_ID = f"local_context:{uuid.uuid4().hex}"
 def get_session_id(context: MiddlewareContext) -> str:
     fastmcp_context = context.fastmcp_context
     if fastmcp_context is not None:
-        try:
+        with contextlib.suppress(Exception):
             session_id = fastmcp_context.session_id
             if session_id:
                 return str(session_id)
-        except Exception:
-            pass
-        try:
+        with contextlib.suppress(Exception):
             client_id = fastmcp_context.client_id
             if client_id:
                 return str(client_id)
-        except Exception:
-            pass
 
     request_id = getattr(context.message, "request_id", None)
     if request_id:

@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import contextvars
 import random
 import time
 from collections.abc import Awaitable, Callable
-from datetime import datetime, timezone
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
 import httpx
-from dataclasses import dataclass, field
-import contextvars
 
 from ...models import WebSearchResult
 from ...settings import settings
@@ -136,17 +137,15 @@ def _parse_retry_after(value: str | None) -> float | None:
     """
     if not value:
         return None
-    try:
+    with contextlib.suppress(ValueError):
         return max(0.0, float(value))
-    except ValueError:
-        pass
     try:
         target = parsedate_to_datetime(value)
     except (TypeError, ValueError):
         return None
     if target.tzinfo is None:
-        target = target.replace(tzinfo=timezone.utc)
-    return max(0.0, (target - datetime.now(timezone.utc)).total_seconds())
+        target = target.replace(tzinfo=UTC)
+    return max(0.0, (target - datetime.now(UTC)).total_seconds())
 
 
 def _response_metadata(response: httpx.Response) -> dict[str, object]:
@@ -202,7 +201,7 @@ def provider_retry_max_retries(provider_name: str) -> int:
     return definition.max_retries if definition is not None else 0
 
 
-async def run_provider(
+async def run_provider[TResponse](
     provider_name: str,
     query: str,
     num_results: int,
@@ -257,7 +256,9 @@ async def run_provider(
                 retryable=True,
             )
             set_provider_request_metadata(metadata)
-            raise ProviderRequestError(str(exc) or "provider request timed out", metadata=metadata)
+            raise ProviderRequestError(
+                str(exc) or "provider request timed out", metadata=metadata
+            ) from exc
         except httpx.HTTPStatusError as exc:
             response = exc.response
             metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
@@ -353,7 +354,7 @@ async def run_provider(
             return None  # signal: retry
 
     if http_client is not None:
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries + 1):  # noqa: B007 - read by the `_attempt` closure above
             result = await _attempt(http_client)
             if result is not None:
                 return result
@@ -362,14 +363,14 @@ async def run_provider(
     async with httpx.AsyncClient(
         timeout=httpx.Timeout(timeout_seconds),
     ) as client:
-        for attempt in range(max_retries + 1):
+        for attempt in range(max_retries + 1):  # noqa: B007 - read by the `_attempt` closure above
             result = await _attempt(client)
             if result is not None:
                 return result
         raise RuntimeError("unreachable: _attempt always returns or raises")
 
 
-async def run_clientless_provider(
+async def run_clientless_provider[TResponse](
     provider_name: str,
     query: str,
     num_results: int,
@@ -469,7 +470,7 @@ async def run_clientless_provider(
             set_provider_request_metadata(ProviderRequestMetadata(provider=provider_name))
             return None  # signal: retry
 
-    for attempt in range(max_retries + 1):
+    for attempt in range(max_retries + 1):  # noqa: B007 - read by the `_attempt` closure above
         result = await _attempt()
         if result is not None:
             return result

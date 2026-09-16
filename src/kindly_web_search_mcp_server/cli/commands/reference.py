@@ -7,7 +7,6 @@ import typer
 from ..output import emit_json
 from ..reference_data import EXTERNAL_TOOLS, TOOL_COVERAGE
 
-
 reference_app = typer.Typer(no_args_is_help=True)
 
 

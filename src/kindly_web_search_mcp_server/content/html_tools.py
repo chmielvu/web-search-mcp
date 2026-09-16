@@ -122,9 +122,8 @@ def extract_links(
 
         domain = parsed.netloc.lower() or ""
         internal = bool(base_domain and domain == base_domain)
-        if same_domain_only or not include_external:
-            if not internal:
-                continue
+        if (same_domain_only or not include_external) and not internal:
+            continue
 
         normalized_url = parsed._replace(fragment="").geturl()
         if normalized_url in seen:
@@ -147,9 +146,9 @@ def extract_links(
 
 
 __all__ = [
+    "extract_links",
+    "extract_metadata",
+    "html_to_markdown",
     "soup_from_html",
     "url_hostname",
-    "html_to_markdown",
-    "extract_metadata",
-    "extract_links",
 ]

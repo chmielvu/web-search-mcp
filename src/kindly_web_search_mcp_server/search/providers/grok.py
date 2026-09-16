@@ -19,15 +19,16 @@ The adapter has two entry points:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any, Mapping
+from typing import Any
 
 import httpx
 
 from ...prompts.provider_grok import build_provider_grok_prompt
 from ...settings import settings
-from ...telemetry.spans import create_llm_operation_span
 from ...telemetry.span_enhancements import set_span_error, set_span_success
+from ...telemetry.spans import create_llm_operation_span
 from ...telemetry.usage import extract_llm_usage
 from .base import ProviderRequestError
 

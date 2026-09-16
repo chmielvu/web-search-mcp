@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -27,7 +28,6 @@ from ..inference.adapters.genai import get_genai_client as _adapter_get_genai_cl
 from ..prompts.provider_gemini import build_dual_prompt, build_provider_gemini_prompt
 from ..settings import settings
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
-import threading
 
 logger = logging.getLogger(__name__)
 _genai_module: Any | None = None
@@ -163,10 +163,9 @@ def _build_grounding_config(structured_output: bool, model_id: str) -> dict[str,
     if _is_gemini3_model(model_id):
         config_dict["thinking_config"] = types.ThinkingConfig(thinking_budget=-1)
 
-    if structured_output:
-        if _is_gemini3_model(model_id):
-            config_dict["response_mime_type"] = "application/json"
-            config_dict["response_schema"] = GeminiResearchOutput
+    if structured_output and _is_gemini3_model(model_id):
+        config_dict["response_mime_type"] = "application/json"
+        config_dict["response_schema"] = GeminiResearchOutput
 
     return config_dict
 
@@ -418,7 +417,7 @@ async def _call_single_grounding(
                     set_span_success(span, result_count=len(result.sources))
                     return result
                 except Exception as exc:
-                    error_type, should_fallback, should_retry = _classify_gemini_error(exc)
+                    error_type, _should_fallback, should_retry = _classify_gemini_error(exc)
                     fallback_reason = error_type
                     last_error = exc
                     logger.warning(
@@ -464,7 +463,7 @@ async def gemini_search_with_grounding(
                 system_prompt=get_system_prompt(research_goal),
                 structured_output=structured_output,
             )
-        except Exception as exc:  # noqa: BLE001 - fall back to grounding tier
+        except Exception as exc:
             logger.warning(
                 "Antigravity backend failed (%s); falling back to grounding tier",
                 exc,

@@ -245,13 +245,13 @@ def thread_values(target: ResolverTarget) -> tuple[str, str, int]:
 
 
 __all__ = [
-    "GITHUB_GRAPHQL_URL",
     "GITHUB_API_BASE_URL",
-    "resolve_github_token",
+    "GITHUB_GRAPHQL_URL",
+    "fetch_readme_markdown",
     "github_graphql",
     "graphql_paginate_comments",
-    "rest_get",
-    "fetch_readme_markdown",
     "repo_values",
+    "resolve_github_token",
+    "rest_get",
     "thread_values",
 ]

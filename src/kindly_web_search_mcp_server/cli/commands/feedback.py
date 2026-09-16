@@ -10,8 +10,8 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..metadata import cli_version
-from ..runtime import get_runtime
 from ..output import emit_json
+from ..runtime import get_runtime
 from ..skill_paths import REPO_ROOT
 
 feedback_app = typer.Typer(no_args_is_help=True)

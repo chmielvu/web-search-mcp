@@ -3,15 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-
+from enum import StrEnum
 
 _API_KEY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "SECOND_GEMINI_API_KEY": ("GEMINI_SECOND_API_KEY",),
 }
 
 
-class ModelCapability(str, Enum):
+class ModelCapability(StrEnum):
     CHAT = "chat"
     STRUCTURED_OUTPUT = "structured_output"
     GROUNDING = "grounding"

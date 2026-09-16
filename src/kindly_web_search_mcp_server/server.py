@@ -3,9 +3,9 @@ from __future__ import annotations
 
 # Load .env file before any other imports that read environment variables
 import contextlib
-from pathlib import Path
 import os
 import threading
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -64,6 +64,8 @@ _resolve_docket_backend()
 # can move an initialize response to stderr and make clients time out.
 import logging
 
+from .analytics.app import analytics_app
+from .analytics.producers import emit_observability_event
 from .composio_tools import register_composio_tools
 from .deep_research import register_deep_research
 from .search.quick.quick_web_search import register_quick_web_search
@@ -74,12 +76,12 @@ from .tools._helpers import (
     _resolve_web_search_max_concurrency,  # noqa: F401  re-exported for tests
 )
 from .tools.academic import academic_search
+from .tools.ai_search import gemini_search, grok_search
+from .tools.catalog import tool_kwargs
 from .tools.code_search import code_search
 from .tools.code_search.exploration import code_fetch
-from .tools.ai_search import gemini_search, grok_search
 from .tools.content import crawl_web, fetch
 from .tools.profiles import apply_tool_profile
-from .tools.catalog import tool_kwargs
 from .tools.prompts import (
     query_refinement_prompt,
     research_methodology_prompt,
@@ -101,9 +103,6 @@ from .tools.search import web_search
 from .tools.sitemap import generate_sitemap
 from .tools.youtube import youtube_transcript
 from .utils.logging import configure_logging
-from .analytics.producers import emit_observability_event
-
-from .analytics.app import analytics_app
 
 configure_logging()
 LOGGER = logging.getLogger(__name__)
@@ -278,13 +277,11 @@ from fastmcp.server.middleware.timing import TimingMiddleware
 # FastMCP 3.4.3 fixed the upstream mismatch; skip only the incompatible
 # optimization when a stale runtime is used so the MCP server remains usable.
 _fastmcp_version_code = 0
-try:
+with contextlib.suppress(AttributeError, IndexError, ValueError):
     _fastmcp_parts = fastmcp.__version__.split(".")
     _fastmcp_version_code = (
         int(_fastmcp_parts[0]) * 10_000 + int(_fastmcp_parts[1]) * 100 + int(_fastmcp_parts[2])
     )
-except (AttributeError, IndexError, ValueError):
-    pass
 
 if _fastmcp_version_code >= 30403:
     mcp.add_middleware(

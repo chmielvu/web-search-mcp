@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import sqlite3
 import threading
 import time
-
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
 _SCHEMA_VERSION = 1
 _CACHE_TTL_SECONDS = 60.0
@@ -134,14 +133,14 @@ def _ensure_schema(connection: sqlite3.Connection) -> None:
 def _timestamp(value: datetime) -> str:
     if value.tzinfo is None or value.utcoffset() is None:
         raise ValueError("graph timestamps must be timezone-aware")
-    return value.astimezone(timezone.utc).isoformat()
+    return value.astimezone(UTC).isoformat()
 
 
 def _parse_timestamp(value: str) -> datetime:
     parsed = datetime.fromisoformat(value)
     if parsed.tzinfo is None or parsed.utcoffset() is None:
         raise ValueError("stored graph timestamp is not timezone-aware")
-    return parsed.astimezone(timezone.utc)
+    return parsed.astimezone(UTC)
 
 
 def publish_graph_snapshot(snapshot: GraphSnapshot, *, sqlite_path: str | None) -> None:
@@ -246,7 +245,7 @@ def load_latest_graph_index(
         cached = _CACHED_INDICES.get(cache_key)
         if cached is not None and now_monotonic - cached[1] < _CACHE_TTL_SECONDS:
             index = cached[0]
-            if (datetime.now(timezone.utc) - index.built_at).total_seconds() <= max_age_seconds:
+            if (datetime.now(UTC) - index.built_at).total_seconds() <= max_age_seconds:
                 return index
             return None
 
@@ -279,7 +278,7 @@ def load_latest_graph_index(
         ):
             return None
         built_at = _parse_timestamp(str(generation["built_at"]))
-        if (datetime.now(timezone.utc) - built_at).total_seconds() > max_age_seconds:
+        if (datetime.now(UTC) - built_at).total_seconds() > max_age_seconds:
             return None
         generation_id = str(generation["generation_id"])
         neighbors: dict[str, list[str]] = {}

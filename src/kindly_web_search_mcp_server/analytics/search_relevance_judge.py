@@ -18,9 +18,9 @@ from typing import Annotated, Any
 
 from pydantic import BaseModel, Field
 
-from ..telemetry.phoenix_tracing import LLMTraceContext
 from ..inference.router import build_worker_router
 from ..settings import settings
+from ..telemetry.phoenix_tracing import LLMTraceContext
 from .judge_prompt import JUDGE_SYSTEM_PROMPT, build_judge_user_prompt
 
 logger = logging.getLogger(__name__)

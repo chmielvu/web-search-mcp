@@ -43,15 +43,15 @@ def fetch_transcript_data(
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api._errors import (
-            TranscriptsDisabled,
             CouldNotRetrieveTranscript,
-            VideoUnavailable,
             NoTranscriptFound,
+            TranscriptsDisabled,
+            VideoUnavailable,
         )
-    except ImportError:
+    except ImportError as exc:
         raise YouTubeError(
             "youtube-transcript-api not installed. Install with: pip install youtube-transcript-api"
-        )
+        ) from exc
 
     languages = [language] if language else ["en"]
 
@@ -76,27 +76,29 @@ def fetch_transcript_data(
 
         try:
             transcript = transcript_list.find_transcript(languages)
-        except NoTranscriptFound:
+        except NoTranscriptFound as exc:
             available = list(transcript_list)
             if not available:
-                raise YouTubeError("No transcripts available for this video")
+                raise YouTubeError("No transcripts available for this video") from exc
             transcript = available[0]
 
         if translate_to:
             try:
                 transcript = transcript.translate(translate_to)
             except Exception as e:
-                raise YouTubeError(f"Translation failed: {e}")
+                raise YouTubeError(f"Translation failed: {e}") from e
 
         fetched = transcript.fetch()
         return [{"text": s.text, "start": s.start, "duration": s.duration} for s in fetched]
 
-    except TranscriptsDisabled:
-        raise YouTubeError("Transcripts are disabled for this video")
-    except NoTranscriptFound:
-        raise YouTubeError(f"No transcript found for language(s): {languages}")
-    except VideoUnavailable:
-        raise YouTubeError("Video is unavailable (may be private, deleted, or age-restricted)")
+    except TranscriptsDisabled as exc:
+        raise YouTubeError("Transcripts are disabled for this video") from exc
+    except NoTranscriptFound as exc:
+        raise YouTubeError(f"No transcript found for language(s): {languages}") from exc
+    except VideoUnavailable as exc:
+        raise YouTubeError(
+            "Video is unavailable (may be private, deleted, or age-restricted)"
+        ) from exc
     except CouldNotRetrieveTranscript as e:
         error_msg = str(e)
         if "RequestBlocked" in error_msg or "IpBlocked" in error_msg:
@@ -104,10 +106,10 @@ def fetch_transcript_data(
                 "IP blocked by YouTube (common on AWS/GCP/Azure). "
                 "Set YOUTUBE_TRANSCRIPT_PROXY_URL to use a proxy. "
                 f"Original error: {error_msg}"
-            )
-        raise YouTubeError(f"Could not retrieve transcript: {error_msg}")
+            ) from e
+        raise YouTubeError(f"Could not retrieve transcript: {error_msg}") from e
     except Exception as e:
-        raise YouTubeError(f"Transcript fetch failed: {type(e).__name__}: {e}")
+        raise YouTubeError(f"Transcript fetch failed: {type(e).__name__}: {e}") from e
 
 
 # ---------------------------------------------------------------------------

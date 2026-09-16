@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timezone
+from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 import aiofiles
 
 from ...search.understanding.models import QueryUnderstanding
-
 
 REWRITE_SLOT_ORDER = ("free", "serp1", "serp2", "semantic_tavily", "semantic_exa")
 
@@ -58,7 +58,7 @@ async def append_query_understanding_record(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "query": raw_query,
         "normalized_query": normalized_query,
         "research_goal": research_goal,
@@ -102,7 +102,7 @@ async def append_query_rewrite_record(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     record: dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "kind": "rewrite",
         "query": raw_query,
         "normalized_query": normalized_query,
@@ -137,7 +137,7 @@ async def append_query_outcome_record(
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
     record = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "timestamp": datetime.now(UTC).isoformat(),
         "query": raw_query,
         "normalized_query": normalized_query,
         "research_goal": research_goal,
@@ -157,6 +157,5 @@ async def append_query_outcome_record(
 
 
 async def _append_line(path: Path, line: str) -> None:
-    async with _lock():
-        async with aiofiles.open(path, "a", encoding="utf-8") as handle:
-            await handle.write(line + "\n")
+    async with _lock(), aiofiles.open(path, "a", encoding="utf-8") as handle:
+        await handle.write(line + "\n")

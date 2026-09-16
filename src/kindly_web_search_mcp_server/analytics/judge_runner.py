@@ -7,14 +7,13 @@ so the pipeline can trigger it as a background task without blocking.
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 from ..settings import settings
 from ..telemetry.phoenix_tracing import LLMTraceContext
-from .writers import insert_judge_evaluation
-
 from .search_relevance_judge import SearchRelevanceJudge
-import threading
+from .writers import insert_judge_evaluation
 
 logger = logging.getLogger(__name__)
 

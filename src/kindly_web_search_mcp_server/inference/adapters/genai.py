@@ -51,12 +51,12 @@ async def execute_google(
     if tools:
         for tool in tools:
             if "google_search" in tool:
-                setattr(genai_config, "google_search", genai_types.GoogleSearch())
+                genai_config.google_search = genai_types.GoogleSearch()
             elif "url_context" in tool:
                 genai_config.tools = [genai_types.Tool(url_context=genai_types.UrlContext())]
 
     if web_search_options:
-        setattr(genai_config, "google_search", genai_types.GoogleSearch())
+        genai_config.google_search = genai_types.GoogleSearch()
 
     response = await asyncio.to_thread(
         client.models.generate_content,

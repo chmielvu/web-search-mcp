@@ -95,10 +95,7 @@ def _normalize_paper(raw: dict) -> AcademicPaper | None:
     clean_ids = {k: str(v) for k, v in ext_ids.items() if v}
 
     fos = raw.get("fieldsOfStudy")
-    if isinstance(fos, list):
-        fos = [f for f in fos if isinstance(f, str)]
-    else:
-        fos = None
+    fos = [f for f in fos if isinstance(f, str)] if isinstance(fos, list) else None
 
     is_oa = raw.get("isOpenAccess")
 

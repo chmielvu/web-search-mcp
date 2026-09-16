@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 from unittest.mock import AsyncMock
 
-from ...tools.content import fetch
 from ...models import FetchResponse
+from ...tools.content import fetch
 
 
 async def fetch_payload(

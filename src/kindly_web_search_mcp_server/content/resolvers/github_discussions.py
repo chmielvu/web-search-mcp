@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
+from ..documents import build_thread_document
 from ..github_api import graphql_paginate_comments, resolve_github_token, thread_values
 from ..models import (
     AcquisitionError,
@@ -16,8 +17,6 @@ from ..models import (
     ThreadDocument,
     ThreadMessage,
 )
-from ..documents import build_thread_document
-
 
 GITHUB_GRAPHQL_URL = "https://api.github.com/graphql"
 

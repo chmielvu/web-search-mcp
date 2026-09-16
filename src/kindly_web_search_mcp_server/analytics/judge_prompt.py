@@ -13,7 +13,6 @@ judge_evaluations table via analytics/writers.
 from __future__ import annotations
 
 import json
-
 import logging
 from typing import Any
 

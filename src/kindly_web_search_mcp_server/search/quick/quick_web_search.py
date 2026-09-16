@@ -11,20 +11,20 @@ from __future__ import annotations
 
 import logging
 import time
-from uuid import uuid4
 from typing import Annotated, Any, Literal
+from uuid import uuid4
 
 from fastmcp.dependencies import CurrentContext
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
+from ...analytics.producers import emit_tool_observability_event
 from ...errors import raise_tool_error
 from ...models import WebSearchNext, fetch_next, make_next
-from .quick_web_search_docs import fetch_docs_outcome
-from .quick_web_search_youtube import fetch_youtube_outcome
 from ...settings import settings
 from ...tools.catalog import tool_kwargs
-from ...analytics.producers import emit_tool_observability_event
+from .quick_web_search_docs import fetch_docs_outcome
+from .quick_web_search_youtube import fetch_youtube_outcome
 
 LOGGER = logging.getLogger(__name__)
 

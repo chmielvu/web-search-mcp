@@ -17,8 +17,8 @@ import os
 import re
 import urllib.parse
 
-
 from ..http_utils import SafeFetchError, safe_fetch_url
+from ..machine_readable import render_columnar_markdown, render_mhtml_markdown, render_typed_content
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -28,7 +28,6 @@ from ..models import (
     ResolverTarget,
     TextDocument,
 )
-from ..machine_readable import render_columnar_markdown, render_mhtml_markdown, render_typed_content
 
 LOGGER = logging.getLogger(__name__)
 
@@ -193,9 +192,8 @@ def convert_ipynb_to_markdown(ipynb_text: str, source_url: str) -> str:
                     evalue = out.get("evalue", "")
                     lines.append(f"**Error:** `{ename}: {evalue}`")
             lines.append("")
-        elif cell_type == "raw":
-            if source:
-                lines.append(f"```\n{source}\n```\n")
+        elif cell_type == "raw" and source:
+            lines.append(f"```\n{source}\n```\n")
 
     return "\n".join(lines).strip()
 

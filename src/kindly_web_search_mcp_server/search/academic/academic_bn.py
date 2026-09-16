@@ -108,7 +108,7 @@ async def search_bn(
             resp = await client.post(_BN_API_URL, json=payload)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001 - providers must never raise
+    except Exception as exc:
         logger.warning("Biblioteka Nauki search failed: %s", exc)
         return []
 

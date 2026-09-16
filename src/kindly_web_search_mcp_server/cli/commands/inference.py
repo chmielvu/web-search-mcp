@@ -9,7 +9,6 @@ import typer
 from ...inference import describe_catalog, validate_catalog
 from ..output import emit_json
 
-
 inference_app = typer.Typer(no_args_is_help=True)
 
 
@@ -71,7 +70,7 @@ def chain_cmd(
                     "default_timeout": spec.default_timeout,
                 }
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             steps.append(
                 {
                     "position": index,

@@ -98,7 +98,7 @@ class OutboundCallError(RuntimeError):
         super().__init__(f"{provider} {category}: {self.method} {self.host}{self.path}")
 
 
-async def request_json_value(
+async def request_json_value[T](
     client: httpx.AsyncClient,
     method: str,
     url: str,

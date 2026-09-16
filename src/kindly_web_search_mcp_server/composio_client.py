@@ -97,7 +97,7 @@ def _get_composio_client() -> Any:
     global _CACHED_CLIENT
     global _CACHED_CLIENT_CONFIG
     with _CLIENT_LOCK:
-        if _CACHED_CLIENT is not None and _CACHED_CLIENT_CONFIG == config:
+        if _CACHED_CLIENT is not None and config == _CACHED_CLIENT_CONFIG:
             return _CACHED_CLIENT
         try:
             from composio import Composio

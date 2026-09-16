@@ -6,9 +6,10 @@ import asyncio
 import inspect
 import os
 import threading
-from enum import Enum
+from collections.abc import Awaitable, Mapping, Sequence
+from enum import StrEnum
 from types import MappingProxyType
-from typing import Any, Awaitable, Mapping, Protocol, Sequence
+from typing import Any, Protocol
 
 import httpx
 from pydantic import Field
@@ -56,7 +57,7 @@ class ProviderAdapter(Protocol):
     ) -> Sequence[WebSearchResult]: ...
 
 
-class DiagnosisCategory(str, Enum):
+class DiagnosisCategory(StrEnum):
     HEALTHY = "healthy"
     DISABLED = "disabled"
     COOLDOWN = "cooldown"

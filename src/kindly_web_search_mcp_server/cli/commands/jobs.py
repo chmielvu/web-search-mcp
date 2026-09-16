@@ -9,7 +9,6 @@ from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..services.jobs import cancel_job, get_job, list_jobs, resume_job, wait_for_job
 
-
 jobs_app = typer.Typer(no_args_is_help=True)
 
 

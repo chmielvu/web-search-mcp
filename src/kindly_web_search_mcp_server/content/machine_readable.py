@@ -1,6 +1,7 @@
 """Typed-format routing and rendering: JSON/JSONL/YAML/TOML, feeds, CSV/TSV,
 RTF, subtitles, SVG, MHTML, and columnar (Parquet/Arrow/Feather) samples."""
 
+import contextlib
 import csv
 import html as html_lib
 import io
@@ -14,6 +15,7 @@ from email.parser import BytesParser
 from typing import Any
 from urllib.parse import urlparse
 from xml.etree import ElementTree as ET
+
 from .html_tools import html_to_markdown as extract_html_as_markdown
 
 _JSON_MIMES = {"application/json", "text/json"}
@@ -271,10 +273,8 @@ def _json_safe(value: Any, *, depth: int = 0) -> Any:
     if isinstance(value, (list, tuple)):
         return [_json_safe(item, depth=depth + 1) for item in list(value)[:200]]
     if hasattr(value, "isoformat"):
-        try:
+        with contextlib.suppress(Exception):
             return value.isoformat()
-        except Exception:
-            pass
     return str(value)
 
 
@@ -336,7 +336,7 @@ def render_jsonl_markdown(text: str, source_url: str) -> RenderedContent:
             continue
         records.append(value)
         if isinstance(value, dict):
-            fields.update(str(key) for key in value.keys())
+            fields.update(str(key) for key in value)
 
     rendered = json.dumps(_json_safe(records), ensure_ascii=False, indent=2)
     markdown = (
@@ -592,7 +592,8 @@ def _arrow_sample_markdown(
         markdown += f"\n**Rows:** {row_count}\n"
     markdown += f"**Columns:** {len(names)}\n\n## Schema\n\n| Column | Type |\n| --- | --- |\n"
     markdown += "".join(
-        f"| {_escape_cell(name)} | {_escape_cell(kind)} |\n" for name, kind in zip(names, types)
+        f"| {_escape_cell(name)} | {_escape_cell(kind)} |\n"
+        for name, kind in zip(names, types, strict=False)
     )
     if records:
         markdown += "\n## Sample rows\n\n"
@@ -607,7 +608,7 @@ def _arrow_sample_markdown(
         "format": fmt,
         "row_count": row_count,
         "column_count": len(names),
-        "columns": [{"name": name, "type": kind} for name, kind in zip(names, types)],
+        "columns": [{"name": name, "type": kind} for name, kind in zip(names, types, strict=False)],
         "sample_row_count": len(records),
         "bounded": True,
         "parse_seconds": round(parse_seconds, 4),

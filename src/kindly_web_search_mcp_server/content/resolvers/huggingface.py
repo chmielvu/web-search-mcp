@@ -6,7 +6,13 @@ import urllib.parse
 from dataclasses import dataclass
 from typing import Any
 
-
+from ..documents import (
+    _as_dict,
+    _as_list,
+    _as_str,
+    build_repository_document,
+)
+from ..http_utils import fetch_json, fetch_text
 from ..models import (
     AcquisitionError,
     Diagnostic,
@@ -16,13 +22,6 @@ from ..models import (
     RepositoryDocument,
     ResolverTarget,
 )
-from ..documents import (
-    _as_dict,
-    _as_list,
-    _as_str,
-    build_repository_document,
-)
-from ..http_utils import fetch_json, fetch_text
 
 
 class HuggingFaceError(RuntimeError):
@@ -113,9 +112,9 @@ async def fetch_huggingface_raw(target: ResolverTarget, ctx: FetchContext) -> Ra
 __all__ = [
     "HuggingFaceError",
     "HuggingFaceTarget",
-    "parse_huggingface_url",
-    "match_huggingface",
     "fetch_huggingface_raw",
+    "match_huggingface",
+    "parse_huggingface_url",
 ]
 
 

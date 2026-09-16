@@ -8,7 +8,6 @@ from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
 
-
 analytics_app = typer.Typer(no_args_is_help=True)
 
 

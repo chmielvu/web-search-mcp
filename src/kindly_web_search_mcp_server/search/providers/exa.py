@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -67,7 +67,7 @@ def translate_exa_freshness(value: str | None) -> str | None:
     normalized = value.strip().lower()
     if normalized not in _EXA_FRESHNESS_SECONDS:
         raise ExaError(f"Unsupported Exa freshness value: {value!r}")
-    cutoff = datetime.now(timezone.utc) - timedelta(seconds=_EXA_FRESHNESS_SECONDS[normalized])
+    cutoff = datetime.now(UTC) - timedelta(seconds=_EXA_FRESHNESS_SECONDS[normalized])
     return cutoff.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 

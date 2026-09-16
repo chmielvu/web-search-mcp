@@ -16,14 +16,14 @@ from typing import Any
 
 import httpx
 
-from ..settings import settings
-from ..search.intents import INTENT_ALIASES
 from ..analytics.producers import emit_observability_event
+from ..search.intents import INTENT_ALIASES
+from ..settings import settings
 from ..utils.entity import (
+    _GRAPH_RELATIONS,
     DEFAULT_CONTENT_LABELS,
     DEFAULT_QUERY_LABELS,
     EntitySpan,
-    _GRAPH_RELATIONS,
 )
 from ..utils.text_chunking import chunk_text
 
@@ -56,7 +56,7 @@ _SEARCH_INTENT_TASK = "intent"
 
 # Canonical label list derived once from the repo's intent source of truth so
 # the /classify task vocabulary can never drift from SearchIntent.
-_SEARCH_INTENT_LABELS: tuple[str, ...] = tuple(sorted({value for value in INTENT_ALIASES.values()}))
+_SEARCH_INTENT_LABELS: tuple[str, ...] = tuple(sorted(set(INTENT_ALIASES.values())))
 
 
 def _parse_classify_task(value: Any) -> tuple[str | None, float]:
@@ -181,8 +181,8 @@ class GLiNER2Client:
     def _fallback_result(
         reason: str, *, model: str, latency_ms: float = 0.0, query: str = ""
     ) -> GatewayAnalysis:
-        from ..utils.query_understanding import resolve_fallback_understanding
         from ..search.understanding.models import QueryUnderstandingResult
+        from ..utils.query_understanding import resolve_fallback_understanding
 
         fb = resolve_fallback_understanding(query)
         # Preserve the existing reason-only contract when no rules fired; with

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from pathlib import Path
 from typing import Any
 
@@ -9,7 +10,6 @@ import duckdb
 
 from .descriptions import _OBJECT_DESCRIPTIONS
 from .views import ensure_local_views
-
 
 # ── Formatting helpers ────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ def _query(con: duckdb.DuckDBPyConnection, sql: str) -> list[dict[str, Any]]:
     try:
         result = con.execute(sql)
         cols = [d[0] for d in result.description]
-        return [dict(zip(cols, row)) for row in result.fetchall()]
+        return [dict(zip(cols, row, strict=False)) for row in result.fetchall()]
     except Exception:
         return []
 
@@ -217,7 +217,7 @@ def _fetch_all(path: Path) -> dict[str, Any]:
             obj_name: str = obj["table_name"]
             obj_kind: str = obj["kind"]
             description = _OBJECT_DESCRIPTIONS.get(obj_name, "")
-            try:
+            with contextlib.suppress(Exception):
                 cols = con.execute(f"PRAGMA table_info('{obj_name}')").fetchall()
                 for col in cols:
                     schema_rows.append(
@@ -229,8 +229,6 @@ def _fetch_all(path: Path) -> dict[str, Any]:
                             "Data Type": col[2],
                         }
                     )
-            except Exception:
-                pass
 
     finally:
         con.close()

@@ -5,10 +5,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from contextvars import ContextVar
-from contextvars import Token
+from collections.abc import Awaitable, Callable
+from contextvars import ContextVar, Token
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Generic, TypeVar
+from typing import Any, TypeVar
 
 from openai import (
     APIConnectionError,
@@ -86,9 +86,7 @@ def is_retryable_error(exc: Exception) -> bool:
         return status_code in {400, 401, 402, 403, 404, 408, 409, 429} or status_code >= 500
 
     error_name = type(exc).__name__.casefold()
-    if any(marker in error_name for marker in ("validation",)):
-        return False
-    return True
+    return not any(marker in error_name for marker in ("validation",))
 
 
 class ChainExhaustedError(RuntimeError):
@@ -104,7 +102,7 @@ class ChainExhaustedError(RuntimeError):
 
 
 @dataclass(frozen=True, slots=True)
-class ExecutionResult(Generic[T]):
+class ExecutionResult[T]:
     spec: ModelSpec
     payload: T
     elapsed_seconds: float

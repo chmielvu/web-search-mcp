@@ -10,7 +10,6 @@ from ..output import emit_json
 from ..runtime import run_cli_async
 from ..services.files import write_text_atomic
 
-
 research_app = typer.Typer(no_args_is_help=True)
 
 

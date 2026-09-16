@@ -131,7 +131,7 @@ async def _s2_graph_get(path: str, params: dict[str, str | int]) -> list[dict] |
                 return {}
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001 - fail-open like sibling providers
+    except Exception as exc:
         logger.warning("Semantic Scholar graph lookup failed (%s): %s", path, exc)
         return []
     return data if isinstance(data, (list, dict)) else {}
@@ -190,7 +190,7 @@ async def _openalex_get(params: dict[str, str]) -> dict:
             resp = await client.get(f"{_OPENALEX_API}/works", params=params, headers=headers)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as exc:  # noqa: BLE001
+    except Exception as exc:
         logger.warning("OpenAlex works lookup failed: %s", exc)
         return {}
     return data if isinstance(data, dict) else {}

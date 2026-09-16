@@ -7,12 +7,12 @@ import os
 import re
 import shutil
 import subprocess
+from collections.abc import Iterator
 from fnmatch import fnmatch
 from pathlib import Path
-from typing import Iterator
 
 from ..tree_sitter_evidence import language_for_path
-from .models import MAX_SNIPPET_CHARS, SnapshotHit, _SKIP_DIRS, _SKIP_SUFFIXES
+from .models import _SKIP_DIRS, _SKIP_SUFFIXES, MAX_SNIPPET_CHARS, SnapshotHit
 
 
 def _read_text(path: Path) -> str:
@@ -53,9 +53,7 @@ def _matches_filters(
         return False
     if path_glob and not fnmatch(rel_path, path_glob):
         return False
-    if exclude_glob and fnmatch(rel_path, exclude_glob):
-        return False
-    return True
+    return not (exclude_glob and fnmatch(rel_path, exclude_glob))
 
 
 def _list_tree(root: Path, prefix: str, *, limit: int, depth: int | None = None) -> list[str]:
