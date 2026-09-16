@@ -20,6 +20,7 @@ import os
 import httpx
 
 from ...models import AcademicPaper
+from .provider_resilience import ProviderRateLimitedError
 
 logger = logging.getLogger(__name__)
 
@@ -144,9 +145,8 @@ async def search_core(
             resp.raise_for_status()
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
-                logger.warning("CORE rate limited")
-            else:
-                logger.warning(f"CORE search failed: {e}")
+                raise ProviderRateLimitedError("core", "CORE rate limited (429)") from e
+            logger.warning(f"CORE search failed: {e}")
             return []
         except Exception as e:
             logger.warning(f"CORE search failed: {e}")

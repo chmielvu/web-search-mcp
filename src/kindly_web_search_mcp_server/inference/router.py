@@ -26,9 +26,33 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
 }
 
 
+def _usage_totals(generation: LLMGeneration) -> tuple[int | None, int | None, int | None]:
+    """Return ``(input, output, total)`` tokens, keeping unknown values as ``None``.
+
+    Zero is a real measurement (a cached or empty completion), so a response with no
+    usage block must not be recorded as ``0`` — ``llm_call_log`` would then show an
+    unpriced call as a free one. ``analytics/judge_runner.py`` already follows this
+    convention.
+    """
+    usage = generation.usage
+    if usage is None or not usage.has_values:
+        return None, None, None
+    input_tokens, output_tokens, total = (
+        usage.input_tokens,
+        usage.output_tokens,
+        usage.total_tokens,
+    )
+    if total is None and input_tokens is not None and output_tokens is not None:
+        total = input_tokens + output_tokens
+    return input_tokens, output_tokens, total
+
+
 def _estimate_cost_usd(
-    provider: str, model: str, prompt_tokens: int, completion_tokens: int
+    provider: str, model: str, prompt_tokens: int | None, completion_tokens: int | None
 ) -> float | None:
+    """Estimate cost in USD; ``None`` when the model is unpriced or usage is unknown."""
+    if prompt_tokens is None or completion_tokens is None:
+        return None
     model_normalized = _normalize_model_name(model)
     provider_lower = provider.lower()
     model_lower = model_normalized.lower()
@@ -94,11 +118,12 @@ class LLMRouter:
             )
             generation = exec_res.payload
             elapsed_ms = (time.perf_counter() - start_time) * 1000
+            input_tokens, output_tokens, tokens_used = _usage_totals(generation)
             cost_usd = _estimate_cost_usd(
                 generation.spec.provider,
                 generation.spec.model_id,
-                generation.input_tokens or 0,
-                generation.output_tokens or 0,
+                input_tokens,
+                output_tokens,
             )
             try:
                 _insert_llm_call_log(
@@ -106,9 +131,9 @@ class LLMRouter:
                     call_purpose=effective_operation,
                     provider=generation.spec.provider,
                     model=generation.spec.model_id,
-                    input_tokens=generation.input_tokens or 0,
-                    output_tokens=generation.output_tokens or 0,
-                    tokens_used=(generation.input_tokens or 0) + (generation.output_tokens or 0),
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    tokens_used=tokens_used,
                     cost_usd=cost_usd,
                     duration_ms=elapsed_ms,
                     status="success",

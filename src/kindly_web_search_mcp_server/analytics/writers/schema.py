@@ -1117,6 +1117,19 @@ def _ensure_content_fetches(connection: duckdb.DuckDBPyConnection) -> None:
         PRIMARY KEY (terminal_event_id, item_index)
         """,
     )
+    # `CREATE TABLE IF NOT EXISTS` is a no-op on databases created before these
+    # columns existed, and the write path calls this ensure without the full
+    # `ensure_store_schema` bootstrap — so the column migration has to live here.
+    # Otherwise every content-fetch row is rejected with "does not have a column
+    # with name content_type" and silently dropped by the producer's error guard.
+    _ensure_columns(
+        connection,
+        _CF_TABLE_NAME,
+        {
+            "content_type": "VARCHAR",
+            "cached": "BOOLEAN",
+        },
+    )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_cf_tool_call_id ON content_fetches(tool_call_id)"
     )
@@ -1557,14 +1570,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_code_search_rerank(connection)
             _ensure_content_operations(connection)
             _ensure_content_fetches(connection)
-            _ensure_columns(
-                connection,
-                "content_fetches",
-                {
-                    "content_type": "VARCHAR",
-                    "cached": "BOOLEAN",
-                },
-            )
             _ensure_content_summaries(connection)
             _ensure_content_stage_attempts(connection)
             _ensure_content_fetch_items(connection)

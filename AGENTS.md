@@ -225,9 +225,11 @@ uv run ty check src                  # whole tree
 uv run ty check src/path/to/file.py  # one file while iterating
 ```
 
-> If an MCP client is running the server from `.venv`, `uv run` cannot replace the locked
-> `Scripts/web-search-mcp.exe` and aborts before checking. Use
-> `uv run --no-sync ty check src` in that case — `ty` is already installed in the venv.
+> **Running the server from this venv?** An MCP client that has `web-search-mcp.exe` loaded locks the
+> whole environment: a bare `uv run` or `uv sync` starts reinstalling, deletes the other console
+> scripts (`web-search-cli.exe`, `mcp-server.exe`), then aborts on the locked file — leaving the CLI
+> entry points missing until a sync succeeds. Always use `uv run --no-sync ty check src` while a
+> client is attached, and re-run `uv sync` once it is stopped to restore the scripts.
 
 Configuration is the `[tool.ty]` table in `pyproject.toml`:
 

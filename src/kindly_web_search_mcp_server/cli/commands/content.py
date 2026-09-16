@@ -7,6 +7,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..outcome import raise_if_no_item_succeeded
 from ..runtime import run_cli_async
 from ..services.files import write_json_atomic, write_text_atomic
 
@@ -109,6 +110,11 @@ def fetch_cmd(
             payload["output_path"] = write_text_atomic(output, content)
         else:
             payload["output_path"] = write_json_atomic(output, payload)
+    raise_if_no_item_succeeded(
+        payload,
+        command="content fetch",
+        hint="Run `web-search-cli doctor` and verify fetch dependencies.",
+    )
     emit_json(payload, command="content fetch")
 
 

@@ -8,6 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..outcome import raise_for_payload_error
 from ..runtime import run_cli_async
 from ..services.files import write_json_atomic
 
@@ -79,6 +80,11 @@ def transcript_cmd(
             exit_code=ExitCode.INTERNAL_ERROR,
             context={"command": "youtube transcript"},
         ) from exc
+    raise_for_payload_error(
+        payload,
+        command="youtube transcript",
+        hint="Check the video id, transcript availability, and YOUTUBE_* credentials.",
+    )
     emit_json(payload, command="youtube transcript")
 
 
@@ -136,6 +142,11 @@ def channel_cmd(
 
     if output:
         payload["output_path"] = write_json_atomic(output, payload)
+    raise_for_payload_error(
+        payload,
+        command="youtube channel",
+        hint="Check YouTube API credentials and retry with fewer videos.",
+    )
     emit_json(payload, command="youtube channel")
 
 

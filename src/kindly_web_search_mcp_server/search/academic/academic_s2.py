@@ -10,8 +10,9 @@ The previous ``semanticscholar`` SDK was removed: in 0.12.0
 ``PaginatedResults.items`` is a method (not a property) so iteration raised
 TypeError, and ``Paper.__dict__`` exposes underscore-prefixed attrs
 (``_title``, ...) which dropped every paper. Direct HTTP avoids both issues and
-makes fail-fast behavior explicit: 429s and timeouts return ``[]`` without the
-SDK's 10x exponential-backoff retry storm.
+makes fail-fast behavior explicit: timeouts and parse errors return ``[]`` without the
+SDK's 10x exponential-backoff retry storm, while a 429 raises
+``ProviderRateLimitedError`` so the orchestrator can count it for resilience.
 """
 
 from __future__ import annotations
@@ -22,6 +23,7 @@ import os
 import httpx
 
 from ...models import AcademicPaper
+from .provider_resilience import ProviderRateLimitedError
 
 logger = logging.getLogger(__name__)
 
@@ -130,9 +132,10 @@ async def search_semanticscholar(
     """Search Semantic Scholar Graph API via httpx.
 
     Fail-fast behavior:
-    - 429 -> log a "rate limited" warning and return ``[]``
+    - 429 -> raise :class:`ProviderRateLimitedError` so the orchestrator records the
+      rate limit (`ProviderResilience.record_429`) instead of seeing an empty result
     - timeout / HTTP / network / parse errors -> log and return ``[]``
-    - never raises; lets the orchestrator return partial results
+    - the orchestrator catches provider errors, so callers still get partial results
 
     The limit is over-fetched (``limit * 2``, capped at 100) then trimmed.
     """
@@ -164,8 +167,9 @@ async def search_semanticscholar(
     async with httpx.AsyncClient(timeout=S2_TIMEOUT) as client:
         resp = await client.get(S2_SEARCH_URL, params=params, headers=headers)
         if resp.status_code == 429:
-            raise RuntimeError(
-                "Semantic Scholar rate limited (429); set S2_API_KEY for higher limits"
+            raise ProviderRateLimitedError(
+                "semanticscholar",
+                "Semantic Scholar rate limited (429); set S2_API_KEY for higher limits",
             )
         resp.raise_for_status()
         data = resp.json().get("data", [])

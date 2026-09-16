@@ -44,6 +44,20 @@ DISABLE_AFTER_FAILURES: int = 3
 SKIP_AFTER_ZERO_RESULTS: int = 3
 
 
+class ProviderRateLimitedError(RuntimeError):
+    """A provider answered HTTP 429.
+
+    Providers raise this instead of returning an empty result set so the orchestrator
+    can attribute the failure to `ProviderResilience.record_429`. Reporting a rate limit
+    as "no matches" hides it: the provider is then only counted as returning empty and
+    never reaches `DISABLE_AFTER_429S`.
+    """
+
+    def __init__(self, provider: str, message: str) -> None:
+        super().__init__(message)
+        self.provider = provider
+
+
 class ProviderResilience:
     """Per-provider throttling and failure state for academic search.
 

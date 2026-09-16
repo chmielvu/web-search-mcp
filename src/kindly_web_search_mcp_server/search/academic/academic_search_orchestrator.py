@@ -31,7 +31,7 @@ from .academic_crossref import search_crossref
 from .academic_openalex import search_openalex
 from .academic_pubmed import search_pubmed
 from .academic_s2 import search_semanticscholar
-from .provider_resilience import ProviderResilience
+from .provider_resilience import ProviderRateLimitedError, ProviderResilience
 
 logger = logging.getLogger(__name__)
 
@@ -315,6 +315,25 @@ async def run_academic_search(
         await _resilience.throttle(name)
         try:
             results = await fn()
+        except ProviderRateLimitedError as e:
+            logger.warning("%s rate limited: %s", name, e)
+            if _resilience.record_429(name):
+                warnings.append(
+                    ProviderWarning(
+                        provider=name,
+                        error=f"Provider disabled after repeated rate limits: {e}",
+                        error_type="disabled",
+                    )
+                )
+            else:
+                warnings.append(
+                    ProviderWarning(
+                        provider=name,
+                        error=str(e)[:200],
+                        error_type="rate_limited",
+                    )
+                )
+            return
         except Exception as e:
             logger.warning("%s search failed: %s", name, e)
             if _resilience.record_failure(name):

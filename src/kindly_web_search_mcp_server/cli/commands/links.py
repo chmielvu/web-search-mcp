@@ -8,6 +8,7 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..outcome import raise_for_payload_error
 from ..runtime import run_cli_async
 
 
@@ -59,6 +60,11 @@ def discover_cmd(
             exit_code=ExitCode.INTERNAL_ERROR,
             context={"command": "links discover"},
         ) from exc
+    raise_for_payload_error(
+        payload,
+        command="links discover",
+        hint="Run `web-search-cli doctor` and verify fetch dependencies.",
+    )
     emit_json(payload, command="links discover")
 
 
