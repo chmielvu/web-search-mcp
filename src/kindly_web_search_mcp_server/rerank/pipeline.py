@@ -346,8 +346,10 @@ async def rerank_results(
                 )
             )
         funnel_counts["rankllm_output_count"] = len(llm_candidates)
-        final_provider = llm_outcome.provider if rankllm_success else None
-        final_model = llm_outcome.model if rankllm_success else None
+        # The status flag does not narrow llm_outcome for a checker, so name both.
+        llm_success = rankllm_success and llm_outcome is not None
+        final_provider = llm_outcome.provider if llm_success else None
+        final_model = llm_outcome.model if llm_success else None
         terminal_stage = (
             "rankllm"
             if rankllm_success

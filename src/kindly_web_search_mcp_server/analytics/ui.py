@@ -48,6 +48,21 @@ def build_empty_app(path: Path) -> PrefabApp:
     return empty_app
 
 
+def _trend(value: Any) -> str:
+    """Arrow direction for a KPI card.
+
+    ``Metric.trend`` only accepts ``"up"``, ``"down"`` or ``"neutral"`` — a reactive
+    binding fails validation — so the direction is derived from the delta here.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return "neutral"
+    if value > 0:
+        return "up"
+    if value < 0:
+        return "down"
+    return "neutral"
+
+
 def build_app_ui(data: dict[str, Any]) -> PrefabApp:
     """Build the full analytics explorer UI from the fetched dashboard data."""
     with PrefabApp(state={**data}) as pa, Column(gap=0):
@@ -64,28 +79,28 @@ def build_app_ui(data: dict[str, Any]) -> PrefabApp:
                     label="Total Events",
                     value=Rx("kpi_events"),
                     delta=Rx("kpi_events_delta"),
-                    trend=Rx("kpi_events_trend"),
+                    trend=_trend(data.get("kpi_events_delta")),
                 )
             with Card(), CardContent():
                 Metric(
                     label="Search Runs",
                     value=Rx("kpi_runs"),
                     delta=Rx("kpi_runs_delta"),
-                    trend=Rx("kpi_runs_trend"),
+                    trend=_trend(data.get("kpi_runs_delta")),
                 )
             with Card(), CardContent():
                 Metric(
                     label="Avg Latency",
                     value=Rx("kpi_latency"),
                     delta=Rx("kpi_latency_delta"),
-                    trend=Rx("kpi_latency_trend"),
+                    trend=_trend(data.get("kpi_latency_delta")),
                 )
             with Card(), CardContent():
                 Metric(
                     label="Errors",
                     value=Rx("kpi_errors"),
                     delta=Rx("kpi_errors_delta"),
-                    trend=Rx("kpi_errors_trend"),
+                    trend=_trend(data.get("kpi_errors_delta")),
                 )
         Separator()
         with Tabs(css_class="px-6 py-4"):

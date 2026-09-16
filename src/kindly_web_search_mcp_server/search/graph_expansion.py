@@ -79,20 +79,17 @@ def expand_seed_queries(
             (candidate, support_map.get(candidate, 0)) for candidate in candidates
         )
         artifact_age = (datetime.now(UTC) - index.built_at).total_seconds()
-        common = {
-            "artifact_age_seconds": artifact_age,
-            "candidate_support_counts": support_counts,
-            "generation_id": index.generation_id,
-            "matched_query": matched_query,
-            "source_fingerprint": index.source_fingerprint,
-        }
         if not candidates:
             return GraphExpansionDecision(
                 status="no_match",
                 base_seed_queries=base_seed_queries,
                 effective_seed_queries=base_seed_queries,
                 related_queries=(),
-                **common,
+                artifact_age_seconds=artifact_age,
+                candidate_support_counts=support_counts,
+                generation_id=index.generation_id,
+                matched_query=matched_query,
+                source_fingerprint=index.source_fingerprint,
             )
 
         seen = {seed.casefold() for seed in base_seed_queries if seed}
@@ -121,7 +118,11 @@ def expand_seed_queries(
             effective_seed_queries=effective,
             related_queries=tuple(related),
             dropped_candidates=tuple(dropped),
-            **common,
+            artifact_age_seconds=artifact_age,
+            candidate_support_counts=support_counts,
+            generation_id=index.generation_id,
+            matched_query=matched_query,
+            source_fingerprint=index.source_fingerprint,
         )
     except Exception as exc:
         return GraphExpansionDecision(
