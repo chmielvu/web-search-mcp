@@ -272,7 +272,9 @@ def _validate_host_public(host: str) -> None:
         raise SafeFetchError("private_host", "Private or local network targets are not allowed")
 
 
-def _ips_from_addrinfo(infos: Iterable[tuple]) -> Iterable[ipaddress._BaseAddress]:
+def _ips_from_addrinfo(
+    infos: Iterable[tuple],
+) -> Iterable[ipaddress.IPv4Address | ipaddress.IPv6Address]:
     for entry in infos:
         sockaddr = entry[4]
         if not sockaddr:
@@ -292,7 +294,7 @@ async def _iter_resolved_ips(hostname: str) -> list[ipaddress.IPv4Address | ipad
         raise SafeFetchError(
             "dns_resolution_failed", f"DNS resolution failed for '{hostname}': {exc}"
         ) from exc
-    return list(_ips_from_addrinfo(infos))  # type: ignore[arg-type]
+    return list(_ips_from_addrinfo(infos))
 
 
 async def _validate_resolved_ips(hostname: str) -> None:

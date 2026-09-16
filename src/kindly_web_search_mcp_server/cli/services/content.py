@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from unittest.mock import AsyncMock
 
 from ...models import FetchResponse
 from ...tools.content import fetch
+
+# The tool accepts exactly these modes; the CLI option is a Literal too.
+ProcessMode = Literal["agent", "index"]
 
 
 async def fetch_payload(
@@ -17,7 +20,7 @@ async def fetch_payload(
     ai_summary: bool = False,
     focus_query: str | None = None,
     include_links: bool = False,
-    processing_mode: str = "agent",
+    processing_mode: ProcessMode = "agent",
 ) -> dict[str, Any]:
     """Call the unified fetch tool without exposing resource tuning knobs."""
     mock_ctx = AsyncMock()

@@ -323,7 +323,7 @@ async def run_provider[TResponse](
         set_provider_request_metadata(metadata)
         return attached
 
-    async def _attempt(client: httpx.AsyncClient) -> list[WebSearchResult]:
+    async def _attempt(client: httpx.AsyncClient) -> list[WebSearchResult] | None:
         try:
             return await _fetch(client)
         except ProviderRequestError as exc:
@@ -446,7 +446,7 @@ async def run_clientless_provider[TResponse](
         set_provider_request_metadata(metadata)
         return attached
 
-    async def _attempt() -> list[WebSearchResult]:
+    async def _attempt() -> list[WebSearchResult] | None:
         try:
             return await _fetch()
         except ProviderRequestError as exc:
