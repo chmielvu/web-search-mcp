@@ -108,6 +108,33 @@ def _parse_float_dict_env(raw: str, default: dict[str, float], *, name: str) -> 
     return cleaned
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an integer setting, naming the variable when the value is unusable.
+
+    The message matters more than the exception type here: these defaults are
+    evaluated while the module is imported, so the raise site has no logger and
+    the variable name is the only clue the operator gets.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return int(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be an integer, got {raw.strip()!r}.") from exc
+
+
+def _env_float(name: str, default: float) -> float:
+    """Read a numeric setting, naming the variable when the value is unusable."""
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a number, got {raw.strip()!r}.") from exc
+
+
 @dataclass
 class Settings:
     """Runtime configuration (env-first).
@@ -120,29 +147,21 @@ class Settings:
     # Project-owned knobs use the `` prefix.
     # Search providers (SearXNG is primary)
 
-    query_rewrite_cascade_timeout_seconds: float = float(
-        os.environ.get("QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", "20")
+    query_rewrite_cascade_timeout_seconds: float = _env_float(
+        "QUERY_REWRITE_CASCADE_TIMEOUT_SECONDS", 20.0
     )
-    query_rewrite_max_variants: int = int(os.environ.get("QUERY_REWRITE_MAX_VARIANTS", "2"))
+    query_rewrite_max_variants: int = _env_int("QUERY_REWRITE_MAX_VARIANTS", 2)
     graph_expansion_enabled: bool = (
         os.environ.get("GRAPH_EXPANSION_ENABLED", "false").lower() == "true"
     )
-    graph_expansion_max_related_queries: int = int(
-        os.environ.get("GRAPH_EXPANSION_MAX_RELATED_QUERIES", "2")
-    )
-    graph_expansion_max_age_seconds: float = float(
-        os.environ.get("GRAPH_EXPANSION_MAX_AGE_SECONDS", "86400")
-    )
-    query_classifier_timeout_seconds: float = float(
-        os.environ.get("CLASSIFIER_TIMEOUT_SECONDS", "10")
-    )
+    graph_expansion_max_related_queries: int = _env_int("GRAPH_EXPANSION_MAX_RELATED_QUERIES", 2)
+    graph_expansion_max_age_seconds: float = _env_float("GRAPH_EXPANSION_MAX_AGE_SECONDS", 86400.0)
+    query_classifier_timeout_seconds: float = _env_float("CLASSIFIER_TIMEOUT_SECONDS", 10.0)
     # Hosted unified-ml GLiNER2 gateway used for query understanding.
     intent_classifier_url: str = os.environ.get("INTENT_CLASSIFIER_URL", "http://127.0.0.1:8000")
-    intent_classifier_timeout_seconds: float = float(
-        os.environ.get("INTENT_CLASSIFIER_TIMEOUT_SECONDS", "3")
-    )
-    intent_classifier_confidence_threshold: float = float(
-        os.environ.get("INTENT_CLASSIFIER_CONFIDENCE_THRESHOLD", "0.50")
+    intent_classifier_timeout_seconds: float = _env_float("INTENT_CLASSIFIER_TIMEOUT_SECONDS", 3.0)
+    intent_classifier_confidence_threshold: float = _env_float(
+        "INTENT_CLASSIFIER_CONFIDENCE_THRESHOLD", 0.5
     )
     intent_classifier_enabled: bool = (
         os.environ.get("INTENT_CLASSIFIER_ENABLED", "true").lower() == "true"
@@ -150,39 +169,29 @@ class Settings:
     query_decomposition_enabled: bool = (
         os.environ.get("QUERY_DECOMPOSITION_ENABLED", "true").lower() == "true"
     )
-    query_decomposition_timeout_seconds: float = float(
-        os.environ.get("QUERY_DECOMPOSITION_TIMEOUT_SECONDS", "10")
+    query_decomposition_timeout_seconds: float = _env_float(
+        "QUERY_DECOMPOSITION_TIMEOUT_SECONDS", 10.0
     )
-    query_decomposition_max_subquestions: int = int(
-        os.environ.get("QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", "3")
-    )
-    query_decomposition_max_branches: int = int(os.environ.get("DECOMPOSITION_MAX_BRANCHES", "10"))
-    query_decomposition_max_concurrency: int = int(
-        os.environ.get("DECOMPOSITION_MAX_CONCURRENCY", "4")
-    )
+    query_decomposition_max_subquestions: int = _env_int("QUERY_DECOMPOSITION_MAX_SUBQUESTIONS", 3)
+    query_decomposition_max_branches: int = _env_int("DECOMPOSITION_MAX_BRANCHES", 10)
+    query_decomposition_max_concurrency: int = _env_int("DECOMPOSITION_MAX_CONCURRENCY", 4)
     # HTTP timeouts for the search provider client (seconds). The connect phase
     # is kept short while read/write/pool allow slow providers to respond.
-    search_http_connect_timeout_seconds: float = float(
-        os.environ.get("SEARCH_HTTP_CONNECT_TIMEOUT_SECONDS", "10")
+    search_http_connect_timeout_seconds: float = _env_float(
+        "SEARCH_HTTP_CONNECT_TIMEOUT_SECONDS", 10.0
     )
-    search_http_read_timeout_seconds: float = float(
-        os.environ.get("SEARCH_HTTP_READ_TIMEOUT_SECONDS", "30")
-    )
-    search_retrieve_budget_seconds: float = float(
-        os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "20")
-    )
+    search_http_read_timeout_seconds: float = _env_float("SEARCH_HTTP_READ_TIMEOUT_SECONDS", 30.0)
+    search_retrieve_budget_seconds: float = _env_float("SEARCH_RETRIEVE_BUDGET_SECONDS", 20.0)
     huggingface_semantic_search_url: str = os.environ.get(
         "HUGGINGFACE_SEMANTIC_SEARCH_URL",
         "https://davanstrien-hub-search-api.hf.space",
     )
-    huggingface_semantic_search_timeout_seconds: float = float(
-        os.environ.get(
-            "HUGGINGFACE_SEMANTIC_SEARCH_TIMEOUT_SECONDS",
-            os.environ.get("SEARCH_RETRIEVE_BUDGET_SECONDS", "20"),
-        )
+    huggingface_semantic_search_timeout_seconds: float = _env_float(
+        "HUGGINGFACE_SEMANTIC_SEARCH_TIMEOUT_SECONDS",
+        _env_float("SEARCH_RETRIEVE_BUDGET_SECONDS", 20.0),
     )
-    huggingface_semantic_search_min_interval_seconds: float = float(
-        os.environ.get("HUGGINGFACE_SEMANTIC_SEARCH_MIN_INTERVAL_SECONDS", "0.25")
+    huggingface_semantic_search_min_interval_seconds: float = _env_float(
+        "HUGGINGFACE_SEMANTIC_SEARCH_MIN_INTERVAL_SECONDS", 0.25
     )
     query_understanding_jsonl_enabled: bool = (
         os.environ.get("QUERY_UNDERSTANDING_JSONL_ENABLED", "true").lower() == "true"
@@ -203,7 +212,7 @@ class Settings:
     query_understanding_model: str = os.environ.get(
         "QUERY_UNDERSTANDING_MODEL", "openai/gpt-oss-20b"
     )
-    freshness_max_age_days: int = int(os.environ.get("FRESHNESS_MAX_AGE_DAYS", "90"))
+    freshness_max_age_days: int = _env_int("FRESHNESS_MAX_AGE_DAYS", 90)
     groq_rewrite_model: str = os.environ.get("GROQ_REWRITE_MODEL", "openai/gpt-oss-120b")
     huggingface_rewrite_model: str = os.environ.get(
         "HUGGINGFACE_REWRITE_MODEL", "openai/gpt-oss-120b:nscale"
@@ -217,60 +226,54 @@ class Settings:
         "http://127.0.0.1:8001",
     )
     embedding_model: str = os.environ.get("EMBEDDING_MODEL", "snowflake/snowflake-arctic-embed-s")
-    embedding_dim: int = int(os.environ.get("EMBEDDING_DIM", "384"))
-    embedding_timeout_seconds: float = float(os.environ.get("EMBEDDING_TIMEOUT_SECONDS", "30.0"))
-    embedding_max_retries: int = int(os.environ.get("EMBEDDING_MAX_RETRIES", "1"))
-    embedding_retry_delay_seconds: float = float(
-        os.environ.get("EMBEDDING_RETRY_DELAY_SECONDS", "1.0")
-    )
+    embedding_dim: int = _env_int("EMBEDDING_DIM", 384)
+    embedding_timeout_seconds: float = _env_float("EMBEDDING_TIMEOUT_SECONDS", 30.0)
+    embedding_max_retries: int = _env_int("EMBEDDING_MAX_RETRIES", 1)
+    embedding_retry_delay_seconds: float = _env_float("EMBEDDING_RETRY_DELAY_SECONDS", 1.0)
     # Reranking (Voyage cross-encoder; RankLLM optional via RANKLLM_ENABLED)
 
-    rerank_bi_encoder_timeout_seconds: float = float(
-        os.environ.get("RERANK_BI_ENCODER_TIMEOUT_SECONDS", "15.0")
-    )
-    rerank_bi_encoder_text_max_chars: int = int(
-        os.environ.get("RERANK_BI_ENCODER_TEXT_MAX_CHARS", "384")
-    )
-    rerank_bi_encoder_batch_size: int = int(os.environ.get("RERANK_BI_ENCODER_BATCH_SIZE", "64"))
-    rerank_bi_encoder_max_concurrent_batches: int = int(
-        os.environ.get("RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", "3")
+    rerank_bi_encoder_timeout_seconds: float = _env_float("RERANK_BI_ENCODER_TIMEOUT_SECONDS", 15.0)
+    rerank_bi_encoder_text_max_chars: int = _env_int("RERANK_BI_ENCODER_TEXT_MAX_CHARS", 384)
+    rerank_bi_encoder_batch_size: int = _env_int("RERANK_BI_ENCODER_BATCH_SIZE", 64)
+    rerank_bi_encoder_max_concurrent_batches: int = _env_int(
+        "RERANK_BI_ENCODER_MAX_CONCURRENT_BATCHES", 3
     )
     voyage_api_key: str = os.environ.get("VOYAGE_API_KEY", "")
     voyage_rerank_model: str = os.environ.get("VOYAGE_RERANK_MODEL", "rerank-2.5")
     voyage_rerank_fallback_model: str = os.environ.get(
         "VOYAGE_RERANK_FALLBACK_MODEL", "rerank-2.5-lite"
     )
-    voyage_rerank_timeout: float = float(os.environ.get("VOYAGE_RERANK_TIMEOUT", "30.0"))
+    voyage_rerank_timeout: float = _env_float("VOYAGE_RERANK_TIMEOUT", 30.0)
 
-    mmr_lambda_param: float = float(os.environ.get("MMR_LAMBDA", "0.70"))
-    diversity_max_per_host: int = int(os.environ.get("DIVERSITY_MAX_PER_HOST", "2"))
+    mmr_lambda_param: float = _env_float("MMR_LAMBDA", 0.7)
+    diversity_max_per_host: int = _env_int("DIVERSITY_MAX_PER_HOST", 2)
 
     # RankLLM Settings
     rankllm_openrouter_model: str = os.environ.get(
         "RANKLLM_OPENROUTER_MODEL", "nvidia/nemotron-3-nano-30b-a3b:free"
     )
     rankllm_gemini_model: str = os.environ.get("RANKLLM_GEMINI_MODEL", "gemini-3.5-flash-lite")
-    rankllm_timeout_seconds: float = float(os.environ.get("RANKLLM_TIMEOUT_SECONDS", "20.0"))
-    rankllm_max_passage_words: int = int(os.environ.get("RANKLLM_MAX_PASSAGE_WORDS", "300"))
-    rankllm_temperature: float = float(os.environ.get("RANKLLM_TEMPERATURE", "0.0"))
-    rankllm_window_size: int = int(os.environ.get("RANKLLM_WINDOW_SIZE", "20"))
-    rankllm_stride: int = int(os.environ.get("RANKLLM_STRIDE", "10"))
-    rankllm_num_passes: int = int(os.environ.get("RANKLLM_NUM_PASSES", "3"))
+    rankllm_timeout_seconds: float = _env_float("RANKLLM_TIMEOUT_SECONDS", 20.0)
+    rankllm_max_passage_words: int = _env_int("RANKLLM_MAX_PASSAGE_WORDS", 300)
+    rankllm_temperature: float = _env_float("RANKLLM_TEMPERATURE", 0.0)
+    rankllm_window_size: int = _env_int("RANKLLM_WINDOW_SIZE", 20)
+    rankllm_stride: int = _env_int("RANKLLM_STRIDE", 10)
+    rankllm_num_passes: int = _env_int("RANKLLM_NUM_PASSES", 3)
     rankllm_enabled: bool = os.environ.get("RANKLLM_ENABLED", "false").lower() == "true"
 
-    rerank_recency_weight: float = float(os.environ.get("RERANK_RECENCY_WEIGHT", "0.15"))
-    rerank_recency_half_life_days: int = int(os.environ.get("RERANK_RECENCY_HALF_LIFE_DAYS", "90"))
+    rerank_recency_weight: float = _env_float("RERANK_RECENCY_WEIGHT", 0.15)
+    rerank_recency_half_life_days: int = _env_int("RERANK_RECENCY_HALF_LIFE_DAYS", 90)
     # Optional content extraction through the hosted GLiNER2 gateway.
     # Query understanding has its separate INTENT_CLASSIFIER_ENABLED gate.
     entity_extraction_enabled: bool = (
         os.environ.get("ENTITY_EXTRACTION_ENABLED", "false").lower() == "true"
     )
     gliner_model: str = os.environ.get("GLINER_MODEL", "fastino/gliner2.5-multi-v1")
-    gliner_threshold: float = float(os.environ.get("GLINER_THRESHOLD", "0.5"))
+    gliner_threshold: float = _env_float("GLINER_THRESHOLD", 0.5)
 
     analytics_enabled: bool = os.environ.get("ANALYTICS_ENABLED", "true").lower() == "true"
-    analytics_shutdown_drain_timeout_seconds: float = float(
-        os.environ.get("ANALYTICS_SHUTDOWN_DRAIN_TIMEOUT_SECONDS", "5.0")
+    analytics_shutdown_drain_timeout_seconds: float = _env_float(
+        "ANALYTICS_SHUTDOWN_DRAIN_TIMEOUT_SECONDS", 5.0
     )
     analytics_duckdb_path: str = os.environ.get(
         "ANALYTICS_DUCKDB_PATH",
@@ -300,13 +303,11 @@ class Settings:
     )
     # Per-stage retry policy: attempts = 1 + max_retries, exponential
     # backoff initial*2**attempt capped at the ceiling.
-    judge_stage_max_retries: int = int(os.environ.get("JUDGE_STAGE_MAX_RETRIES", "2"))
-    judge_retry_initial_backoff_seconds: float = float(
-        os.environ.get("JUDGE_RETRY_INITIAL_BACKOFF_SECONDS", "1.0")
+    judge_stage_max_retries: int = _env_int("JUDGE_STAGE_MAX_RETRIES", 2)
+    judge_retry_initial_backoff_seconds: float = _env_float(
+        "JUDGE_RETRY_INITIAL_BACKOFF_SECONDS", 1.0
     )
-    judge_retry_max_backoff_seconds: float = float(
-        os.environ.get("JUDGE_RETRY_MAX_BACKOFF_SECONDS", "8.0")
-    )
+    judge_retry_max_backoff_seconds: float = _env_float("JUDGE_RETRY_MAX_BACKOFF_SECONDS", 8.0)
 
     # Process logs DuckDB — centralized, 48h TTL, FTS enabled
     process_logs_enabled: bool = os.environ.get("PROCESS_LOGS_ENABLED", "true").lower() == "true"
@@ -314,7 +315,7 @@ class Settings:
         "PROCESS_LOGS_SQLITE_PATH",
         os.environ.get("PROCESS_LOGS_DUCKDB_PATH", DEFAULT_PROCESS_LOGS_DB),
     )
-    process_logs_ttl_hours: int = int(os.environ.get("PROCESS_LOGS_TTL_HOURS", "48"))
+    process_logs_ttl_hours: int = _env_int("PROCESS_LOGS_TTL_HOURS", 48)
 
     # Page cache (separate SQLite WAL file, NOT shared with analytics DB)
     page_cache_sqlite_path: str = os.environ.get(
@@ -330,16 +331,12 @@ class Settings:
 
     # Code-search cache tiers. Search results are short-lived; immutable
     # GitHub blob content can safely live much longer.
-    code_search_cache_ttl_seconds: int = int(
-        os.environ.get("CODE_SEARCH_CACHE_TTL_SECONDS", "1800")
+    code_search_cache_ttl_seconds: int = _env_int("CODE_SEARCH_CACHE_TTL_SECONDS", 1800)
+    code_search_cache_max_entries: int = _env_int("CODE_SEARCH_CACHE_MAX_ENTRIES", 256)
+    code_search_hydration_cache_ttl_seconds: int = _env_int(
+        "CODE_SEARCH_HYDRATION_CACHE_TTL_SECONDS", 2592000
     )
-    code_search_cache_max_entries: int = int(os.environ.get("CODE_SEARCH_CACHE_MAX_ENTRIES", "256"))
-    code_search_hydration_cache_ttl_seconds: int = int(
-        os.environ.get("CODE_SEARCH_HYDRATION_CACHE_TTL_SECONDS", "2592000")
-    )
-    code_fetch_snapshot_ttl_seconds: int = int(
-        os.environ.get("CODE_FETCH_SNAPSHOT_TTL_SECONDS", "300")
-    )
+    code_fetch_snapshot_ttl_seconds: int = _env_int("CODE_FETCH_SNAPSHOT_TTL_SECONDS", 300)
     code_fetch_snapshot_sqlite_path: str = os.environ.get(
         "CODE_FETCH_SNAPSHOT_SQLITE_PATH",
         DEFAULT_CODE_FETCH_SNAPSHOT_DB,
@@ -349,12 +346,8 @@ class Settings:
     telegram_api_id: str = os.environ.get("TELEGRAM_API_ID", "")
     telegram_api_hash: str = os.environ.get("TELEGRAM_API_HASH", "")
     telegram_session_string: str = os.environ.get("TELEGRAM_SESSION_STRING", "")
-    telegram_public_search_daily_budget: int = int(
-        os.environ.get("TELEGRAM_PUBLIC_SEARCH_DAILY_BUDGET", "8")
-    )
-    telegram_flood_sleep_threshold: int = int(
-        os.environ.get("TELEGRAM_FLOOD_SLEEP_THRESHOLD", "60")
-    )
+    telegram_public_search_daily_budget: int = _env_int("TELEGRAM_PUBLIC_SEARCH_DAILY_BUDGET", 8)
+    telegram_flood_sleep_threshold: int = _env_int("TELEGRAM_FLOOD_SLEEP_THRESHOLD", 60)
     telegram_registry_duckdb_path: str = os.environ.get(
         "TELEGRAM_REGISTRY_DUCKDB_PATH",
         str(TELEGRAM_DIR / "registry.duckdb"),
@@ -371,8 +364,8 @@ class Settings:
     grok_xai_api_key: str = os.environ.get("XAI_API_KEY", "")
     grok_xai_base_url: str = os.environ.get("XAI_BASE_URL", "https://api.x.ai/v1")
     grok_model: str = os.environ.get("GROK_MODEL", "grok-4.5")
-    grok_timeout_seconds: float = float(os.environ.get("GROK_TIMEOUT_SECONDS", "60.0"))
-    grok_max_turns: int = int(os.environ.get("GROK_MAX_TURNS", "3"))
+    grok_timeout_seconds: float = _env_float("GROK_TIMEOUT_SECONDS", 60.0)
+    grok_max_turns: int = _env_int("GROK_MAX_TURNS", 3)
     grok_store: bool = os.environ.get("GROK_STORE", "false").strip().lower() == "true"
 
     # Vertex can serve Grok text Responses, but not the native search tools used
@@ -390,27 +383,21 @@ class Settings:
         os.environ.get("GEMINI_SEARCH_BACKEND", "grounding").strip().lower()
     )
     antigravity_model: str = os.environ.get("ANTIGRAVITY_MODEL", "gemini-3.7-flash")
-    antigravity_max_total_tokens: int = int(os.environ.get("ANTIGRAVITY_MAX_TOTAL_TOKENS", "60000"))
-    antigravity_timeout_seconds: float = float(os.environ.get("ANTIGRAVITY_TIMEOUT_SECONDS", "240"))
-    antigravity_poll_interval_seconds: float = float(
-        os.environ.get("ANTIGRAVITY_POLL_INTERVAL_SECONDS", "5")
-    )
+    antigravity_max_total_tokens: int = _env_int("ANTIGRAVITY_MAX_TOTAL_TOKENS", 60000)
+    antigravity_timeout_seconds: float = _env_float("ANTIGRAVITY_TIMEOUT_SECONDS", 240.0)
+    antigravity_poll_interval_seconds: float = _env_float("ANTIGRAVITY_POLL_INTERVAL_SECONDS", 5.0)
 
     # Unified fetch defaults (dsh-webfetch-compatible; intentionally not public tool knobs)
-    web_fetch_workers: int = int(os.environ.get("KINDLY_WEB_FETCH_WORKERS", "4"))
-    web_fetch_wave_size: int = int(os.environ.get("KINDLY_WEB_FETCH_WAVE_SIZE", "10"))
-    web_fetch_timeout_seconds: float = float(
-        os.environ.get("KINDLY_WEB_FETCH_TIMEOUT_SECONDS", "20")
-    )
-    web_fetch_max_body_bytes: int = int(
-        os.environ.get("KINDLY_WEB_FETCH_MAX_BODY_BYTES", str(5 * 1024 * 1024))
-    )
+    web_fetch_workers: int = _env_int("KINDLY_WEB_FETCH_WORKERS", 4)
+    web_fetch_wave_size: int = _env_int("KINDLY_WEB_FETCH_WAVE_SIZE", 10)
+    web_fetch_timeout_seconds: float = _env_float("KINDLY_WEB_FETCH_TIMEOUT_SECONDS", 20.0)
+    web_fetch_max_body_bytes: int = _env_int("KINDLY_WEB_FETCH_MAX_BODY_BYTES", 5 * 1024 * 1024)
 
     # YouTube Transcript
     youtube_transcript_proxy_url: str = os.environ.get("YOUTUBE_TRANSCRIPT_PROXY_URL", "")
-    youtube_transcript_max_chars: int = int(os.environ.get("YOUTUBE_TRANSCRIPT_MAX_CHARS", "50000"))
-    youtube_transcript_timeout_seconds: float = float(
-        os.environ.get("YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", "30")
+    youtube_transcript_max_chars: int = _env_int("YOUTUBE_TRANSCRIPT_MAX_CHARS", 50000)
+    youtube_transcript_timeout_seconds: float = _env_float(
+        "YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", 30.0
     )
 
     # YouTube Transcript Backend (auto|ytdlp|cf_whisper|whisper|api)
@@ -419,21 +406,19 @@ class Settings:
     # Whisper ASR (HF Space) for videos without captions
     whisper_space_url: str = os.environ.get("WHISPER_SPACE_URL", "")
     whisper_space_id: str = os.environ.get("WHISPER_SPACE_ID", "")
-    whisper_space_timeout_seconds: float = float(
-        os.environ.get("WHISPER_SPACE_TIMEOUT_SECONDS", "300")
-    )
+    whisper_space_timeout_seconds: float = _env_float("WHISPER_SPACE_TIMEOUT_SECONDS", 300.0)
     # Self-hosted cobalt audio fetcher (audio bytes for ASR; bypasses the
     # local 1 MiB per-stream CDN cap). Empty -> tier skipped.
     cobalt_base_url: str = os.environ.get("COBALT_BASE_URL", "")
-    cobalt_timeout_seconds: float = float(os.environ.get("COBALT_TIMEOUT_SECONDS", "120"))
+    cobalt_timeout_seconds: float = _env_float("COBALT_TIMEOUT_SECONDS", 120.0)
 
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
 
     # YouTube Data API v3 (optional, enables enriched search)
     youtube_api_key: str = os.environ.get("GOOGLE_API_KEY", "")
-    youtube_api_timeout_seconds: float = float(os.environ.get("YOUTUBE_API_TIMEOUT_SECONDS", "15"))
-    youtube_api_daily_quota: int = int(os.environ.get("YOUTUBE_API_DAILY_QUOTA", "10000"))
+    youtube_api_timeout_seconds: float = _env_float("YOUTUBE_API_TIMEOUT_SECONDS", 15.0)
+    youtube_api_daily_quota: int = _env_int("YOUTUBE_API_DAILY_QUOTA", 10000)
     youtube_api_language: str = os.environ.get("YOUTUBE_API_LANGUAGE", "")
     youtube_api_region: str = os.environ.get("YOUTUBE_API_REGION", "")
 
@@ -442,7 +427,7 @@ class Settings:
     cf_whisper_api_token: str = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get(
         "CLOUDFLARE_API_KEY", ""
     )
-    cf_whisper_max_audio_seconds: int = int(os.environ.get("CF_WHISPER_MAX_AUDIO_SECONDS", "600"))
+    cf_whisper_max_audio_seconds: int = _env_int("CF_WHISPER_MAX_AUDIO_SECONDS", 600)
     cf_whisper_api_base_url: str = os.environ.get(
         "CF_WHISPER_API_BASE_URL", "https://api.cloudflare.com/client/v4"
     )
@@ -450,8 +435,8 @@ class Settings:
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
     s2_api_key: str = os.environ.get("S2_API_KEY", "")
-    s2_timeout: int = int(os.environ.get("S2_TIMEOUT", "30"))
-    s2_max_retries: int = int(os.environ.get("S2_MAX_RETRIES", "0"))  # 0 = fail fast
+    s2_timeout: int = _env_int("S2_TIMEOUT", 30)
+    s2_max_retries: int = _env_int("S2_MAX_RETRIES", 0)  # 0 = fail fast
 
     # OpenAlex (optional, polite pool with email)
     openalex_email: str = os.environ.get("OPENALEX_EMAIL", "")
@@ -467,7 +452,7 @@ class Settings:
     core_api_key: str = os.environ.get("CORE_API_KEY", "")
 
     # Academic search defaults
-    academic_max_results: int = int(os.environ.get("ACADEMIC_MAX_RESULTS", "10"))
+    academic_max_results: int = _env_int("ACADEMIC_MAX_RESULTS", 10)
 
     search_router_api_key: str = os.environ.get("SEARCH_ROUTER_API_KEY", "")
     tavily_api_key: str = os.environ.get("TAVILY_API_KEY", "")
@@ -517,7 +502,7 @@ class Settings:
     langsearch_base_url: str = os.environ.get("LANGSEARCH_BASE_URL", "https://api.langsearch.com")
 
     # SERP semaphore limit (controls concurrency for paid_serp providers)
-    serp_semaphore_limit: int = int(os.environ.get("SERP_SEMAPHORE_LIMIT", "2"))
+    serp_semaphore_limit: int = _env_int("SERP_SEMAPHORE_LIMIT", 2)
 
     # SearXNG config (consolidated from raw os.environ reads in searxng.py)
     searxng_base_url: str = os.environ.get("SEARXNG_BASE_URL", "")
@@ -531,7 +516,7 @@ class Settings:
     degoog_base_url: str = os.environ.get("DEGOOG_BASE_URL", "")
 
     # Reddit config (consolidated from raw os.environ read in reddit.py)
-    reddit_delay_seconds: float = float(os.environ.get("REDDIT_DELAY_SECONDS", "2"))
+    reddit_delay_seconds: float = _env_float("REDDIT_DELAY_SECONDS", 2.0)
     reddit_client_id: str = os.environ.get("REDDIT_CLIENT_ID", "")
     reddit_client_secret: str = os.environ.get("REDDIT_CLIENT_SECRET", "")
 
@@ -545,8 +530,8 @@ class Settings:
     composio_search_toolkit_version: str = os.environ.get(
         "COMPOSIO_SEARCH_TOOLKIT_VERSION", "20260618_00"
     )
-    composio_timeout_seconds: float = float(os.environ.get("COMPOSIO_TIMEOUT_SECONDS", "25"))
-    composio_max_retries: int = int(os.environ.get("COMPOSIO_MAX_RETRIES", "2"))
+    composio_timeout_seconds: float = _env_float("COMPOSIO_TIMEOUT_SECONDS", 25.0)
+    composio_max_retries: int = _env_int("COMPOSIO_MAX_RETRIES", 2)
 
     # Parallel AI Search API
     parallel_api_key: str = os.environ.get("PARALLEL_API_KEY", "")
@@ -555,7 +540,7 @@ class Settings:
     context7_api_key: str = os.environ.get("CONTEXT7_API_KEY", "")
 
     # RRF tuning
-    rrf_k: int = int(os.environ.get("RRF_K", "60"))
+    rrf_k: int = _env_int("RRF_K", 60)
     rrf_provider_weights: dict[str, float] = field(
         default_factory=lambda: _parse_float_dict_env(
             os.environ.get("RRF_PROVIDER_WEIGHTS_JSON", ""),
@@ -571,7 +556,7 @@ class Settings:
             name="RRF_PROVIDER_WEIGHTS_JSON",
         )
     )
-    rrf_bm25_weight: float = float(os.environ.get("RRF_BM25_WEIGHT", "1.0"))
+    rrf_bm25_weight: float = _env_float("RRF_BM25_WEIGHT", 1.0)
 
     # Remote web results index (Qdrant on HF Space)
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
@@ -593,17 +578,15 @@ class Settings:
     # Deep research (self-hosted node-DeepResearch engine; SEP-1686 background-capable tool)
     deep_research_url: str = os.environ.get("DEEP_RESEARCH_URL", "http://13.140.176.104:3001")
     deep_research_secret: str = os.environ.get("DEEP_RESEARCH_SECRET", "")
-    deep_research_timeout_seconds: float = float(
-        os.environ.get("DEEP_RESEARCH_TIMEOUT_SECONDS", "600")
-    )
+    deep_research_timeout_seconds: float = _env_float("DEEP_RESEARCH_TIMEOUT_SECONDS", 600.0)
 
     # Per-tool rate limiting
     # Internal field names use "cheap" to reflect multi-tool scope
     # Rate-limit and concurrency settings for web search (prefixed with ).
-    rate_limit_cheap_rps: float = float(os.environ.get("RATE_LIMIT_WEB_SEARCH_RPS", "4.0"))
-    rate_limit_cheap_burst: int = int(os.environ.get("RATE_LIMIT_WEB_SEARCH_BURST", "12"))
-    rate_limit_expensive_rps: float = float(os.environ.get("RATE_LIMIT_EXPENSIVE_RPS", "0.5"))
-    rate_limit_expensive_burst: int = int(os.environ.get("RATE_LIMIT_EXPENSIVE_BURST", "1"))
+    rate_limit_cheap_rps: float = _env_float("RATE_LIMIT_WEB_SEARCH_RPS", 4.0)
+    rate_limit_cheap_burst: int = _env_int("RATE_LIMIT_WEB_SEARCH_BURST", 12)
+    rate_limit_expensive_rps: float = _env_float("RATE_LIMIT_EXPENSIVE_RPS", 0.5)
+    rate_limit_expensive_burst: int = _env_int("RATE_LIMIT_EXPENSIVE_BURST", 1)
 
     # =====================================================================
     # OpenTelemetry / Grafana Observability (Phase 1 of observability work)
@@ -616,7 +599,7 @@ class Settings:
     otel_enabled: bool = os.environ.get("OTEL_ENABLED", "true").lower() == "true"
 
     # Sampling (head-based). 1.0 = all traces (expensive). 0.1 = 10% typical for dev/prod.
-    otel_sampling_ratio: float = float(os.environ.get("OTEL_SAMPLING_RATIO", "0.15"))
+    otel_sampling_ratio: float = _env_float("OTEL_SAMPLING_RATIO", 0.15)
 
     # Service identity overrides (fall back to telemetry.py defaults + package version)
     otel_service_name: str = os.environ.get("OTEL_SERVICE_NAME", "web-search-mcp")
@@ -644,11 +627,11 @@ class Settings:
     )
     # Prometheus sidecar / Alloy scrape support
     prometheus_enabled: bool = os.environ.get("PROMETHEUS_ENABLED", "false").lower() == "true"
-    prometheus_port: int = int(os.environ.get("PROMETHEUS_PORT", "0"))  # 0 = disabled / dynamic
+    prometheus_port: int = _env_int("PROMETHEUS_PORT", 0)  # 0 = disabled / dynamic
 
     # Attribute safety (used by utils/observability.py and telemetry)
-    observability_max_text_chars: int = int(os.environ.get("OBSERVABILITY_MAX_TEXT_CHARS", "20000"))
-    observability_max_items: int = int(os.environ.get("OBSERVABILITY_MAX_ITEMS", "10"))
+    observability_max_text_chars: int = _env_int("OBSERVABILITY_MAX_TEXT_CHARS", 20000)
+    observability_max_items: int = _env_int("OBSERVABILITY_MAX_ITEMS", 10)
 
     # =====================================================================
     # LLM Judge Evaluation (opt-in, for automatic quality assessment of search runs)
@@ -657,7 +640,7 @@ class Settings:
         os.environ.get("JUDGE_EVALUATION_ENABLED", "false").lower() == "true"
     )
     judge_model: str = os.environ.get("JUDGE_MODEL", "openai/gpt-oss-120b")
-    judge_timeout_seconds: float = float(os.environ.get("JUDGE_TIMEOUT_SECONDS", "10.0"))
+    judge_timeout_seconds: float = _env_float("JUDGE_TIMEOUT_SECONDS", 10.0)
 
     # =====================================================================
     # Crawl4AI remote server (Docker on VPS)
@@ -669,11 +652,9 @@ class Settings:
     # When set (e.g. http://vps-ip:11235), all Crawl4AI calls go remote.
     # When empty, Crawl4AI is skipped; fallback to Jina Reader.
 
-    crawl4ai_timeout_seconds: float = float(os.environ.get("CRAWL4AI_TIMEOUT_SECONDS", "120"))
-    crawl4ai_max_pages_sitemap: int = int(os.environ.get("CRAWL4AI_MAX_PAGES_SITEMAP", "100"))
-    crawl4ai_health_cache_seconds: float = float(
-        os.environ.get("CRAWL4AI_HEALTH_CACHE_SECONDS", "30")
-    )
+    crawl4ai_timeout_seconds: float = _env_float("CRAWL4AI_TIMEOUT_SECONDS", 120.0)
+    crawl4ai_max_pages_sitemap: int = _env_int("CRAWL4AI_MAX_PAGES_SITEMAP", 100)
+    crawl4ai_health_cache_seconds: float = _env_float("CRAWL4AI_HEALTH_CACHE_SECONDS", 30.0)
 
     # =====================================================================
     # Firecrawl Cloud (optional provider configuration retained for future fetch routing)
@@ -681,11 +662,9 @@ class Settings:
     firecrawl_api_key: str = os.environ.get("FIRECRAWL_API_KEY", "")
 
     firecrawl_api_url: str = os.environ.get("FIRECRAWL_API_URL", "https://api.firecrawl.dev")
-    firecrawl_timeout_seconds: float = float(os.environ.get("FIRECRAWL_TIMEOUT_SECONDS", "60.0"))
-    firecrawl_poll_interval_seconds: float = float(
-        os.environ.get("FIRECRAWL_POLL_INTERVAL_SECONDS", "2.0")
-    )
-    firecrawl_max_poll_seconds: float = float(os.environ.get("FIRECRAWL_MAX_POLL_SECONDS", "120.0"))
+    firecrawl_timeout_seconds: float = _env_float("FIRECRAWL_TIMEOUT_SECONDS", 60.0)
+    firecrawl_poll_interval_seconds: float = _env_float("FIRECRAWL_POLL_INTERVAL_SECONDS", 2.0)
+    firecrawl_max_poll_seconds: float = _env_float("FIRECRAWL_MAX_POLL_SECONDS", 120.0)
 
     # =====================================================================
     # Camoufox sidecar (stealth-Firefox on VPS)
@@ -693,10 +672,8 @@ class Settings:
     camoufox_base_url: str = os.environ.get("CAMOUFOX_BASE_URL", "")
     # When set (e.g. http://127.0.0.1:3000 via SSH tunnel), Camoufox is the last-resort browser.
     # When empty, Camoufox stage is skipped.
-    camoufox_timeout_seconds: float = float(os.environ.get("CAMOUFOX_TIMEOUT_SECONDS", "30"))
-    camoufox_health_cache_seconds: float = float(
-        os.environ.get("CAMOUFOX_HEALTH_CACHE_SECONDS", "30")
-    )
+    camoufox_timeout_seconds: float = _env_float("CAMOUFOX_TIMEOUT_SECONDS", 30.0)
+    camoufox_health_cache_seconds: float = _env_float("CAMOUFOX_HEALTH_CACHE_SECONDS", 30.0)
 
     # =====================================================================
     # Apify hard-platform scrapers (X/Twitter resolver; Reddit last-resort)
@@ -708,7 +685,7 @@ class Settings:
     apify_reddit_actor: str = os.environ.get("APIFY_REDDIT_ACTOR", "openclawai~reddit-scraper")
     # Try the paid Apify layer BEFORE the free Reddit cascade instead of after it.
     apify_reddit_first: bool = os.environ.get("APIFY_REDDIT_FIRST", "false").lower() == "true"
-    apify_timeout_seconds: float = float(os.environ.get("APIFY_TIMEOUT_SECONDS", "90"))
+    apify_timeout_seconds: float = _env_float("APIFY_TIMEOUT_SECONDS", 90.0)
     # Escape hatch merged last into every Actor run input (JSON object string),
     # e.g. APIFY_EXTRA_INPUT_JSON='{"maxItems":5}' for actor schema quirks.
     apify_extra_input_json: dict = field(

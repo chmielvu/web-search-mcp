@@ -17,6 +17,7 @@ from .models import (
     CodeSearchRequest,
     Diagnostic,
     FailureKind,
+    Outcome,
     ProviderResponse,
     build_location_metadata,
 )
@@ -29,20 +30,36 @@ _MCP_ATTEMPTS = 3
 _MCP_RETRY_BASE_SECONDS = 0.25
 
 
+def _failure_kind_for_status(status_code: int) -> FailureKind:
+    """Map an HTTP status code onto the normalized failure category."""
+    if status_code in (401, 403):
+        return "auth"
+    if status_code == 404:
+        return "not_found"
+    if status_code == 429:
+        return "rate_limit"
+    if status_code < 500:
+        return "validation"
+    return "provider"
+
+
 def _diagnostic(
     message: str,
     *,
     query: str | None = None,
-    outcome: str = "error",
+    outcome: Outcome = "error",
     details: dict[str, Any] | None = None,
     failure_kind: FailureKind | None = None,
     status_code: int | None = None,
 ) -> Diagnostic:
     return Diagnostic(
         provider="grep.app",
-        outcome=outcome,  # type: ignore[arg-type]
+        outcome=outcome,
         message=message[:500],
-        failure_kind=failure_kind or ("network" if "request" in message.casefold() else "provider"),
+        # Classification comes from the caller or the status code; a message is
+        # prose and cannot say whether the transport or the provider failed.
+        failure_kind=failure_kind
+        or (_failure_kind_for_status(status_code) if status_code is not None else "provider"),
         query=query,
         details=details or {},
         status_code=status_code,
@@ -314,7 +331,9 @@ async def _search_grepapp_single_repo_rest(
             provider="grep.app",
             diagnostics=[
                 _diagnostic(
-                    f"grep.app REST request failed ({type(last_exc).__name__})", query=expression
+                    f"grep.app REST request failed ({type(last_exc).__name__})",
+                    query=expression,
+                    failure_kind="network",
                 )
             ],
             request_count=request_count,
@@ -339,7 +358,9 @@ async def _search_grepapp_single_repo_rest(
             provider="grep.app",
             diagnostics=[
                 _diagnostic(
-                    f"grep.app REST returned HTTP {last_response.status_code}", query=expression
+                    f"grep.app REST returned HTTP {last_response.status_code}",
+                    query=expression,
+                    status_code=last_response.status_code,
                 )
             ],
             request_count=request_count,

@@ -6,6 +6,7 @@ import os
 import sqlite3
 import subprocess
 import sys
+import time
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,11 @@ from ..skill_paths import REPO_ROOT
 
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "cancelled", "partial"})
+
+# How long ``cancel_job`` waits for a running worker to stop before reporting it
+# as still running, and how often it re-reads the job while waiting.
+CANCEL_SETTLE_SECONDS = 3.0
+_CANCEL_POLL_SECONDS = 0.25
 
 
 def jobs_db_path() -> Path:
@@ -260,7 +266,15 @@ def finish_job(
         connection.close()
 
 
-def cancel_job(job_id: str) -> dict[str, Any]:
+def cancel_job(job_id: str, *, settle_seconds: float = CANCEL_SETTLE_SECONDS) -> dict[str, Any]:
+    """Request cancellation and return the job once it settles.
+
+    A running worker stops through its own cancel watcher, so the request flag is
+    not proof that anything stopped. This waits up to ``settle_seconds`` for the
+    job to reach a terminal state and then reports what the row actually says: a
+    worker that never honours the flag stays ``running`` with its recorded pid,
+    which is the honest reading and leaves the decision to the caller.
+    """
     connection = _connect()
     try:
         row = connection.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
@@ -277,7 +291,17 @@ def cancel_job(job_id: str) -> dict[str, Any]:
         connection.commit()
     finally:
         connection.close()
-    return get_job(job_id)
+
+    job = get_job(job_id)
+    if job["status"] in TERMINAL_STATUSES:
+        return job
+    deadline = time.monotonic() + max(0.0, settle_seconds)
+    while time.monotonic() < deadline:
+        time.sleep(_CANCEL_POLL_SECONDS)
+        job = get_job(job_id)
+        if job["status"] in TERMINAL_STATUSES:
+            return job
+    return job
 
 
 def resume_job(job_id: str) -> dict[str, Any]:
@@ -314,8 +338,6 @@ def resume_job(job_id: str) -> dict[str, Any]:
 def wait_for_job(
     job_id: str, *, timeout_seconds: float, poll_interval_seconds: float
 ) -> tuple[dict[str, Any], bool]:
-    import time
-
     deadline = time.monotonic() + max(0.0, timeout_seconds)
     while True:
         job = get_job(job_id)
