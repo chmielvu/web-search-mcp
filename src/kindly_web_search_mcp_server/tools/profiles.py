@@ -19,9 +19,27 @@ DISABLED_TOOLS = frozenset({"code_fetch", "composio_similarlinks", "youtube_tran
 
 
 class VisibilityServer(Protocol):
-    def enable(self, **kwargs: object) -> VisibilityServer: ...
+    """The slice of the MCP server that profile visibility needs.
 
-    def disable(self, **kwargs: object) -> VisibilityServer: ...
+    Declared with FastMCP's actual keyword parameters: a protocol that accepts
+    arbitrary ``**kwargs`` is not satisfied by a method taking named ones, which is
+    what made the real server look incompatible.
+    """
+
+    def enable(
+        self,
+        *,
+        tags: set[str] | None = None,
+        components: set[Literal["tool", "resource", "template", "prompt"]] | None = None,
+        only: bool = False,
+    ) -> object: ...
+
+    def disable(
+        self,
+        *,
+        tags: set[str] | None = None,
+        components: set[Literal["tool", "resource", "template", "prompt"]] | None = None,
+    ) -> object: ...
 
 
 def normalize_tool_profile(raw: str) -> ToolProfile:

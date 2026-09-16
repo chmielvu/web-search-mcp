@@ -62,7 +62,7 @@ class WebResultsIndex:
             self._client = AsyncQdrantClient(
                 url=self._url,
                 api_key=self._api_key or None,
-                auth_token_provider=self._auth_token_provider,  # type: ignore[arg-type]
+                auth_token_provider=self._auth_token_provider,
                 timeout=30,
                 prefer_grpc=False,
                 port=443,

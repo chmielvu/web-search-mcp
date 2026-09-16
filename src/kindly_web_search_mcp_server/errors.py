@@ -63,7 +63,7 @@ class StructuredToolError:
 
 
 def classify_error(
-    error: Exception,
+    error: BaseException,
     provider: str | None = None,
 ) -> StructuredToolError:
     """Classify an exception into a structured tool error.

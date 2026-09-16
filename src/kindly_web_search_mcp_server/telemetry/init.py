@@ -11,7 +11,7 @@ import contextlib
 import logging
 import os
 import sys
-from typing import Any
+from typing import Any, cast
 
 from ..settings import settings
 
@@ -26,7 +26,7 @@ def _redirect_stdout_to_stderr():
     old_stdout = sys.stdout
     old_sys_stdout = getattr(sys, "__stdout__", None)
     sys.stdout = sys.stderr
-    sys.__stdout__ = sys.stderr
+    sys.__stdout__ = cast("Any", sys.stderr)
     has_dup = False
     saved_fd = -1
     try:

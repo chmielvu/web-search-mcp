@@ -601,7 +601,9 @@ def parse_yandex_html_response(
     soup = BeautifulSoup(html, "html.parser")
     results: list[WebSearchResult] = []
     for item in soup.select("li.serp-item, ul#search-result > li"):
-        classes = item.get("class", ())
+        classes = item.get("class") or []
+        if isinstance(classes, str):
+            classes = [classes]
         if "serp-item_type_ad" in classes or item.select_one("[class*='AdvLabel']"):
             continue
         link_tag = item.select_one("a.OrganicTitle-Link[href], h2 a[href], a.Link[href]")

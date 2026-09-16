@@ -40,7 +40,7 @@ def _retry_after(response: httpx.Response) -> float | None:
         return None
 
 
-def _failure_kind(status_code: int) -> str:
+def _failure_kind(status_code: int) -> FailureKind:
     if status_code == 401:
         return "auth"
     if status_code == 403 or status_code == 429:

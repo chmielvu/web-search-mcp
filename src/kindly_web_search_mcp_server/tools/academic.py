@@ -226,7 +226,7 @@ async def academic_search(
                 input_query=query,
                 output_result_count=len(exact_cached.get("results", [])),
             )
-            return _with_next_hints(exact_cached)
+            return AcademicSearchResponse.model_validate(_with_next_hints(exact_cached))
     except Exception as e:
         LOGGER.warning("Exact query cache lookup failed for academic search: %s", e)
 
@@ -294,7 +294,7 @@ async def academic_search(
             sources_used=response.get("sources_used", []),
             source_types_used=response.get("source_types_used", []),
         )
-        return _with_next_hints(response)
+        return AcademicSearchResponse.model_validate(_with_next_hints(response))
     except Exception as e:
         LOGGER.warning("Academic search failed: %s", e)
         _record_tool_failure("academic_search")
