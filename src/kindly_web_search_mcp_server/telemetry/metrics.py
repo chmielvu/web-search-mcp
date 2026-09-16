@@ -5,6 +5,7 @@ from __future__ import annotations
 from opentelemetry import metrics
 
 from .spans import get_meter
+import threading
 
 # ============================================================================
 # METRIC SINGLETONS
@@ -23,6 +24,7 @@ _search_merge_histogram: metrics.Histogram | None = None
 # Cache metrics
 _cache_request_counter: metrics.Counter | None = None
 _cache_duration_histogram: metrics.Histogram | None = None
+_METRICS_LOCK = threading.RLock()
 
 # MCP protocol metrics
 _mcp_tool_counter: metrics.Counter | None = None
@@ -76,38 +78,44 @@ def get_provider_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.
     global _provider_call_counter, _provider_duration_histogram, _provider_results_counter
 
     if _provider_call_counter is None:
-        _provider_call_counter = meter.create_counter(
-            name="web_search_provider_calls_total",
-            description="Total provider API calls",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _provider_call_counter is None:
+                _provider_call_counter = meter.create_counter(
+                    name="web_search_provider_calls_total",
+                    description="Total provider API calls",
+                    unit="1",
+                )
 
     if _provider_duration_histogram is None:
-        _provider_duration_histogram = meter.create_histogram(
-            name="web_search_provider_duration_seconds",
-            description="Provider call latency distribution",
-            unit="s",
-            # Bucket boundaries: 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s
-            explicit_bucket_boundaries_advisory=[
-                0.01,
-                0.02,
-                0.05,
-                0.1,
-                0.2,
-                0.5,
-                1.0,
-                2.0,
-                5.0,
-                10.0,
-            ],
-        )
+        with _METRICS_LOCK:
+            if _provider_duration_histogram is None:
+                _provider_duration_histogram = meter.create_histogram(
+                    name="web_search_provider_duration_seconds",
+                    description="Provider call latency distribution",
+                    unit="s",
+                    # Bucket boundaries: 10ms, 20ms, 50ms, 100ms, 200ms, 500ms, 1s, 2s, 5s, 10s
+                    explicit_bucket_boundaries_advisory=[
+                        0.01,
+                        0.02,
+                        0.05,
+                        0.1,
+                        0.2,
+                        0.5,
+                        1.0,
+                        2.0,
+                        5.0,
+                        10.0,
+                    ],
+                )
 
     if _provider_results_counter is None:
-        _provider_results_counter = meter.create_counter(
-            name="web_search_provider_results_total",
-            description="Total results returned by provider",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _provider_results_counter is None:
+                _provider_results_counter = meter.create_counter(
+                    name="web_search_provider_results_total",
+                    description="Total results returned by provider",
+                    unit="1",
+                )
 
     return (
         _provider_call_counter,
@@ -122,37 +130,43 @@ def get_search_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
     global _search_total_counter, _search_duration_histogram, _search_merge_histogram
 
     if _search_total_counter is None:
-        _search_total_counter = meter.create_counter(
-            name="web_search_requests_total",
-            description="Total web_search tool invocations",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _search_total_counter is None:
+                _search_total_counter = meter.create_counter(
+                    name="web_search_requests_total",
+                    description="Total web_search tool invocations",
+                    unit="1",
+                )
 
     if _search_duration_histogram is None:
-        _search_duration_histogram = meter.create_histogram(
-            name="web_search_duration_seconds",
-            description="Complete search pipeline latency",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[
-                0.1,
-                0.2,
-                0.5,
-                1.0,
-                2.0,
-                5.0,
-                10.0,
-                30.0,
-                60.0,
-            ],
-        )
+        with _METRICS_LOCK:
+            if _search_duration_histogram is None:
+                _search_duration_histogram = meter.create_histogram(
+                    name="web_search_duration_seconds",
+                    description="Complete search pipeline latency",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[
+                        0.1,
+                        0.2,
+                        0.5,
+                        1.0,
+                        2.0,
+                        5.0,
+                        10.0,
+                        30.0,
+                        60.0,
+                    ],
+                )
 
     if _search_merge_histogram is None:
-        _search_merge_histogram = meter.create_histogram(
-            name="web_search_merge_duration_seconds",
-            description="RRF merge algorithm latency",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
-        )
+        with _METRICS_LOCK:
+            if _search_merge_histogram is None:
+                _search_merge_histogram = meter.create_histogram(
+                    name="web_search_merge_duration_seconds",
+                    description="RRF merge algorithm latency",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[0.001, 0.002, 0.005, 0.01, 0.02, 0.05],
+                )
 
     return _search_total_counter, _search_duration_histogram, _search_merge_histogram
 
@@ -169,19 +183,23 @@ def get_cache_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     global _cache_request_counter, _cache_duration_histogram
 
     if _cache_request_counter is None:
-        _cache_request_counter = meter.create_counter(
-            name="web_search_cache_requests_total",
-            description="Cache lookup requests",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _cache_request_counter is None:
+                _cache_request_counter = meter.create_counter(
+                    name="web_search_cache_requests_total",
+                    description="Cache lookup requests",
+                    unit="1",
+                )
 
     if _cache_duration_histogram is None:
-        _cache_duration_histogram = meter.create_histogram(
-            name="web_search_cache_duration_seconds",
-            description="Cache lookup latency",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[0.001, 0.005, 0.01, 0.02, 0.05, 0.1],
-        )
+        with _METRICS_LOCK:
+            if _cache_duration_histogram is None:
+                _cache_duration_histogram = meter.create_histogram(
+                    name="web_search_cache_duration_seconds",
+                    description="Cache lookup latency",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[0.001, 0.005, 0.01, 0.02, 0.05, 0.1],
+                )
 
     return _cache_request_counter, _cache_duration_histogram
 
@@ -192,18 +210,22 @@ def get_mcp_metrics() -> tuple[metrics.Counter, metrics.Counter]:
     global _mcp_tool_counter, _mcp_error_counter
 
     if _mcp_tool_counter is None:
-        _mcp_tool_counter = meter.create_counter(
-            name="mcp_tool_invocations_total",
-            description="MCP tool call count",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _mcp_tool_counter is None:
+                _mcp_tool_counter = meter.create_counter(
+                    name="mcp_tool_invocations_total",
+                    description="MCP tool call count",
+                    unit="1",
+                )
 
     if _mcp_error_counter is None:
-        _mcp_error_counter = meter.create_counter(
-            name="mcp_errors_total",
-            description="MCP protocol errors",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _mcp_error_counter is None:
+                _mcp_error_counter = meter.create_counter(
+                    name="mcp_errors_total",
+                    description="MCP protocol errors",
+                    unit="1",
+                )
 
     return _mcp_tool_counter, _mcp_error_counter
 
@@ -218,42 +240,50 @@ def get_content_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
         _content_error_counter
 
     if _content_resolution_counter is None:
-        _content_resolution_counter = meter.create_counter(
-            name="web_search_content_resolutions_total",
-            description="Content resolution attempts by stage",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _content_resolution_counter is None:
+                _content_resolution_counter = meter.create_counter(
+                    name="web_search_content_resolutions_total",
+                    description="Content resolution attempts by stage",
+                    unit="1",
+                )
 
     if _content_duration_histogram is None:
-        _content_duration_histogram = meter.create_histogram(
-            name="web_search_content_duration_seconds",
-            description="Content extraction latency per stage",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[
-                0.1,
-                0.5,
-                1.0,
-                2.0,
-                5.0,
-                10.0,
-                20.0,
-                30.0,
-            ],
-        )
+        with _METRICS_LOCK:
+            if _content_duration_histogram is None:
+                _content_duration_histogram = meter.create_histogram(
+                    name="web_search_content_duration_seconds",
+                    description="Content extraction latency per stage",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[
+                        0.1,
+                        0.5,
+                        1.0,
+                        2.0,
+                        5.0,
+                        10.0,
+                        20.0,
+                        30.0,
+                    ],
+                )
 
     if _content_fallback_counter is None:
-        _content_fallback_counter = meter.create_counter(
-            name="web_search_content_fallback_total",
-            description="Content resolution fallbacks to later stages (bs4_markdownify, jina, browser)",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _content_fallback_counter is None:
+                _content_fallback_counter = meter.create_counter(
+                    name="web_search_content_fallback_total",
+                    description="Content resolution fallbacks to later stages (bs4_markdownify, jina, browser)",
+                    unit="1",
+                )
 
     if _content_error_counter is None:
-        _content_error_counter = meter.create_counter(
-            name="web_search_content_errors_total",
-            description="Content resolution errors by stage",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _content_error_counter is None:
+                _content_error_counter = meter.create_counter(
+                    name="web_search_content_errors_total",
+                    description="Content resolution errors by stage",
+                    unit="1",
+                )
 
     return _content_resolution_counter, _content_duration_histogram
 
@@ -264,26 +294,32 @@ def get_rrf_metrics() -> tuple[metrics.Counter, metrics.Counter, metrics.Histogr
     global _rrf_merge_counter, _rrf_provider_contribution_counter, _rrf_score_histogram
 
     if _rrf_merge_counter is None:
-        _rrf_merge_counter = meter.create_counter(
-            name="web_search_rrf_merge_total",
-            description="RRF merge operations with discarded/overlap details",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _rrf_merge_counter is None:
+                _rrf_merge_counter = meter.create_counter(
+                    name="web_search_rrf_merge_total",
+                    description="RRF merge operations with discarded/overlap details",
+                    unit="1",
+                )
 
     if _rrf_provider_contribution_counter is None:
-        _rrf_provider_contribution_counter = meter.create_counter(
-            name="web_search_rrf_provider_contribution",
-            description="How many final results came from each provider",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _rrf_provider_contribution_counter is None:
+                _rrf_provider_contribution_counter = meter.create_counter(
+                    name="web_search_rrf_provider_contribution",
+                    description="How many final results came from each provider",
+                    unit="1",
+                )
 
     if _rrf_score_histogram is None:
-        _rrf_score_histogram = meter.create_histogram(
-            name="web_search_rrf_score_distribution",
-            description="Distribution of final RRF scores",
-            unit="1",
-            explicit_bucket_boundaries_advisory=[0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0],
-        )
+        with _METRICS_LOCK:
+            if _rrf_score_histogram is None:
+                _rrf_score_histogram = meter.create_histogram(
+                    name="web_search_rrf_score_distribution",
+                    description="Distribution of final RRF scores",
+                    unit="1",
+                    explicit_bucket_boundaries_advisory=[0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1.0],
+                )
 
     return _rrf_merge_counter, _rrf_provider_contribution_counter, _rrf_score_histogram
 
@@ -294,19 +330,23 @@ def get_rewrite_metrics() -> tuple[metrics.Counter, metrics.Histogram]:
     global _rewrite_counter, _rewrite_duration_histogram
 
     if _rewrite_counter is None:
-        _rewrite_counter = meter.create_counter(
-            name="web_search_query_rewrite_total",
-            description="Query rewrite operations by policy",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _rewrite_counter is None:
+                _rewrite_counter = meter.create_counter(
+                    name="web_search_query_rewrite_total",
+                    description="Query rewrite operations by policy",
+                    unit="1",
+                )
 
     if _rewrite_duration_histogram is None:
-        _rewrite_duration_histogram = meter.create_histogram(
-            name="web_search_query_rewrite_duration_seconds",
-            description="Query rewrite latency",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[0.1, 0.2, 0.5, 1.0, 2.0, 5.0],
-        )
+        with _METRICS_LOCK:
+            if _rewrite_duration_histogram is None:
+                _rewrite_duration_histogram = meter.create_histogram(
+                    name="web_search_query_rewrite_duration_seconds",
+                    description="Query rewrite latency",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[0.1, 0.2, 0.5, 1.0, 2.0, 5.0],
+                )
 
     return _rewrite_counter, _rewrite_duration_histogram
 
@@ -317,40 +357,46 @@ def get_rerank_metrics() -> tuple[metrics.Counter, metrics.Histogram, metrics.Hi
     global _rerank_counter, _rerank_duration_histogram, _rerank_score_histogram
 
     if _rerank_counter is None:
-        _rerank_counter = meter.create_counter(
-            name="web_search_rerank_total",
-            description="Reranking pipeline executions by stage",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _rerank_counter is None:
+                _rerank_counter = meter.create_counter(
+                    name="web_search_rerank_total",
+                    description="Reranking pipeline executions by stage",
+                    unit="1",
+                )
 
     if _rerank_duration_histogram is None:
-        _rerank_duration_histogram = meter.create_histogram(
-            name="web_search_rerank_duration_seconds",
-            description="Rerank stage latency",
-            unit="s",
-            explicit_bucket_boundaries_advisory=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0],
-        )
+        with _METRICS_LOCK:
+            if _rerank_duration_histogram is None:
+                _rerank_duration_histogram = meter.create_histogram(
+                    name="web_search_rerank_duration_seconds",
+                    description="Rerank stage latency",
+                    unit="s",
+                    explicit_bucket_boundaries_advisory=[0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0],
+                )
 
     if _rerank_score_histogram is None:
-        _rerank_score_histogram = meter.create_histogram(
-            name="web_search_rerank_scores",
-            description="Relevance score distribution from Jina reranker (shifted +1.0 to handle negative scores)",
-            unit="1",
-            # Buckets for shifted range: raw scores -1.0 to 1.0 become 0.0 to 2.0
-            explicit_bucket_boundaries_advisory=[
-                0.0,
-                0.2,
-                0.4,
-                0.6,
-                0.8,
-                1.0,
-                1.2,
-                1.4,
-                1.6,
-                1.8,
-                2.0,
-            ],
-        )
+        with _METRICS_LOCK:
+            if _rerank_score_histogram is None:
+                _rerank_score_histogram = meter.create_histogram(
+                    name="web_search_rerank_scores",
+                    description="Relevance score distribution from Jina reranker (shifted +1.0 to handle negative scores)",
+                    unit="1",
+                    # Buckets for shifted range: raw scores -1.0 to 1.0 become 0.0 to 2.0
+                    explicit_bucket_boundaries_advisory=[
+                        0.0,
+                        0.2,
+                        0.4,
+                        0.6,
+                        0.8,
+                        1.0,
+                        1.2,
+                        1.4,
+                        1.6,
+                        1.8,
+                        2.0,
+                    ],
+                )
 
     return (
         _rerank_counter,
@@ -375,19 +421,23 @@ def get_circuit_metrics() -> tuple[metrics.ObservableGauge, metrics.Counter]:
         ]
 
     if _circuit_state_gauge is None:
-        _circuit_state_gauge = meter.create_observable_gauge(
-            name="web_search_provider_circuit_state",
-            callbacks=[observe_circuit_states],
-            description="Circuit breaker state per provider (0=closed, 1=open, 0.5=half_open)",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _circuit_state_gauge is None:
+                _circuit_state_gauge = meter.create_observable_gauge(
+                    name="web_search_provider_circuit_state",
+                    callbacks=[observe_circuit_states],
+                    description="Circuit breaker state per provider (0=closed, 1=open, 0.5=half_open)",
+                    unit="1",
+                )
 
     if _circuit_event_counter is None:
-        _circuit_event_counter = meter.create_counter(
-            name="web_search_provider_circuit_events",
-            description="Circuit breaker state changes",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _circuit_event_counter is None:
+                _circuit_event_counter = meter.create_counter(
+                    name="web_search_provider_circuit_events",
+                    description="Circuit breaker state changes",
+                    unit="1",
+                )
 
     return _circuit_state_gauge, _circuit_event_counter
 
@@ -398,11 +448,13 @@ def get_gemini_metrics() -> metrics.Counter:
     global _gemini_counter
 
     if _gemini_counter is None:
-        _gemini_counter = meter.create_counter(
-            name="mcp_gemini_search_details",
-            description="Gemini search specifics (grounding queries, chunks, structured output)",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _gemini_counter is None:
+                _gemini_counter = meter.create_counter(
+                    name="mcp_gemini_search_details",
+                    description="Gemini search specifics (grounding queries, chunks, structured output)",
+                    unit="1",
+                )
 
     return _gemini_counter
 
@@ -413,11 +465,13 @@ def get_youtube_metrics() -> metrics.Counter:
     global _youtube_transcript_counter
 
     if _youtube_transcript_counter is None:
-        _youtube_transcript_counter = meter.create_counter(
-            name="mcp_youtube_transcript_details",
-            description="YouTube transcript specifics (format, language, duration)",
-            unit="1",
-        )
+        with _METRICS_LOCK:
+            if _youtube_transcript_counter is None:
+                _youtube_transcript_counter = meter.create_counter(
+                    name="mcp_youtube_transcript_details",
+                    description="YouTube transcript specifics (format, language, duration)",
+                    unit="1",
+                )
 
     return _youtube_transcript_counter
 
@@ -432,22 +486,26 @@ def get_query_quality_metrics() -> tuple[metrics.Histogram, metrics.Histogram]:
     global _query_length_histogram, _domain_diversity_histogram
 
     if _query_length_histogram is None:
-        _query_length_histogram = meter.create_histogram(
-            name="web_search_query_length_chars",
-            description="Distribution of query string lengths (detect keyword pile-on)",
-            unit="chars",
-            # Buckets: short queries (10-50 chars), medium (100 chars), long keyword pile-on (500+)
-            explicit_bucket_boundaries_advisory=[10, 20, 50, 100, 200, 500],
-        )
+        with _METRICS_LOCK:
+            if _query_length_histogram is None:
+                _query_length_histogram = meter.create_histogram(
+                    name="web_search_query_length_chars",
+                    description="Distribution of query string lengths (detect keyword pile-on)",
+                    unit="chars",
+                    # Buckets: short queries (10-50 chars), medium (100 chars), long keyword pile-on (500+)
+                    explicit_bucket_boundaries_advisory=[10, 20, 50, 100, 200, 500],
+                )
 
     if _domain_diversity_histogram is None:
-        _domain_diversity_histogram = meter.create_histogram(
-            name="web_search_domain_diversity",
-            description="Unique domains in top N results (detect homogeneous results)",
-            unit="domains",
-            # Buckets: 1 domain (all same), 3-5 (good diversity), 10+ (excellent)
-            explicit_bucket_boundaries_advisory=[1, 2, 3, 5, 7, 10, 15],
-        )
+        with _METRICS_LOCK:
+            if _domain_diversity_histogram is None:
+                _domain_diversity_histogram = meter.create_histogram(
+                    name="web_search_domain_diversity",
+                    description="Unique domains in top N results (detect homogeneous results)",
+                    unit="domains",
+                    # Buckets: 1 domain (all same), 3-5 (good diversity), 10+ (excellent)
+                    explicit_bucket_boundaries_advisory=[1, 2, 3, 5, 7, 10, 15],
+                )
 
     return _query_length_histogram, _domain_diversity_histogram
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 from typing import Any
 
@@ -259,6 +260,7 @@ class PageCache:
 
 # Singleton instance (lazy init)
 _PAGE_CACHE: PageCache | None = None
+_PAGE_CACHE_LOCK = threading.RLock()
 
 
 def get_page_cache(db_path: str | None = None) -> PageCache:
@@ -268,9 +270,11 @@ def get_page_cache(db_path: str | None = None) -> PageCache:
     """
     global _PAGE_CACHE
     if _PAGE_CACHE is None:
-        from ..settings import settings
+        with _PAGE_CACHE_LOCK:
+            if _PAGE_CACHE is None:
+                from ..settings import settings
 
-        actual_path = db_path or settings.page_cache_sqlite_path
-        _PAGE_CACHE = PageCache(db_path=actual_path)
-        logger.info("Initialized page cache at %s", actual_path)
+                actual_path = db_path or settings.page_cache_sqlite_path
+                _PAGE_CACHE = PageCache(db_path=actual_path)
+                logger.info("Initialized page cache at %s", actual_path)
     return _PAGE_CACHE

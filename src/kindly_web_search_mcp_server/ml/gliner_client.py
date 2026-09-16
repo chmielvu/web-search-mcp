@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -29,6 +30,7 @@ from ..utils.text_chunking import chunk_text
 logger = logging.getLogger(__name__)
 
 _gliner_client: GLiNER2Client | None = None
+_gliner_client_LOCK = threading.RLock()
 _SERVICE_MAX_TEXT_CHARS = 4000
 _CONTENT_CHUNK_OVERLAP = 200
 
@@ -551,5 +553,7 @@ def get_gliner_client() -> GLiNER2Client:
     """Return the process-wide hosted GLiNER2 gateway singleton."""
     global _gliner_client
     if _gliner_client is None:
-        _gliner_client = GLiNER2Client()
+        with _gliner_client_LOCK:
+            if _gliner_client is None:
+                _gliner_client = GLiNER2Client()
     return _gliner_client

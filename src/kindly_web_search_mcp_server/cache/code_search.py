@@ -6,6 +6,7 @@ import hashlib
 import json
 import logging
 import re
+import threading
 import time
 from typing import Any
 
@@ -254,6 +255,7 @@ class CodeSearchCache:
 
 
 _CODE_SEARCH_CACHE: CodeSearchCache | None = None
+_CODE_SEARCH_CACHE_LOCK = threading.RLock()
 
 
 def get_code_search_cache() -> CodeSearchCache:
@@ -261,7 +263,9 @@ def get_code_search_cache() -> CodeSearchCache:
 
     global _CODE_SEARCH_CACHE
     if _CODE_SEARCH_CACHE is None:
-        _CODE_SEARCH_CACHE = CodeSearchCache()
+        with _CODE_SEARCH_CACHE_LOCK:
+            if _CODE_SEARCH_CACHE is None:
+                _CODE_SEARCH_CACHE = CodeSearchCache()
     return _CODE_SEARCH_CACHE
 
 

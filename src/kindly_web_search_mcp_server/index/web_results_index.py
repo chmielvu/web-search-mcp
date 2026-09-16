@@ -7,6 +7,7 @@ from collections.abc import Callable
 from datetime import datetime, timezone
 from hashlib import sha256
 from typing import Any, Awaitable
+import threading
 import uuid
 
 from qdrant_client import AsyncQdrantClient, models
@@ -17,6 +18,7 @@ from ..settings import settings
 logger = logging.getLogger(__name__)
 
 _web_results_index: WebResultsIndex | None = None
+_web_results_index_LOCK = threading.RLock()
 
 COLLECTION_NAME = "web_results_384d"
 COLLECTION_VECTORS = {
@@ -211,13 +213,15 @@ def get_web_results_index() -> WebResultsIndex | None:
         logger.warning("web_results_index_enabled=True but QDRANT_SPACE_URL is empty")
         return None
     if _web_results_index is None:
-        hf_token = settings.hf_token.strip() or None
-        auth_provider: Callable[[], str] | None = (lambda: hf_token) if hf_token else None
-        _web_results_index = WebResultsIndex(
-            url=url,
-            api_key=None,
-            auth_token_provider=auth_provider,
-        )
+        with _web_results_index_LOCK:
+            if _web_results_index is None:
+                hf_token = settings.hf_token.strip() or None
+                auth_provider: Callable[[], str] | None = (lambda: hf_token) if hf_token else None
+                _web_results_index = WebResultsIndex(
+                    url=url,
+                    api_key=None,
+                    auth_token_provider=auth_provider,
+                )
     return _web_results_index
 
 

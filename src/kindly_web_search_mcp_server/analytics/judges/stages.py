@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 import time
 from collections.abc import Callable
 from typing import Any
@@ -303,6 +304,7 @@ def _stage_backoff_seconds(attempt: int) -> float:
 
 
 _GEMINI_CLIENT: Any = None
+_GEMINI_CLIENT_LOCK = threading.RLock()
 _GEMINI_CLIENT_KEY: str | None = None
 
 
@@ -317,10 +319,12 @@ def _get_gemini_client() -> Any:
     if not settings.gemini_api_key:
         raise RuntimeError("GEMINI_API_KEY not set")
     if _GEMINI_CLIENT is None or _GEMINI_CLIENT_KEY != settings.gemini_api_key:
-        from google import genai  # type: ignore[import-untyped]
+        with _GEMINI_CLIENT_LOCK:
+            if _GEMINI_CLIENT is None or _GEMINI_CLIENT_KEY != settings.gemini_api_key:
+                from google import genai  # type: ignore[import-untyped]
 
-        _GEMINI_CLIENT = genai.Client(api_key=settings.gemini_api_key)
-        _GEMINI_CLIENT_KEY = settings.gemini_api_key
+                _GEMINI_CLIENT = genai.Client(api_key=settings.gemini_api_key)
+                _GEMINI_CLIENT_KEY = settings.gemini_api_key
     return _GEMINI_CLIENT
 
 

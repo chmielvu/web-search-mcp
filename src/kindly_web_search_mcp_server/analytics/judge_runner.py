@@ -14,17 +14,21 @@ from ..telemetry.phoenix_tracing import LLMTraceContext
 from .writers import insert_judge_evaluation
 
 from .search_relevance_judge import SearchRelevanceJudge
+import threading
 
 logger = logging.getLogger(__name__)
 
 # Singleton judge instance
 _judge_instance: SearchRelevanceJudge | None = None
+_judge_instance_LOCK = threading.RLock()
 
 
 def _get_judge() -> SearchRelevanceJudge:
     global _judge_instance
     if _judge_instance is None:
-        _judge_instance = SearchRelevanceJudge()
+        with _judge_instance_LOCK:
+            if _judge_instance is None:
+                _judge_instance = SearchRelevanceJudge()
     return _judge_instance
 
 

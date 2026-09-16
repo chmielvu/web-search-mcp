@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import threading
 import time
 from typing import Any
 
@@ -145,15 +146,18 @@ class ExactQueryCache:
 
 
 _QUERY_CACHE: ExactQueryCache | None = None
+_QUERY_CACHE_LOCK = threading.RLock()
 
 
 def get_query_cache(db_path: str | None = None) -> ExactQueryCache:
     """Get or create the exact query cache singleton."""
     global _QUERY_CACHE
     if _QUERY_CACHE is None:
-        _QUERY_CACHE = ExactQueryCache(db_path=db_path)
-        logger.info(
-            "Initialized in-memory exact query LRU cache with max_entries=%s",
-            QUERY_CACHE_DEFAULT_MAX_ENTRIES,
-        )
+        with _QUERY_CACHE_LOCK:
+            if _QUERY_CACHE is None:
+                _QUERY_CACHE = ExactQueryCache(db_path=db_path)
+                logger.info(
+                    "Initialized in-memory exact query LRU cache with max_entries=%s",
+                    QUERY_CACHE_DEFAULT_MAX_ENTRIES,
+                )
     return _QUERY_CACHE

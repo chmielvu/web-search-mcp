@@ -27,9 +27,11 @@ from ..inference.adapters.genai import get_genai_client as _adapter_get_genai_cl
 from ..prompts.provider_gemini import build_dual_prompt, build_provider_gemini_prompt
 from ..settings import settings
 from ..telemetry import create_llm_operation_span, set_span_error, set_span_success
+import threading
 
 logger = logging.getLogger(__name__)
 _genai_module: Any | None = None
+_genai_module_LOCK = threading.RLock()
 _genai_types: Any | None = None
 
 GEMINI_GROUNDING_TIER = [
@@ -112,11 +114,13 @@ class GeminiGroundingResult(BaseModel):
 def _get_genai_module() -> tuple[Any, Any]:
     global _genai_module, _genai_types
     if _genai_module is None:
-        from google import genai
-        from google.genai import types
+        with _genai_module_LOCK:
+            if _genai_module is None:
+                from google import genai
+                from google.genai import types
 
-        _genai_module = genai
-        _genai_types = types
+                _genai_module = genai
+                _genai_types = types
     return _genai_module, _genai_types
 
 

@@ -7,6 +7,7 @@ Caches YouTube transcript segments by composite key
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from typing import Any
 
@@ -118,15 +119,18 @@ class TranscriptCache:
 
 # Singleton instance (lazy init)
 _TRANSCRIPT_CACHE: TranscriptCache | None = None
+_TRANSCRIPT_CACHE_LOCK = threading.RLock()
 
 
 def get_transcript_cache(db_path: str | None = None) -> TranscriptCache:
     """Get or create the transcript cache singleton."""
     global _TRANSCRIPT_CACHE
     if _TRANSCRIPT_CACHE is None:
-        from ..settings import settings
+        with _TRANSCRIPT_CACHE_LOCK:
+            if _TRANSCRIPT_CACHE is None:
+                from ..settings import settings
 
-        actual_path = db_path or settings.transcript_cache_sqlite_path
-        _TRANSCRIPT_CACHE = TranscriptCache(db_path=actual_path)
-        logger.info("Initialized transcript cache at %s", actual_path)
+                actual_path = db_path or settings.transcript_cache_sqlite_path
+                _TRANSCRIPT_CACHE = TranscriptCache(db_path=actual_path)
+                logger.info("Initialized transcript cache at %s", actual_path)
     return _TRANSCRIPT_CACHE

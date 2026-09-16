@@ -441,12 +441,15 @@ class SnapshotManager:
 
 
 _MANAGER: SnapshotManager | None = None
+_MANAGER_LOCK = threading.RLock()
 
 
 def get_snapshot_manager() -> SnapshotManager:
     global _MANAGER
     if _MANAGER is None:
-        _MANAGER = SnapshotManager()
+        with _MANAGER_LOCK:
+            if _MANAGER is None:
+                _MANAGER = SnapshotManager()
     return _MANAGER
 
 

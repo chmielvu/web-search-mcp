@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import logging
+import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -97,12 +98,15 @@ def _make_bounded_openai_class() -> type:
 
 
 _bounded_openai_class: type | None = None
+_bounded_openai_class_LOCK = threading.RLock()
 
 
 def _get_bounded_openai_class() -> type:
     global _bounded_openai_class
     if _bounded_openai_class is None:
-        _bounded_openai_class = _make_bounded_openai_class()
+        with _bounded_openai_class_LOCK:
+            if _bounded_openai_class is None:
+                _bounded_openai_class = _make_bounded_openai_class()
     return _bounded_openai_class
 
 
@@ -115,13 +119,16 @@ def _make_bounded_genai_class() -> type:
     return BoundedSafeGenai
 
 
+_bounded_genai_class_LOCK = threading.RLock()
 _bounded_genai_class: type | None = None
 
 
 def _get_bounded_genai_class() -> type:
     global _bounded_genai_class
     if _bounded_genai_class is None:
-        _bounded_genai_class = _make_bounded_genai_class()
+        with _bounded_genai_class_LOCK:
+            if _bounded_genai_class is None:
+                _bounded_genai_class = _make_bounded_genai_class()
     return _bounded_genai_class
 
 

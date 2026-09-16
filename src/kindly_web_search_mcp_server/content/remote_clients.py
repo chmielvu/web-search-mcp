@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import threading
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -381,6 +382,8 @@ class CamoufoxClient:
 # Module-level singletons
 
 _client: Crawl4AIClient | None = None
+_client_LOCK = threading.RLock()
+_camoufox_client_LOCK = threading.RLock()
 _camoufox_client: CamoufoxClient | None = None
 
 
@@ -392,17 +395,19 @@ def get_crawl4ai_client() -> Crawl4AIClient | None:
     if not settings.crawl4ai_base_url:
         return None
     if _client is None:
-        _client = Crawl4AIClient(
-            settings.crawl4ai_base_url,
-            timeout=settings.crawl4ai_timeout_seconds,
-            health_cache_seconds=settings.crawl4ai_health_cache_seconds,
-            token=settings.crawl4ai_token,
-        )
-        LOGGER.info(
-            "Crawl4AI client initialized: %s (timeout=%ss)",
-            settings.crawl4ai_base_url,
-            settings.crawl4ai_timeout_seconds,
-        )
+        with _client_LOCK:
+            if _client is None:
+                _client = Crawl4AIClient(
+                    settings.crawl4ai_base_url,
+                    timeout=settings.crawl4ai_timeout_seconds,
+                    health_cache_seconds=settings.crawl4ai_health_cache_seconds,
+                    token=settings.crawl4ai_token,
+                )
+                LOGGER.info(
+                    "Crawl4AI client initialized: %s (timeout=%ss)",
+                    settings.crawl4ai_base_url,
+                    settings.crawl4ai_timeout_seconds,
+                )
     return _client
 
 
@@ -422,16 +427,18 @@ def get_camoufox_client() -> CamoufoxClient | None:
     if not settings.camoufox_base_url:
         return None
     if _camoufox_client is None:
-        _camoufox_client = CamoufoxClient(
-            settings.camoufox_base_url,
-            timeout=settings.camoufox_timeout_seconds,
-            health_cache_seconds=settings.camoufox_health_cache_seconds,
-        )
-        LOGGER.info(
-            "Camoufox client initialized: %s (timeout=%ss)",
-            settings.camoufox_base_url,
-            settings.camoufox_timeout_seconds,
-        )
+        with _camoufox_client_LOCK:
+            if _camoufox_client is None:
+                _camoufox_client = CamoufoxClient(
+                    settings.camoufox_base_url,
+                    timeout=settings.camoufox_timeout_seconds,
+                    health_cache_seconds=settings.camoufox_health_cache_seconds,
+                )
+                LOGGER.info(
+                    "Camoufox client initialized: %s (timeout=%ss)",
+                    settings.camoufox_base_url,
+                    settings.camoufox_timeout_seconds,
+                )
     return _camoufox_client
 
 
@@ -528,6 +535,8 @@ class ApifyClient:
         await self._http.aclose()
 
 
+_apify_client_LOCK = threading.RLock()
+
 _apify_client: ApifyClient | None = None
 
 
@@ -539,8 +548,12 @@ def get_apify_client() -> ApifyClient | None:
     if not settings.apify_api_token:
         return None
     if _apify_client is None:
-        _apify_client = ApifyClient(
-            settings.apify_api_token, timeout=settings.apify_timeout_seconds
-        )
-        LOGGER.info("Apify client initialized (timeout=%ss)", settings.apify_timeout_seconds)
+        with _apify_client_LOCK:
+            if _apify_client is None:
+                _apify_client = ApifyClient(
+                    settings.apify_api_token, timeout=settings.apify_timeout_seconds
+                )
+                LOGGER.info(
+                    "Apify client initialized (timeout=%ss)", settings.apify_timeout_seconds
+                )
     return _apify_client

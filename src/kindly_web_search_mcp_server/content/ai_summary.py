@@ -12,6 +12,7 @@ import json
 import logging
 import os
 import re
+import threading
 import time
 from collections.abc import Mapping
 from typing import Any, Sequence
@@ -108,15 +109,18 @@ def _drop_inaccessible_claim(summary: dict[str, Any], source_text: str) -> dict[
 
 
 _client: Any | None = None
+_client_LOCK = threading.RLock()
 
 
 def _get_client() -> Any:
     global _client
     if _client is None:
-        api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
-        if not api_key:
-            raise SummaryError("GEMINI_API_KEY is required for summary generation")
-        _client = genai.Client(api_key=api_key)
+        with _client_LOCK:
+            if _client is None:
+                api_key = (os.environ.get("GEMINI_API_KEY") or "").strip()
+                if not api_key:
+                    raise SummaryError("GEMINI_API_KEY is required for summary generation")
+                _client = genai.Client(api_key=api_key)
     return _client
 
 
@@ -460,6 +464,7 @@ async def summarize(
         raise error
 
 
+_batch_client_LOCK = threading.RLock()
 _batch_client: Any | None = None
 
 
@@ -467,10 +472,14 @@ def _get_batch_client() -> Any:
     """Client for bulk summaries, using the second GEMINI_SECOND_API_KEY quota."""
     global _batch_client
     if _batch_client is None:
-        api_key = (os.environ.get("GEMINI_SECOND_API_KEY") or "").strip()
-        if not api_key:
-            raise SummaryError("GEMINI_SECOND_API_KEY is required for bulk summary generation")
-        _batch_client = genai.Client(api_key=api_key)
+        with _batch_client_LOCK:
+            if _batch_client is None:
+                api_key = (os.environ.get("GEMINI_SECOND_API_KEY") or "").strip()
+                if not api_key:
+                    raise SummaryError(
+                        "GEMINI_SECOND_API_KEY is required for bulk summary generation"
+                    )
+                _batch_client = genai.Client(api_key=api_key)
     return _batch_client
 
 
