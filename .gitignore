@@ -222,6 +222,7 @@ __marimo__/
 
 # Claude Code project files
 .claude/
+docs/
 
 # Local Grok config
 .grok/

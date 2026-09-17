@@ -188,7 +188,9 @@ class CodeSearchCache:
             LOGGER.warning("Code-search hydration cache lookup failed: %s", exc)
             cached = None
         duration = time.monotonic() - started
-        hit = bool(cached and isinstance(cached.get("page_content"), str))
+        cached_mapping = cached if isinstance(cached, dict) else None
+        page_content = cached_mapping.get("page_content") if cached_mapping is not None else None
+        hit = bool(cached_mapping and isinstance(page_content, str))
         record_cache_lookup("code_search_hydration", hit, duration)
         emit_cache_lookup_event(
             LOGGER,
@@ -198,12 +200,15 @@ class CodeSearchCache:
             cache_key=key,
             tier="hydration",
         )
-        if not hit:
+        if not hit or cached_mapping is None or not isinstance(page_content, str):
             return None
-        assert cached is not None
         return {
-            "text": cached["page_content"],
-            "metadata": cached.get("metadata") if isinstance(cached.get("metadata"), dict) else {},
+            "text": page_content,
+            "metadata": (
+                cached_mapping.get("metadata")
+                if isinstance(cached_mapping.get("metadata"), dict)
+                else {}
+            ),
         }
 
     async def store_hydration(

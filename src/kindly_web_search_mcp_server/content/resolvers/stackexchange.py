@@ -71,7 +71,7 @@ def parse_stackexchange_url(url: str) -> StackExchangeTarget:
 
     site = _derive_site_parameter(host)
     if not site:
-        raise StackExchangeError(f"Unsupported StackExchange host: {host}")
+        raise StackExchangeError(f"Unsupported StackExchange host: {host!r}")
 
     path = parsed.path or ""
 

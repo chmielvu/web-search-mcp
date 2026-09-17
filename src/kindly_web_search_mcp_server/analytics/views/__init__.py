@@ -1,9 +1,9 @@
 """Analytics view bootstrap — dashboard, funnel-uplift, and fetch-observability views.
 
-Module structure:
 - :mod:`dashboard_sql` — 11 human-readable dashboard views over the canonical
   search/runs/candidates/judges tables.
-- :mod:`funnel_sql` — 8 web-search funnel-uplift analytical views
+- :mod:`embedding_sql` — query-to-candidate vector similarity view.
+- :mod:`funnel_sql` — 9 web-search funnel-uplift analytical views
   (provider contribution, candidate trajectory, branch contribution, etc.).
 - :mod:`fetch_observability_sql` — fetch-tool stage, backend quality,
   follow-through, and freshness views.
@@ -15,11 +15,12 @@ ordering, the process-wide lock, and the materialized summary rebuilds.
 from __future__ import annotations
 
 import threading
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 
 import duckdb
 
 from ...settings import settings
+from ..embedding_sql import _build_embedding_similarity_view_sql
 from ..writers import (
     _db_path,
     ensure_store_schema,
@@ -48,6 +49,9 @@ def ensure_views(*, db_path: str | None = None) -> None:
             # Dashboard views
             for statement in _build_dashboard_view_sql("main"):
                 connection.execute(statement)
+            # Embedding similarity view
+            connection.execute(_build_embedding_similarity_view_sql("main"))
+
             # Funnel uplift views
             for statement in _build_funnel_uplift_view_sql("main"):
                 connection.execute(statement)
@@ -146,6 +150,7 @@ def build_analytics_view_sql(schema: str) -> list[str]:
     """Return SQL statements to create analytics views in a remote schema."""
     return [
         *_build_dashboard_view_sql(schema),
+        _build_embedding_similarity_view_sql(schema),
         *_build_funnel_uplift_view_sql(schema),
         *_build_fetch_observability_view_sql(schema),
     ]

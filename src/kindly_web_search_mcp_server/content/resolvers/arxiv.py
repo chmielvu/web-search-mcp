@@ -87,7 +87,7 @@ def parse_arxiv_url(url: str) -> str:
 
     host = host_raw.lower()
     if not host.endswith("arxiv.org"):
-        raise ArxivError(f"Unsupported arXiv host: {host}")
+        raise ArxivError(f"Unsupported arXiv host: {host!r}")
 
     path = parsed.path or ""
     if not path:
@@ -114,7 +114,7 @@ def parse_arxiv_url(url: str) -> str:
     if _ARXIV_ID_NEW_RE.match(arxiv_id) or _ARXIV_ID_LEGACY_RE.match(arxiv_id):
         return arxiv_id
 
-    raise ArxivError(f"Unrecognized arXiv identifier format: {arxiv_id}")
+    raise ArxivError(f"Unrecognized arXiv identifier format: {arxiv_id!r}")
 
 
 def _default_user_agent() -> str:

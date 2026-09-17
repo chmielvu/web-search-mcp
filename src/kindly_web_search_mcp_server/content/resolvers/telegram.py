@@ -52,12 +52,12 @@ def parse_telegram_url(url: str) -> TelegramTarget:
     parsed = urlparse(url)
     host = (parsed.hostname or "").lower()
     if host not in ("t.me", "telegram.me"):
-        raise TelegramContentError(f"Not a Telegram URL: {host}")
+        raise TelegramContentError(f"Not a Telegram URL: {host!r}")
 
     path = (parsed.path or "").rstrip("/")
     m = _T_ME_PATH_RE.match(path)
     if not m:
-        raise TelegramContentError(f"Unrecognized Telegram path: {path}")
+        raise TelegramContentError(f"Unrecognized Telegram path: {path!r}")
 
     channel_id_str, c_msg_id, username, msg_id_str = m.group(1), m.group(2), m.group(3), m.group(4)
 

@@ -22,6 +22,7 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `quality_metrics.py` | Run-level quality scoring |
 | `reports.py` | Named analytics reports, including provider reliability, quality misses, and classifier calibration |
 | `views/` | Dashboard, funnel-uplift, and fetch-observability view bootstrap: `dashboard_sql.py` / `funnel_sql.py` / `fetch_observability_sql.py` hold the SQL, `__init__.py` orchestrates |
+| `embedding_sql.py` | Shared SQL/bootstrap for `vw_embedding_similarity` |
 | `producers/` | Observability event persistence for tool calls and content operations (`emit_observability_event`, `emit_tool_observability_event`) |
 | `motherduck_sync.py` | MotherDuck sync helpers |
 | `graph_feedback.py` | Direct read-only DuckDB observation query, in-memory NetworkX graph computation, and `generate`/`compare` SQLite operations |

@@ -32,12 +32,19 @@ _CSV_MIMES = {"text/csv", "application/csv"}
 _MAX_CSV_ROWS = 500
 
 
+_TAG_PREFIX_RE = re.compile(r"^\{[^}]+\}")
+_RSS_TAG_RE = re.compile(r"<\s*(?:[\w.-]+:)?rss(?:\s|>)")
+_FEED_TAG_RE = re.compile(r"<\s*(?:[\w.-]+:)?feed(?:\s|>)")
+_HTML_TAGS_RE = re.compile(r"<[^>]+>")
+_SVG_DOCTYPE_RE = re.compile(r"<!\s*(?:doctype|entity)", re.IGNORECASE)
+
+
 def _mime(content_type: str | None) -> str:
     return (content_type or "").split(";", 1)[0].strip().lower()
 
 
 def _local_name(tag: str) -> str:
-    return re.sub(r"^\{[^}]+\}", "", tag).lower()
+    return _TAG_PREFIX_RE.sub("", tag).lower()
 
 
 def detect_content_format(url: str, content_type: str | None, text: str) -> str | None:
@@ -68,16 +75,16 @@ def detect_content_format(url: str, content_type: str | None, text: str) -> str 
         return "tsv"
     if mime in _XML_MIMES or path.endswith((".xml", ".rss", ".atom")):
         stripped = (text or "").lstrip().lower()[:500]
-        if re.search(r"<\s*(?:[\w.-]+:)?rss(?:\s|>)", stripped):
+        if _RSS_TAG_RE.search(stripped):
             return "rss"
-        if re.search(r"<\s*(?:[\w.-]+:)?feed(?:\s|>)", stripped):
+        if _FEED_TAG_RE.search(stripped):
             return "atom"
         return "xml"
     stripped = (text or "").lstrip()
     if stripped.startswith(("{", "[")):
         try:
             json.loads(stripped)
-        except Exception:
+        except (ValueError, TypeError):
             pass
         else:
             return "json"
@@ -432,7 +439,7 @@ def _subtitle_cues(text: str) -> list[tuple[str, str, str]]:
         if match is None:
             continue
         caption = " ".join(lines[timestamp_index + 1 :]).strip()
-        caption = html_lib.unescape(re.sub(r"<[^>]+>", "", caption))
+        caption = html_lib.unescape(_HTML_TAGS_RE.sub("", caption))
         if caption:
             cues.append((match.group(1), match.group(2), caption))
         if len(cues) >= MAX_SUBTITLE_CUES:
@@ -457,7 +464,7 @@ def render_svg_markdown(text: str, source_url: str) -> RenderedContent:
     """Extract safe SVG text and bounded structural metadata without rendering it."""
     if len(text) > MAX_CONFIG_CHARS:
         return _parse_error_markdown("svg", source_url, "input exceeds size limit", text)
-    if re.search(r"<!\s*(?:doctype|entity)", text, flags=re.IGNORECASE):
+    if _SVG_DOCTYPE_RE.search(text):
         return _parse_error_markdown("svg", source_url, "DOCTYPE and ENTITY are blocked", text)
     try:
         from defusedxml import ElementTree

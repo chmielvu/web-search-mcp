@@ -152,7 +152,8 @@ async def fetch_twitter_raw_content(url: str) -> dict[str, object]:
         canonical = f"https://x.com/i/web/status/{target.tweet_id}"
         run_input: dict[str, Any] = {"urls": [canonical]}
     else:
-        assert target.screen_name is not None
+        if target.screen_name is None:
+            raise TwitterError("Twitter URL did not contain a status ID or screen name")
         run_input = {"profiles": [target.screen_name]}
 
     items = await client.run_sync_get_dataset_items(settings.apify_twitter_actor, run_input)

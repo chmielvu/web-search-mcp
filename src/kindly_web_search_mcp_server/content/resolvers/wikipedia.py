@@ -78,7 +78,7 @@ def parse_wikipedia_url(url: str) -> WikipediaTarget:
 
     host = _normalize_host(host_raw)
     if not host.endswith(".wikipedia.org"):
-        raise WikipediaError(f"Unsupported Wikipedia host: {host}")
+        raise WikipediaError(f"Unsupported Wikipedia host: {host!r}")
 
     title: str | None = None
     path = parsed.path or ""

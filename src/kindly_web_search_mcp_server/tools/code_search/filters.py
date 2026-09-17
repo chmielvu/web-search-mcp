@@ -6,6 +6,7 @@ import fnmatch
 import re
 from collections import Counter
 from collections.abc import Iterable
+from dataclasses import dataclass
 
 from .models import CodeSearchHit, CodeSearchRequest, Diagnostic
 from .query import QueryPlan
@@ -42,6 +43,10 @@ _LANGUAGE_EXTENSIONS: dict[str, frozenset[str]] = {
     "shell": frozenset({".bash", ".sh", ".zsh"}),
     "swift": frozenset({".swift"}),
     "typescript": frozenset({".ts", ".tsx", ".mts", ".cts"}),
+}
+_NORMALIZED_LANGUAGE_EXTENSIONS = {
+    language: frozenset(extension.casefold() for extension in extensions)
+    for language, extensions in _LANGUAGE_EXTENSIONS.items()
 }
 
 _GLOB_CHARS = set("*?[")
@@ -115,31 +120,40 @@ def _language_matches(hit: CodeSearchHit, language: str) -> bool | None:
     path = _normalized_path(hit.path)
     if not path:
         return None
-    allowed_extensions = _LANGUAGE_EXTENSIONS.get(expected)
+    allowed_extensions = _NORMALIZED_LANGUAGE_EXTENSIONS.get(expected)
     if not allowed_extensions:
         return True
     suffix = re.search(r"\.[^./]+$", path)
     if suffix is None:
         return None
-    return suffix.group(0).casefold() in {item.casefold() for item in allowed_extensions}
+    return suffix.group(0).casefold() in allowed_extensions
 
 
-def _rejection_reason(hit: CodeSearchHit, scopes: dict[str, tuple[str, ...]]) -> str | None:
+@dataclass(frozen=True, slots=True)
+class _CompiledScopes:
+    repositories: frozenset[str]
+    has_file_scope: bool
+    path_constraints: tuple[str, ...]
+    filename_constraints: tuple[str, ...]
+    extension_constraints: tuple[str, ...]
+    languages: tuple[str, ...]
+
+
+def _rejection_reason(hit: CodeSearchHit, scopes: _CompiledScopes) -> str | None:
     is_exact_code = hit.result_kind == "code_match"
     repository = _clean(hit.repository or "")
     path = _normalized_path(hit.path)
 
-    repositories = {_clean(value).casefold() for value in scopes["repositories"] if _clean(value)}
-    if repositories:
-        if repository and repository.casefold() not in repositories:
+    if scopes.repositories:
+        if repository and repository.casefold() not in scopes.repositories:
             return "repository_mismatch"
         if not repository and is_exact_code:
             return "repository_unverified"
 
-    path_constraints = scopes["paths"]
-    filename_constraints = scopes["filenames"]
-    extension_constraints = scopes["extensions"]
-    has_file_scope = bool(path_constraints or filename_constraints or extension_constraints)
+    has_file_scope = scopes.has_file_scope
+    path_constraints = scopes.path_constraints
+    filename_constraints = scopes.filename_constraints
+    extension_constraints = scopes.extension_constraints
     if has_file_scope and not path:
         return "location_unverified"
     if path_constraints and not any(_path_matches(path, value) for value in path_constraints):
@@ -153,7 +167,7 @@ def _rejection_reason(hit: CodeSearchHit, scopes: dict[str, tuple[str, ...]]) ->
     ):
         return "extension_mismatch"
 
-    languages = scopes["languages"]
+    languages = scopes.languages
     if languages:
         language_result = _language_matches(hit, languages[0])
         if language_result is False:
@@ -182,11 +196,22 @@ def filter_scoped_hits(
     if not any(scopes.values()):
         return list(hits), None
 
+    compiled_scopes = _CompiledScopes(
+        repositories=frozenset(
+            _clean(value).casefold() for value in scopes["repositories"] if _clean(value)
+        ),
+        has_file_scope=bool(scopes["paths"] or scopes["filenames"] or scopes["extensions"]),
+        path_constraints=scopes["paths"],
+        filename_constraints=scopes["filenames"],
+        extension_constraints=scopes["extensions"],
+        languages=scopes["languages"],
+    )
+
     kept: list[CodeSearchHit] = []
     reasons: Counter[str] = Counter()
     providers: Counter[str] = Counter()
     for hit in hits:
-        reason = _rejection_reason(hit, scopes)
+        reason = _rejection_reason(hit, compiled_scopes)
         if reason is None:
             if hit.result_kind == "code_match":
                 hit.source_metadata["scope_verified"] = True

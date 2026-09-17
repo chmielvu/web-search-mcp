@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from ..analytics.rerank_telemetry import (
@@ -39,7 +39,9 @@ def compute_recency_score(published_date: str | None, half_life_days: int = 90) 
         raise ValueError("half_life_days must be positive")
     try:
         pub_dt = datetime.fromisoformat(published_date.replace("Z", "+00:00"))
-        now = datetime.now(pub_dt.tzinfo) if pub_dt.tzinfo else datetime.now()
+        if pub_dt.tzinfo is None:
+            pub_dt = pub_dt.replace(tzinfo=UTC)
+        now = datetime.now(UTC)
         age_days = (now - pub_dt).days
         if age_days < 0:
             return 1.0

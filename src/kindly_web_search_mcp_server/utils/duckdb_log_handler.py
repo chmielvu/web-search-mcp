@@ -193,7 +193,7 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
             )
             self._total_inserted += len(records)
             self._flush_count += 1
-        except Exception:
+        except duckdb.Error:
             pass  # don't let insert errors crash the logging path
         finally:
             con.close()
@@ -213,7 +213,7 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
                     """
                 )
                 con.execute("CHECKPOINT;")
-            except Exception:
+            except duckdb.Error:
                 pass
             finally:
                 con.close()
@@ -240,9 +240,13 @@ class BatchDuckDBLogHandler(logging.handlers.BufferingHandler):
 
     def close(self) -> None:
         """Flush remaining buffer and mark as closed."""
-        self._closed = True
-        self.flush()
-        super().close()
+        if self._closed:
+            return
+        try:
+            self.flush()
+        finally:
+            self._closed = True
+            super().close()
 
 
 def install_process_logging(

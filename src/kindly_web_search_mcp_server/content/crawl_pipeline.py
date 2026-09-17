@@ -426,7 +426,9 @@ def _raw_document(
     metadata_dict["crawl_variant"] = variant
     fetched_url = item.get("url") or item.get("source_url") or url
     status_code = item.get("status_code") or item.get("status")
-    http_status = status_code if isinstance(status_code, int) else None
+    http_status = (
+        status_code if isinstance(status_code, int) and not isinstance(status_code, bool) else None
+    )
     complete_value = item.get("complete")
     complete = complete_value if isinstance(complete_value, bool) else None
     title = item.get("title")
@@ -449,7 +451,9 @@ def _raw_document(
 def _item_error(item: Mapping[str, object]) -> ContentError:
     """Convert a failed Crawl4AI result into a stable content error."""
     status_code = item.get("status_code") or item.get("status")
-    http_status = status_code if isinstance(status_code, int) else None
+    http_status = (
+        status_code if isinstance(status_code, int) and not isinstance(status_code, bool) else None
+    )
     status = "blocked" if http_status in {401, 403, 429} else "error"
     message = item.get("error") or item.get("message") or "Crawl4AI failed to process this page."
     retryable = bool(item.get("retryable")) or bool(http_status and http_status >= 500)

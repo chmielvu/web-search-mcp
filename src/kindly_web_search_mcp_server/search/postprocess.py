@@ -7,8 +7,10 @@ final page order before evidence and citation construction.
 
 from __future__ import annotations
 
+import fnmatch
 from collections.abc import Sequence
 from typing import TypeVar
+from urllib.parse import urlparse
 
 T = TypeVar("T")
 
@@ -23,10 +25,6 @@ def _result_link[T](result: T) -> str:
 def _url_matches_domain(url: str, pattern: str) -> bool:
     """Check if URL matches domain pattern (supports wildcards, subdomains, and paths)."""
     try:
-        # The module, not the function: the call sites use fnmatch.fnmatch(...).
-        import fnmatch
-        from urllib.parse import urlparse
-
         parsed = urlparse(url)
         hostname = (parsed.hostname or "").lower().replace("www.", "")
         pathname = parsed.path.lower()
@@ -61,7 +59,7 @@ def _url_matches_domain(url: str, pattern: str) -> bool:
         if any(c in p for c in ("*", "?")):
             return fnmatch.fnmatch(hostname, p) or hostname == p.lstrip("*.")
         return hostname == p or hostname.endswith(f".{p}")
-    except Exception:
+    except (ValueError, TypeError, AttributeError):
         return False
 
 
@@ -85,8 +83,14 @@ def apply_domain_boost[T](
         return list(results)
 
     def _boosted(result: T) -> bool:
-        return any(_url_matches_domain(_result_link(result), p) for p in patterns)
+        link = _result_link(result)
+        return bool(link and any(_url_matches_domain(link, p) for p in patterns))
 
-    boosted = [r for r in results if _boosted(r)]
-    normal = [r for r in results if not _boosted(r)]
+    boosted: list[T] = []
+    normal: list[T] = []
+    for r in results:
+        if _boosted(r):
+            boosted.append(r)
+        else:
+            normal.append(r)
     return boosted + normal

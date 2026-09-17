@@ -17,7 +17,7 @@ builders live inside their owning resolver modules, not here."""
 from __future__ import annotations
 
 from collections.abc import Iterable
-from typing import Any
+from typing import Any, cast
 
 from .models import (
     PackageDocument,
@@ -39,8 +39,10 @@ _REDDIT_PLACEHOLDER_BODIES = frozenset({"[deleted]", "[removed]"})
 def _coerce_format(value: Any, default: TextFormat = "markdown") -> TextFormat:
     """Return a valid :class:`TextFormat` for any source value."""
 
-    if isinstance(value, str) and value.lower() in {"markdown", "html", "text"}:
-        return value.lower()  # type: ignore[return-value]
+    if isinstance(value, str):
+        val_lower = value.lower()
+        if val_lower in {"markdown", "html", "text"}:
+            return cast(TextFormat, val_lower)
     return default
 
 

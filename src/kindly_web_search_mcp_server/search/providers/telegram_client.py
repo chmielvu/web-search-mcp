@@ -20,7 +20,14 @@ from ...settings import settings
 logger = logging.getLogger(__name__)
 
 _client: TelegramClient | None = None
-_client_lock = asyncio.Lock()
+_client_lock: asyncio.Lock | None = None
+
+
+def _get_client_lock() -> asyncio.Lock:
+    global _client_lock
+    if _client_lock is None:
+        _client_lock = asyncio.Lock()
+    return _client_lock
 
 
 async def get_telethon_client() -> TelegramClient:
@@ -29,7 +36,7 @@ async def get_telethon_client() -> TelegramClient:
     if _client is not None and _client.is_connected():
         return _client
 
-    async with _client_lock:
+    async with _get_client_lock():
         if _client is not None and _client.is_connected():
             return _client
 

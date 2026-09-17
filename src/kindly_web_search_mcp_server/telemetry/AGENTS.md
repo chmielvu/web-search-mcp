@@ -22,6 +22,7 @@ OpenTelemetry instrumentation with Phoenix-first LLM-only span filtering.
 | `records_core.py` | Core search operation recorders |
 | `records_rerank.py` | Rerank stage metrics recorders |
 | `_internal.py` | OTLP resolution, headers |
+| `usage.py` | Extracts provider token counts and packages them for summary analytics. |
 
 ## Rules
 

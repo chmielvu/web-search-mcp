@@ -7,6 +7,7 @@ import contextlib
 import hashlib
 import logging
 import time
+from collections import OrderedDict
 from collections.abc import Awaitable, Sequence
 from typing import Any
 
@@ -156,8 +157,16 @@ def _branch_fallback_queries(
     return (free_fb, serp1_fb, serp2_fb, base, exa_fb)
 
 
-_REWRITE_CACHE: dict[str, tuple[RewrittenQueries, dict[str, Any]]] = {}
+_REWRITE_CACHE: OrderedDict[str, tuple[RewrittenQueries, dict[str, Any]]] = OrderedDict()
 _REWRITE_CACHE_MAX_SIZE = 256
+_REWRITE_CACHE_LOCK: asyncio.Lock | None = None
+
+
+def _get_rewrite_cache_lock() -> asyncio.Lock:
+    global _REWRITE_CACHE_LOCK
+    if _REWRITE_CACHE_LOCK is None:
+        _REWRITE_CACHE_LOCK = asyncio.Lock()
+    return _REWRITE_CACHE_LOCK
 
 
 async def _rewrite_queries(
@@ -198,11 +207,13 @@ async def _rewrite_queries(
     cache_key = hashlib.sha256(
         f"v{REWRITE_PROMPT_VERSION}:{normalize_intent(str(intent))}:{user_content}".encode()
     ).hexdigest()
-    if cache_key in _REWRITE_CACHE:
-        cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]
-        hit_meta = dict(cached_meta)
-        hit_meta["cached"] = True
-        return cached_parsed, hit_meta
+    async with _get_rewrite_cache_lock():
+        if cache_key in _REWRITE_CACHE:
+            _REWRITE_CACHE.move_to_end(cache_key)
+            cached_parsed, cached_meta = _REWRITE_CACHE[cache_key]
+            hit_meta = dict(cached_meta)
+            hit_meta["cached"] = True
+            return cached_parsed, hit_meta
 
     started = time.monotonic()
     generation = await build_worker_router().complete_json(
@@ -224,9 +235,10 @@ async def _rewrite_queries(
         "prompt_version": REWRITE_PROMPT_VERSION,
         "prompt": f"query={query!r}\nresearch_goal={research_goal!r}\nintent={intent!r}",
     }
-    while len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
-        del _REWRITE_CACHE[next(iter(_REWRITE_CACHE))]
-    _REWRITE_CACHE[cache_key] = (parsed, metadata)
+    async with _get_rewrite_cache_lock():
+        while len(_REWRITE_CACHE) >= _REWRITE_CACHE_MAX_SIZE:
+            _REWRITE_CACHE.popitem(last=False)
+        _REWRITE_CACHE[cache_key] = (parsed, dict(metadata))
     return parsed, metadata
 
 

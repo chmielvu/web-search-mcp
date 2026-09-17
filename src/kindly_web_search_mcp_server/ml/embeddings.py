@@ -169,7 +169,8 @@ async def embed_texts(
                 f"fastembed embedding API request failed: {type(e).__name__}: {e}"
             ) from e
 
-    assert raw_data is not None
+    if raw_data is None:
+        raise EmbeddingAPIError("embedding request produced no response")
     vectors = _coerce_vectors(raw_data, len(texts))
     _validate_dimensions(vectors, resolved_dim)
     return vectors

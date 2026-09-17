@@ -47,10 +47,16 @@ class TokenUsage(BaseModel):
         completion = payload.get("completion_tokens", payload.get("output_tokens"))
         if completion is None and str(payload.get("summary") or "").strip():
             completion = 0
+        prompt_tokens = prompt if isinstance(prompt, int) and not isinstance(prompt, bool) else None
+        completion_tokens = (
+            completion if isinstance(completion, int) and not isinstance(completion, bool) else None
+        )
         total = payload.get("total_tokens")
-        if total is None and (prompt is not None or completion is not None):
-            ints = [v for v in (prompt, completion) if isinstance(v, int)]
-            total = sum(ints) if ints else None
+        total_tokens = total if isinstance(total, int) and not isinstance(total, bool) else None
+        if total_tokens is None and (prompt_tokens is not None or completion_tokens is not None):
+            total_tokens = sum(
+                value for value in (prompt_tokens, completion_tokens) if value is not None
+            )
         backend = payload.get("provider") or payload.get("backend")
         provider_map = {
             "gemini-api": "google",
@@ -63,12 +69,17 @@ class TokenUsage(BaseModel):
             "gemma": "gemma",
         }
         provider = provider_map.get(str(backend)) if backend else None
-        if prompt is None and completion is None and total is None and provider is None:
+        if (
+            prompt_tokens is None
+            and completion_tokens is None
+            and total_tokens is None
+            and provider is None
+        ):
             return None
         return cls(
-            prompt_tokens=prompt if isinstance(prompt, int) else None,
-            completion_tokens=completion if isinstance(completion, int) else None,
-            total_tokens=total if isinstance(total, int) else None,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=total_tokens,
             model_used=payload.get("model_used") or payload.get("model"),
             provider=provider,
         )

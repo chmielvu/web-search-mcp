@@ -109,4 +109,6 @@ def llm_usage_fields(*, model_used: str | None, usage: LLMUsage | None) -> dict[
         fields["input_tokens"] = usage.input_tokens
     if usage.output_tokens is not None:
         fields["output_tokens"] = usage.output_tokens
+    if usage.total_tokens is not None:
+        fields["total_tokens"] = usage.total_tokens
     return fields

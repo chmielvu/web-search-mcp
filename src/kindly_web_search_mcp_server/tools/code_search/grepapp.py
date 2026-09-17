@@ -29,6 +29,13 @@ _GREP_APP_REST_URL = "https://grep.app/api/search"
 _MCP_ATTEMPTS = 3
 _MCP_RETRY_BASE_SECONDS = 0.25
 
+_FIELD_LINE_RE = re.compile(r"^\s*(Repository|Path|URL|License)\s*:\s*(.*?)\s*$", re.I)
+_SNIPPET_HEADER_RE = re.compile(
+    r"^\s*---\s*Snippet\s+\d+\s*\(Line\s+(\d+)\)\s*---\s*$",
+    re.IGNORECASE,
+)
+_NUMBERED_LINE_RE = re.compile(r"^\s*(\d+)\s*(?:\||:)\s?(.*)$")
+
 
 def _failure_kind_for_status(status_code: int) -> FailureKind:
     """Map an HTTP status code onto the normalized failure category."""
@@ -149,7 +156,8 @@ async def _call_grepapp_mcp(
             last_error = exc
             if attempt + 1 < _MCP_ATTEMPTS:
                 await asyncio.sleep(_MCP_RETRY_BASE_SECONDS * (attempt + 1))
-    assert last_error is not None
+    if last_error is None:
+        raise RuntimeError("grep.app MCP stream ended without a result event or error")
     raise last_error
 
 
@@ -176,15 +184,11 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
         last_line: int | None = None
         seen_snippet = False
         for line in block:
-            match = re.match(r"^\s*(Repository|Path|URL|License)\s*:\s*(.*?)\s*$", line, re.I)
+            match = _FIELD_LINE_RE.match(line)
             if match and not seen_snippet:
                 fields[match.group(1).casefold()] = match.group(2).strip()
                 continue
-            snippet_header = re.match(
-                r"^\s*---\s*Snippet\s+\d+\s*\(Line\s+(\d+)\)\s*---\s*$",
-                line,
-                re.IGNORECASE,
-            )
+            snippet_header = _SNIPPET_HEADER_RE.match(line)
             if snippet_header:
                 seen_snippet = True
                 header_line = int(snippet_header.group(1))
@@ -195,7 +199,7 @@ def parse_grepapp_text(text: str, *, query_variant: str, max_results: int) -> li
             if line.strip().casefold() == "snippets:":
                 seen_snippet = True
                 continue
-            numbered = re.match(r"^\s*(\d+)\s*(?:\||:)\s?(.*)$", line)
+            numbered = _NUMBERED_LINE_RE.match(line)
             if numbered:
                 seen_snippet = True
                 numbered_line = int(numbered.group(1))
@@ -338,7 +342,18 @@ async def _search_grepapp_single_repo_rest(
             ],
             request_count=request_count,
         )
-    assert last_response is not None
+    if last_response is None:
+        return ProviderResponse(
+            provider="grep.app",
+            diagnostics=[
+                _diagnostic(
+                    "grep.app REST request produced no response",
+                    query=expression,
+                    failure_kind="network",
+                )
+            ],
+            request_count=request_count,
+        )
     if last_response.status_code == 429:
         return ProviderResponse(
             provider="grep.app",

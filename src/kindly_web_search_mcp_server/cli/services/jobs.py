@@ -89,7 +89,7 @@ def get_job(job_id: str) -> dict[str, Any]:
     try:
         row = connection.execute("SELECT * FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
-            raise LookupError(f"Job '{job_id}' was not found.")
+            raise LookupError(f"Job {job_id!r} was not found.")
         return _decode(row)
     finally:
         connection.close()
@@ -243,7 +243,7 @@ def finish_job(
     error: str | None = None,
 ) -> None:
     if status not in TERMINAL_STATUSES:
-        raise ValueError(f"Invalid terminal job status: {status}")
+        raise ValueError(f"Invalid terminal job status: {status!r}")
     connection = _connect()
     try:
         connection.execute(
@@ -278,7 +278,7 @@ def cancel_job(job_id: str, *, settle_seconds: float = CANCEL_SETTLE_SECONDS) ->
     try:
         row = connection.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
-            raise LookupError(f"Job '{job_id}' was not found.")
+            raise LookupError(f"Job {job_id!r} was not found.")
         status = row[0]
         if status == "queued":
             connection.execute(
@@ -308,7 +308,7 @@ def resume_job(job_id: str) -> dict[str, Any]:
     try:
         row = connection.execute("SELECT status FROM jobs WHERE job_id = ?", (job_id,)).fetchone()
         if row is None:
-            raise LookupError(f"Job '{job_id}' was not found.")
+            raise LookupError(f"Job {job_id!r} was not found.")
         if row[0] == "succeeded":
             return get_job(job_id)
         if row[0] not in {"failed", "cancelled", "partial"}:

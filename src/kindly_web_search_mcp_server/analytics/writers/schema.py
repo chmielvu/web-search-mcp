@@ -14,6 +14,7 @@ import logging
 
 import duckdb
 
+from ..embedding_sql import _ensure_embedding_similarity_view
 from .connection import (
     _LOCK,
     _db_path,
@@ -145,8 +146,19 @@ def _rollover_embedding_table(
             f"Cannot roll over {table_name}: preserved table {legacy_table} already exists"
         )
 
-    for index_name in index_names:
-        connection.execute(f"DROP INDEX IF EXISTS {index_name}")
+    catalog_index_rows = connection.execute(
+        "SELECT index_name FROM duckdb_indexes() WHERE table_name = ?",
+        [table_name],
+    ).fetchall()
+    index_names_to_drop = list(index_names)
+    for row in catalog_index_rows:
+        index_name = str(row[0])
+        if index_name not in index_names_to_drop:
+            index_names_to_drop.append(index_name)
+    for index_name in index_names_to_drop:
+        escaped_index_name = index_name.replace('"', '""')
+        connection.execute(f'DROP INDEX IF EXISTS "{escaped_index_name}"')
+
     connection.execute(f"ALTER TABLE {table_name} RENAME TO {legacy_table}")
 
 
@@ -527,12 +539,14 @@ def _ensure_query_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         _QE_TABLE_NAME,
         f"""
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key       VARCHAR NOT NULL,
         model_id      VARCHAR DEFAULT 'snowflake-arctic-embed-s',
         embedding     FLOAT[{_EMBEDDING_DIM}],
         payload_json  JSON
         """,
     )
     connection.execute("CREATE INDEX IF NOT EXISTS idx_qemb_run_key ON query_embeddings(run_key)")
+    _ensure_embedding_similarity_view(connection)
 
 
 # ---------------------------------------------------------------------------
@@ -548,6 +562,7 @@ def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
         recorded_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
         run_key       VARCHAR NOT NULL,
         link          VARCHAR NOT NULL,
+        title         VARCHAR,
         model_id      VARCHAR DEFAULT 'snowflake-arctic-embed-s',
         embedding     FLOAT[{_EMBEDDING_DIM}],
         payload_json  JSON
@@ -556,6 +571,7 @@ def _ensure_candidate_embeddings(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_cemb_run_key ON candidate_embeddings(run_key)"
     )
+    _ensure_embedding_similarity_view(connection)
 
 
 # ---------------------------------------------------------------------------

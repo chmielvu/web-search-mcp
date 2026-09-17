@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal, Protocol, cast
+from typing import Literal, Protocol, cast, get_args
 
 from .catalog import TOOL_CATALOG
 
@@ -9,7 +9,7 @@ ToolProfile = Literal[
     "full",
 ]
 
-ALLOWED_TOOL_PROFILES = frozenset(ToolProfile.__args__)  # type: ignore[attr-defined]
+ALLOWED_TOOL_PROFILES = frozenset(get_args(ToolProfile))
 
 # Tools registered but hidden from MCP clients (tools/list) via an explicit
 # disable() after profile selection (FastMCP: last Visibility transform wins).

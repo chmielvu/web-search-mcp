@@ -16,9 +16,12 @@ def _term_index(term: str) -> int:
     return abs(hash(term)) % HASH_SPACE
 
 
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+
+
 def _tokenize(text: str) -> list[str]:
     text = text.lower()
-    tokens = re.findall(r"[a-z0-9]+", text)
+    tokens = _TOKEN_RE.findall(text)
     return [t for t in tokens if len(t) >= 2]
 
 
