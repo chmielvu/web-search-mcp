@@ -12,8 +12,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from ..models import WebSearchResult
 from ..prompts.rerank_llm import load_rerank_system_message
+from ..search.types import ScoredHit
 from ..settings import settings
 from .models import FINAL_RESULT_LIMIT, RankedStageOutcome, RerankResult
 from .utils import _apply_ranked_stage, _failed_stage
@@ -202,7 +202,7 @@ def _get_gemini_coordinator(model: str | None = None) -> Any:
 
 def _build_request(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     request_id: str,
 ) -> Any:
     Candidate, Query, Request, _ = _load_rank_llm_openai()
@@ -210,12 +210,12 @@ def _build_request(
         Candidate(
             docid=str(index),
             doc={
-                "title": candidate.title,
+                "title": candidate.hit.title,
                 "content": (
-                    f"Title: {candidate.title}\n"
-                    f"Snippet: {candidate.snippet}\n"
-                    f"URL: {candidate.link}\n"
-                    f"Domain: {candidate.domain or 'unknown'}\n"
+                    f"Title: {candidate.hit.title}\n"
+                    f"Snippet: {candidate.hit.snippet}\n"
+                    f"URL: {candidate.hit.url}\n"
+                    f"Domain: {candidate.hit.domain or 'unknown'}\n"
                     f"Providers: {', '.join(candidate.providers or []) or 'unknown'}\n"
                     f"ProviderCount: {len(candidate.providers) if candidate.providers else 1}"
                 ),
@@ -370,7 +370,7 @@ async def _run_coordinator(
 
 async def rerank_with_llm(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     *,
     request_id: str | None = None,
 ) -> LLMRerankOutcome:
@@ -383,7 +383,7 @@ async def rerank_with_llm(
 async def run_llm_stage(
     *,
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     request_id: str | None,
     query_type_hint: str | None,
     run_key: str | None,

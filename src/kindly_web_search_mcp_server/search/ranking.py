@@ -7,16 +7,13 @@ import logging
 import time
 from collections import Counter
 from collections.abc import Awaitable, Sequence
+from dataclasses import dataclass, replace
 from datetime import date
 from typing import Literal
 
 from ..models import (
     FilterStats,
     ProviderWarning,
-    WebSearchEvidenceScore,
-    WebSearchFetchHint,
-    WebSearchResponse,
-    WebSearchResult,
 )
 from ..rerank.bm25 import score_candidates_async
 from ..rerank.pipeline import rerank_results
@@ -25,15 +22,65 @@ from ..telemetry.spans import get_tracer
 from ..utils.url_canonicalize import canonicalize_url
 from .blocklist import filter_blocked_results
 from .contracts import BranchOutcome, SearchRun
+from .evidence import render_search_hit_text
 from .filters import filter_results_by_window, parse_published_date
 from .merge import memoize_canonicalize, reciprocal_rank_fusion
 from .postprocess import apply_domain_boost
+from .types import ScoredHit, SearchHit, SearchRunResult
 
 logger = logging.getLogger(__name__)
 
 
-def _candidate_text(result: WebSearchResult) -> str:
-    return f"{result.title}\n{result.snippet}"[:4000]
+def _candidate_text(result: SearchHit) -> str:
+    return render_search_hit_text(result, max_chars=4000)
+
+
+@dataclass(frozen=True, slots=True)
+class _ExpansionEvidence:
+    query: str
+    support_count: int
+    adapters: tuple[str, ...]
+
+
+def _collect_expansion_evidence(
+    outcomes: tuple[BranchOutcome, ...],
+    *,
+    source_query: str,
+) -> tuple[_ExpansionEvidence, ...]:
+    source_key = " ".join(source_query.split()).casefold()
+    display_by_key: dict[str, str] = {}
+    supporters_by_key: dict[str, set[tuple[str, str]]] = {}
+    adapters_by_key: dict[str, set[str]] = {}
+    encounter_order: dict[str, int] = {}
+    for outcome in outcomes:
+        for call in outcome.calls:
+            supporter = (call.adapter, " ".join(call.query.split()).casefold())
+            candidates = list(call.expansion)
+            if call.integrity is not None and call.integrity.spelling:
+                candidates.append(call.integrity.spelling)
+            seen_in_call: set[str] = set()
+            for raw_query in candidates:
+                query = " ".join(raw_query.split())
+                key = query.casefold()
+                if not query or key == source_key or key in seen_in_call:
+                    continue
+                seen_in_call.add(key)
+                if key not in encounter_order:
+                    encounter_order[key] = len(encounter_order)
+                    display_by_key[key] = query
+                supporters_by_key.setdefault(key, set()).add(supporter)
+                adapters_by_key.setdefault(key, set()).add(call.adapter)
+    return tuple(
+        _ExpansionEvidence(
+            query=display_by_key[key],
+            support_count=len(supporters_by_key[key]),
+            adapters=tuple(sorted(adapters_by_key[key])),
+        )
+        for key in sorted(
+            encounter_order,
+            key=lambda item: (-len(supporters_by_key[item]), encounter_order[item]),
+        )
+    )
 
 
 def _stable_warnings(outcomes: tuple[BranchOutcome, ...]) -> list[ProviderWarning]:
@@ -69,59 +116,27 @@ def _build_freshness_signal(
     return "dated"
 
 
-def _build_fetch_hint(result: WebSearchResult, rank: int) -> WebSearchFetchHint:
-    cross = result.cross_encoder_score
-    if cross is not None:
-        if cross >= 0.70:
-            confidence = "high"
-            why = "Strong semantic relevance from cross-encoder; fetch full page for grounded context."
-        elif cross >= 0.50:
-            confidence = "medium"
-            why = "Moderate semantic relevance; fetch to verify snippet details."
-        else:
-            confidence = "low"
-            why = "Lower semantic relevance; fetch only if higher-ranked sources are insufficient."
-    else:
-        if rank <= 3 or (result.final_score is not None and result.final_score >= 0.70):
-            confidence = "high"
-            why = "Top-ranked search result; fetch full page for grounded context."
-        elif rank <= 7 or (result.final_score is not None and result.final_score >= 0.40):
-            confidence = "medium"
-            why = "Relevant search result; fetch to inspect complete source details."
-        else:
-            confidence = "low"
-            why = "Lower-ranked result; fetch only if higher-ranked sources are insufficient."
-
-    return WebSearchFetchHint(
-        action="fetch",
-        tool="fetch",
-        query={"url": result.link},
-        why=why,
-        confidence=confidence,
-    )
+def _build_fetch_hint_query(result: ScoredHit) -> str:
+    return result.hit.url
 
 
-def attach_agent_evidence(results: list[WebSearchResult]) -> list[WebSearchResult]:
-    updated: list[WebSearchResult] = []
+def attach_agent_evidence(results: list[ScoredHit]) -> list[ScoredHit]:
+    updated: list[ScoredHit] = []
     for idx, res in enumerate(results, start=1):
         pc = len(res.providers) if res.providers else 1
-        evidence_score = WebSearchEvidenceScore(
-            final=res.final_score,
-            semantic=res.cross_encoder_score,
-            lexical=res.retrieval_rrf_score,
-            engine_consensus=pc,
-        )
-        freshness = _build_freshness_signal(res.published_date)
-        hint = _build_fetch_hint(res, idx)
+        freshness = _build_freshness_signal(res.hit.published)
+        hint_query = _build_fetch_hint_query(res)
         updated.append(
-            res.model_copy(
-                update={
-                    "final_rank": idx,
-                    "citation_id": f"c{idx}",
-                    "evidence_score": evidence_score,
-                    "freshness_signal": freshness,
-                    "fetch_hint": hint,
-                }
+            replace(
+                res,
+                final_rank=idx,
+                citation_id=f"c{idx}",
+                evidence_final=res.final_score,
+                evidence_semantic=res.cross_encoder_score,
+                evidence_lexical=res.retrieval_rrf_score,
+                evidence_consensus=pc,
+                freshness_signal=freshness,
+                fetch_hint_query=hint_query,
             )
         )
     return updated
@@ -132,7 +147,7 @@ async def rank_and_finalize(
     outcomes: tuple[BranchOutcome, ...],
     *,
     embedding_task: Awaitable[Sequence[float]] | None,
-) -> WebSearchResponse:
+) -> SearchRunResult:
     tracer = get_tracer()
     rank_started = time.monotonic()
     dc = run.diagnostics
@@ -144,6 +159,24 @@ async def rank_and_finalize(
             for message in run.request.pre_warnings
         )
         filter_stats: FilterStats | None = None
+        expansion_evidence = _collect_expansion_evidence(
+            outcomes,
+            source_query=run.plan.normalized_query if run.plan else run.request.query,
+        )
+        dc.provider_expansions = [
+            {
+                "query": signal.query,
+                "support_count": signal.support_count,
+                "adapters": list(signal.adapters),
+            }
+            for signal in expansion_evidence
+        ]
+        supported_expansions = tuple(
+            signal.query for signal in expansion_evidence if signal.support_count >= 2
+        )[:2]
+        lexical_query = run.plan.relevance_query if run.plan else run.request.query
+        if supported_expansions:
+            lexical_query = "\n".join((lexical_query, *supported_expansions))[:1000]
 
         # RRF voters are the per-(branch, provider) ranked lists exactly as
         # the providers returned them: one list per independent retrieval,
@@ -166,22 +199,22 @@ async def rank_and_finalize(
         # at weight / (rrf_k + 1), independent of branch count. Lists are
         # ordered deterministically by (branch_index, provider_name) so fused
         # scores are reproducible across runs with identical retrieval output.
-        rrf_result_lists: list[list[WebSearchResult]] = []
+        rrf_result_lists: list[list[SearchHit]] = []
         rrf_list_weights: list[float] = []
         seen_call_queries: set[tuple[str, str]] = set()
         duplicate_lists_dropped = 0
-        call_lists: list[tuple[str, list[WebSearchResult]]] = []
+        call_lists: list[tuple[str, list[SearchHit]]] = []
         for outcome in outcomes:
-            for prr in outcome.provider_ranked_results:
-                call_key = (prr.provider_name, outcome.branch.query)
+            for call in outcome.calls:
+                call_key = (call.adapter, outcome.branch.query)
                 if call_key in seen_call_queries:
                     duplicate_lists_dropped += 1
                     continue
                 seen_call_queries.add(call_key)
-                filtered = filter_blocked_results(list(prr.results))
+                filtered = filter_blocked_results(list(call.hits))
                 if not filtered:
                     continue
-                call_lists.append((prr.provider_name, filtered))
+                call_lists.append((call.adapter, filtered))
 
         lists_per_provider: Counter[str] = Counter(provider_name for provider_name, _ in call_lists)
         for provider_name, filtered in call_lists:
@@ -189,14 +222,14 @@ async def rank_and_finalize(
             rrf_result_lists.append(filtered)
             rrf_list_weights.append(provider_weight / lists_per_provider[provider_name])
 
-        merged: list[WebSearchResult] = []
+        merged: list[ScoredHit] = []
         rrf_k = settings.rrf_k
         bm25_scores: list[float] = []
         overlap_rate = 0.0
         if rrf_result_lists:
             # Track overlap rate across providers
             url_occurrences: Counter[str] = Counter(
-                key_for(result.link) for results in rrf_result_lists for result in results
+                key_for(result.url) for results in rrf_result_lists for result in results
             )
             overlap_rate = (
                 sum(count > 1 for count in url_occurrences.values()) / len(url_occurrences)
@@ -209,10 +242,10 @@ async def rank_and_finalize(
             #    applies when lists disagree about a URL). BM25 acts as a
             #    complementary lexical signal alongside the semantic/dense
             #    retrieval from providers.
-            raw_by_url: dict[str, WebSearchResult] = {}
+            raw_by_url: dict[str, SearchHit] = {}
             for results in rrf_result_lists:
                 for result in results:
-                    url_key = key_for(result.link)
+                    url_key = key_for(result.url)
                     existing = raw_by_url.get(url_key)
                     if existing is None or len(result.snippet or "") > len(existing.snippet or ""):
                         raw_by_url[url_key] = result
@@ -220,7 +253,7 @@ async def rank_and_finalize(
 
             try:
                 bm25_scores = await score_candidates_async(
-                    run.plan.relevance_query if run.plan else run.request.query,
+                    lexical_query,
                     [_candidate_text(result) for result in all_raw_results],
                 )
             except Exception as exc:
@@ -252,19 +285,21 @@ async def rank_and_finalize(
             )
 
             # 3. Apply RRF scores to merged results
-            for res, score in fused_with_scores:
-                res_updated = res.model_copy(
-                    update={
-                        "retrieval_rrf_score": score,
-                    }
+            # 3. Wrap fused hits into ScoredHit
+            for hit, score, providers in fused_with_scores:
+                merged.append(
+                    ScoredHit(
+                        hit=hit,
+                        retrieval_rrf_score=score,
+                        providers=providers,
+                    )
                 )
-                merged.append(res_updated)
         window = run.request.options.temporal
         if window is not None and not window.is_empty:
             merged, dropped_range, dropped_undated = filter_results_by_window(
                 merged,
                 window=window,
-                get_published_date=lambda item: item.published_date,
+                get_published_date=lambda item: item.hit.published,
                 get_providers=lambda item: item.providers or None,
                 include_undated=run.request.include_undated,
             )
@@ -307,7 +342,7 @@ async def rank_and_finalize(
         providers_used_set: set[str] = set()
         for outcome in outcomes:
             providers_used_set.update(outcome.attempted_provider_names)
-        ranked_pool: list[WebSearchResult] = []
+        ranked_pool: list[ScoredHit] = []
         rerank_provider: str | None = None
         rerank_model: str | None = None
         if merged:
@@ -315,7 +350,7 @@ async def rank_and_finalize(
             # intentionally receives only the normalized relevance query.
             reranked = await rerank_results(
                 run.plan.normalized_query if run.plan else run.request.query,
-                [result.model_copy() for result in merged],
+                list(merged),
                 research_goal=run.request.research_goal,
                 query_type_hint=(
                     run.plan.understanding.intent if (run.plan and run.plan.understanding) else None
@@ -362,6 +397,8 @@ async def rank_and_finalize(
                 "bm25_scores": tuple(bm25_scores),
                 "reranker_provider": rerank_provider,
                 "reranker_model": rerank_model,
+                "provider_expansion_count": len(expansion_evidence),
+                "bm25_expansion_queries": supported_expansions,
             }
         )
         if merged:
@@ -370,8 +407,8 @@ async def rank_and_finalize(
         final_results = attach_agent_evidence(final_ordered)
         candidate_count = len(merged)
         returned = len(final_results)
-        providers_used = sorted(
-            {provider for result in final_results for provider in (result.providers or [])}
+        providers_used = tuple(
+            sorted({provider for result in final_results for provider in (result.providers or ())})
         )
         dc.merge_counts = {
             "merged_count": len(merged),
@@ -386,17 +423,16 @@ async def rank_and_finalize(
         dc.phase_timings["search.rank"] = (time.monotonic() - rank_started) * 1000.0
         span.set_attribute("search.merged_count", len(merged))
         span.set_attribute("search.final_count", returned)
-        return WebSearchResponse(
+        return SearchRunResult(
             query=run.request.query,
-            results=final_results,
+            hits=tuple(final_results),
             total_results=returned,
             providers_used=providers_used,
-            warnings=warnings or None,
+            warnings=tuple(warnings),
             intent=(
                 str(run.plan.understanding.intent)
                 if (run.plan is not None and run.plan.understanding is not None)
                 else (run.diagnostics.intent or None)
             ),
-            query_shaping=(run.diagnostics.query_shaping or None) or None,
             filter_stats=filter_stats,
         )

@@ -19,9 +19,10 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
-from .base import ProviderRequestError, _attach_provider_name
+from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall, SearchHit
+from .base import ProviderRequestError
 
 
 class SerpApiError(ProviderRequestError):
@@ -83,7 +84,7 @@ def _get_engines() -> list[str]:
     return []
 
 
-def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
+def _parse_organic(data: dict[str, Any], engine: str) -> tuple[SearchHit, ...]:
     """Parse organic results from a SerpApi response.
 
     Different engines use different keys:
@@ -93,9 +94,9 @@ def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
     # Try standard key first, then naver-specific key
     organic = data.get("organic_results", data.get("web_results", []))
     if not isinstance(organic, list):
-        return []
+        return ()
 
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
     for item in organic:
         if not isinstance(item, dict):
             continue
@@ -111,8 +112,15 @@ def _parse_organic(data: dict[str, Any], engine: str) -> list[WebSearchResult]:
             continue
         if not isinstance(snippet, str):
             snippet = ""
-        results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-    return results
+        domain = extract_domain_from_url(link)
+        if not domain:
+            continue
+        hits.append(
+            SearchHit(
+                title=title, url=link, snippet=snippet, domain=domain, adapter=f"serpapi_{engine}"
+            )
+        )
+    return tuple(hits)
 
 
 async def _search_one_engine(
@@ -121,7 +129,7 @@ async def _search_one_engine(
     api_key: str,
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query a single SerpApi engine and return parsed results."""
 
     url = "https://serpapi.com/search"
@@ -143,8 +151,10 @@ async def _search_one_engine(
             raise SerpApiError(f"SerpApi ({engine}) response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
-        return _parse_organic(data, engine)
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
+        return EngineCall(
+            adapter=f"serpapi_{engine}", query=query, hits=_parse_organic(data, engine)
+        )
 
     # Import here to avoid circular dependency at module level
     from .base import provider_retry_max_retries, run_provider
@@ -168,10 +178,10 @@ async def search_serpapi(
     num_results: int,
     http_client: Any = None,
     engine: str | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query SerpApi across configured engines and return concatenated results."""
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter="serpapi", query=query)
 
     if not settings.serpapi_enabled or (engine and _is_engine_disabled(engine)):
         raise SerpApiConfigError(f"SerpApi engine '{engine or 'all'}' is disabled.")
@@ -194,7 +204,7 @@ async def search_serpapi(
         if isinstance(raw, asyncio.CancelledError):
             raise raw
 
-    all_results: list[WebSearchResult] = []
+    all_hits: list[SearchHit] = []
     first_error: BaseException | None = None
     for raw in engine_results_raw:
         if isinstance(raw, BaseException):
@@ -204,11 +214,10 @@ async def search_serpapi(
             if first_error is None:
                 first_error = raw
             continue
-        if raw:
-            all_results.extend(raw)
+        if raw.hits:
+            all_hits.extend(raw.hits)
 
-    if not all_results and first_error is not None:
+    if not all_hits and first_error is not None:
         raise first_error
 
-    results = all_results[:num_results]
-    return _attach_provider_name(results, "serpapi")[:num_results]
+    return EngineCall(adapter="serpapi", query=query, hits=tuple(all_hits[:num_results]))

@@ -7,7 +7,7 @@ from typing import Final, Literal
 
 from pydantic import BaseModel, Field, field_validator
 
-from ..models import WebSearchResult
+from ..search.types import ScoredHit, SearchHit
 from ..utils.url_canonicalize import canonicalize_url
 
 
@@ -41,8 +41,9 @@ RerankOverflowStage = Literal["rankllm", "mmr_fallback", "cross", "rrf"]
 class RerankOverflowItem(BaseModel):
     """A candidate left outside the returned page and its last stage."""
 
+    model_config = {"arbitrary_types_allowed": True}
     stage: RerankOverflowStage
-    result: WebSearchResult
+    result: SearchHit
 
 
 class RerankStageSummary(BaseModel):
@@ -115,7 +116,8 @@ class RerankOutput(BaseModel):
     Consumers that only need results can access ``.results`` and ignore the context.
     """
 
-    results: list[WebSearchResult] = Field(description="Final reranked and diversified results.")
+    model_config = {"arbitrary_types_allowed": True}
+    results: list[ScoredHit] = Field(description="Final reranked and diversified results.")
     embedding_context: RerankEmbeddingContext | None = Field(
         default=None,
         description="Per-candidate embeddings reusable by downstream stages.",
@@ -148,7 +150,7 @@ FINAL_RESULT_LIMIT: Final[int] = 15
 
 @dataclass(frozen=True, slots=True)
 class RankedStageOutcome:
-    candidates: list[WebSearchResult]
+    candidates: list[ScoredHit]
     provider: str
     model: str | None
     stage_name: str
@@ -161,7 +163,7 @@ class RankedStageOutcome:
     input_tokens: int | None = None
     output_tokens: int | None = None
     error: Exception | None = None
-    full_candidates: list[WebSearchResult] | None = None
+    full_candidates: list[ScoredHit] | None = None
     attempted_passes: int = 0
     valid_passes: int = 0
     failed_passes: int = 0

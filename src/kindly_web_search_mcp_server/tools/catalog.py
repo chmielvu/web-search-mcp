@@ -109,7 +109,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "web_search",
         "Web Search",
         {"regular", "full"},
-        version="2.0",
+        version="3.0",
         task=True,
     ),
     "fetch": _entry("fetch", "Fetch", {"regular", "full"}),

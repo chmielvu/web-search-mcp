@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 from urllib.parse import urlparse
 
-from ...models import WebSearchResult
 from ...rerank.cross_encoder import rerank_with_provider_fallback
+from ...search.types import ScoredHit, SearchHit
 from .models import CodeSearchHit, Diagnostic
 
 RerankProfile = Literal["code", "hybrid"]
@@ -67,16 +67,21 @@ class CodeRerankOutcome:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
-def _temporary_web_result(hit: CodeSearchHit) -> WebSearchResult:
+def _temporary_web_result(hit: CodeSearchHit) -> ScoredHit:
     title = hit.title or ": ".join(item for item in (hit.repository, hit.path) if item) or hit.url
     evidence = (hit.source_window or "").strip()
     parsed = urlparse(hit.url)
-    return WebSearchResult(
+    domain = parsed.hostname or "unknown"
+    search_hit = SearchHit(
         title=title[:500],
-        link=hit.url,
+        url=hit.url,
         snippet=evidence[:8_000] or title,
-        domain=parsed.hostname,
-        providers=[hit.provider],
+        domain=domain,
+        adapter=hit.provider or "code_search",
+    )
+    return ScoredHit(
+        hit=search_hit,
+        providers=(hit.provider,) if hit.provider else (),
         retrieval_rrf_score=hit.score,
         final_score=hit.score,
     )

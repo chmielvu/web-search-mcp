@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-16 | Last verified: 2026-09-16 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Analytics & Search Quality
 
@@ -92,6 +92,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - `llm_call_log` is the unified source for per-call LLM cost attribution.
 - `tool_calls` is the source of truth for MCP tool lifecycle analytics; legacy `search_events` persistence is not used.
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
+- `provider_results.payload_json`, `search_candidates.payload_json`, and `final_results.payload_json` store native `SearchHit` testimony (`engine_rank`, `provider_score`, source, highlights, engines, origin adapters, answer kind). `provider_calls.payload_json` stores expansion seeds, query integrity, and typed engine failures. `search_runs.payload_json` also records observed provider expansions and query-integrity rows.
 - `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`. The table, DDL, and writers (`insert_result_labels`, `upsert_materialized_result_labels`) exist, but nothing populates them yet: the `llm_judge` materializer was removed as dead code, so a producer still has to be wired before the graph-feedback replay sees labels.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 - Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.

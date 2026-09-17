@@ -244,7 +244,7 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
                 assigned_providers=branch.provider_names,
                 attempted_providers=outcome.attempted_provider_names,
                 skipped_providers=(),
-                results_count=len(outcome.results),
+                results_count=sum(len(c.hits) for c in outcome.calls),
                 latency_ms=outcome.elapsed_seconds * 1000.0,
                 provider_calls=(),
             )
@@ -262,7 +262,7 @@ def _merge_counts(run: SearchRun, dc: DiagnosticsCollector) -> DiagnosticsMergeC
         merged_count=int(raw.get("merged_count", raw.get("merged", 0)) or 0),
         candidate_count=int(raw.get("candidate_count") or 0),
         reranked_count=int(raw.get("reranked_count", raw.get("reranked", 0)) or 0),
-        final_result_count=len(response.results) if response is not None else 0,
+        final_result_count=len(response.hits) if response is not None else 0,
         branch_count=int(raw.get("branch_count", len(run.outcomes)) or 0),
         provider_count=int(raw.get("provider_count", len(providers_used)) or 0),
     )
@@ -370,7 +370,7 @@ def branch_outcome_preview(outcome: BranchOutcome) -> dict[str, Any]:
         "max_results": outcome.branch.max_results,
         "attempted_providers": list(outcome.attempted_provider_names),
         "skipped_providers": [],
-        "results_count": len(outcome.results),
+        "results_count": sum(len(c.hits) for c in outcome.calls),
         "latency_ms": outcome.elapsed_seconds * 1000.0,
         "provider_calls": [],
     }

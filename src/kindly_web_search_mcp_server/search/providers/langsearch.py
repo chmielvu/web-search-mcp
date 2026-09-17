@@ -15,10 +15,10 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
 from ..filters import langsearch_freshness
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, run_provider
 
 logger = logging.getLogger(__name__)
@@ -47,14 +47,14 @@ async def search_langsearch(
     num_results: int,
     search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Search via LangSearch Web Search API.
 
     Returns results parsed from the Bing-compatible response shape
     ``data.webPages.value``.
     """
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter="langsearch", query=query)
 
     api_key = _get_langsearch_api_key()
     url = f"{settings.langsearch_base_url}/v1/web-search"
@@ -90,12 +90,12 @@ async def search_langsearch(
         except ValueError as exc:
             raise LangSearchError("LangSearch response was not valid JSON.") from exc
 
-    def _parse(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse(data: dict[str, Any]) -> EngineCall:
         # Response wraps results under "data.webPages.value" (Bing-compatible).
         inner = data.get("data") or {}
         web_pages = inner.get("webPages") or {}
         raw_results = web_pages.get("value", [])
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
@@ -107,18 +107,24 @@ async def search_langsearch(
             domain: str | None = None
             with contextlib.suppress(ValueError):
                 domain = urlparse(link).hostname
-            results.append(
-                WebSearchResult(
+            if not domain:
+                continue
+            published = item.get("datePublished")
+            hits.append(
+                SearchHit(
                     title=title.strip(),
-                    link=link.strip(),
+                    url=link.strip(),
                     snippet=snippet.strip(),
                     domain=domain,
-                    published_date=item.get("datePublished"),
+                    adapter="langsearch",
+                    published=published
+                    if isinstance(published, str) and published.strip()
+                    else None,
                 )
             )
-            if len(results) >= count:
+            if len(hits) >= count:
                 break
-        return results
+        return EngineCall(adapter="langsearch", query=query, hits=tuple(hits))
 
     return await run_provider(
         "langsearch",

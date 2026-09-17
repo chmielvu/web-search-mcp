@@ -1,21 +1,39 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
-from ..models import WebSearchResult
 from ..utils.url_canonicalize import canonicalize_url
+from .types import SearchHit
 
 
 @dataclass
 class _MergedCandidate:
-    result: WebSearchResult
+    result: SearchHit
     score: float = 0.0
     providers: set[str] = field(default_factory=set)
 
 
-def _pick_better(base: WebSearchResult, candidate: WebSearchResult) -> WebSearchResult:
-    return candidate if len(candidate.snippet or "") > len(base.snippet or "") else base
+def _stable_union(*groups: tuple[str, ...]) -> tuple[str, ...]:
+    return tuple(dict.fromkeys(value for group in groups for value in group if value))
+
+
+def _pick_better(base: SearchHit, candidate: SearchHit) -> SearchHit:
+    preferred, other = (
+        (candidate, base)
+        if len(candidate.snippet or "") > len(base.snippet or "")
+        else (base, candidate)
+    )
+    return replace(
+        preferred,
+        source_name=preferred.source_name or other.source_name,
+        source_kind=preferred.source_kind or other.source_kind,
+        published=preferred.published or other.published,
+        highlights=_stable_union(preferred.highlights, other.highlights),
+        source_engines=_stable_union(preferred.source_engines, other.source_engines),
+        origin_adapters=_stable_union(preferred.origin_adapters, other.origin_adapters),
+        answer_kind=preferred.answer_kind or other.answer_kind,
+    )
 
 
 def memoize_canonicalize(
@@ -41,12 +59,12 @@ def memoize_canonicalize(
 
 
 def reciprocal_rank_fusion(
-    result_lists: Sequence[Sequence[WebSearchResult]],
+    result_lists: Sequence[Sequence[SearchHit]],
     *,
     k: int = 60,
     canonicalize: Callable[[str], str] | None = None,
     weights: Sequence[float] | None = None,
-) -> list[tuple[WebSearchResult, float]]:
+) -> list[tuple[SearchHit, float, tuple[str, ...]]]:
     """Merge ranked lists using (optionally weighted) Reciprocal Rank Fusion.
 
     When `canonicalize` is None, an internal memoizing wrapper around
@@ -74,28 +92,28 @@ def reciprocal_rank_fusion(
         list_weight = resolved_weights[list_index]
         seen_in_list: set[str] = set()
         for rank, result in enumerate(results, start=1):
-            key = key_for(result.link)
+            key = key_for(result.url)
             if key in seen_in_list:
                 continue
             seen_in_list.add(key)
             if key not in merged:
-                merged[key] = _MergedCandidate(result=result, providers=set(result.providers or []))
+                merged[key] = _MergedCandidate(
+                    result=result,
+                    providers={result.adapter} if result.adapter else set(),
+                )
                 encounter_order[key] = len(encounter_order)
             bucket = merged[key]
             bucket.score += list_weight / (k + rank)
-            bucket.providers.update(provider for provider in result.providers or [] if provider)
+            if result.adapter:
+                bucket.providers.add(result.adapter)
             bucket.result = _pick_better(bucket.result, result)
 
     ranked = sorted(merged.items(), key=lambda item: (-item[1].score, encounter_order[item[0]]))
     return [
         (
-            bucket.result.model_copy(
-                update={
-                    "providers": sorted(bucket.providers) or bucket.result.providers,
-                    "retrieval_rrf_score": bucket.score,
-                }
-            ),
+            bucket.result,
             bucket.score,
+            tuple(sorted(bucket.providers)),
         )
         for _, bucket in ranked
     ]

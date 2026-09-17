@@ -8,22 +8,21 @@ import contextvars
 import random
 import time
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
 from typing import TypeVar
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
-from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall
 
 TResponse = TypeVar("TResponse")
 
 RequestFn = Callable[[httpx.AsyncClient], Awaitable[TResponse]]
 ClientlessRequestFn = Callable[[], Awaitable[TResponse]]
-ParseFn = Callable[[TResponse], list[WebSearchResult]]
+ParseFn = Callable[[TResponse], EngineCall]
 
 
 @dataclass(frozen=True, slots=True)
@@ -157,7 +156,10 @@ def _response_metadata(response: httpx.Response) -> dict[str, object]:
         "x-ratelimit-limit",
         "x-ratelimit-reset",
         "x-ratelimit-type",
+        "x-brd-error-code",
+        "x-brd-err-code",
         "x-brd-err-msg",
+        "x-brd-error",
         "proxy-status",
         "x-request-id",
         "x-response-id",
@@ -169,19 +171,21 @@ def _response_metadata(response: httpx.Response) -> dict[str, object]:
     return metadata
 
 
-def _attach_provider_name(
-    results: list[WebSearchResult],
-    provider_name: str,
-) -> list[WebSearchResult]:
-    return [
-        result.model_copy(
-            update={
-                "providers": sorted({*(result.providers or []), provider_name}),
-                "domain": result.domain or extract_domain_from_url(result.link),
-            }
-        )
-        for result in results
-    ]
+def _finalize_call(
+    call: EngineCall, provider_name: str, query: str, num_results: int
+) -> EngineCall:
+    """Stamp the catalog identity onto a parsed call and enforce the page cap.
+
+    Parse functions build ``SearchHit`` rows with their own ``adapter`` name;
+    this is the single place that re-asserts the catalog identity and the
+    requested page size so adapter bugs cannot leak another engine's name.
+    """
+    return replace(
+        call,
+        adapter=provider_name,
+        query=query,
+        hits=call.hits[:num_results],
+    )
 
 
 def provider_retry_max_retries(provider_name: str) -> int:
@@ -211,7 +215,7 @@ async def run_provider[TResponse](
     http_client: httpx.AsyncClient | None = None,
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Execute a provider request, client lifecycle, and normalization.
 
     Retries transient failures (429 with Retry-After, 408/425/5xx, transport
@@ -221,7 +225,7 @@ async def run_provider[TResponse](
     ``max_retries`` resolves the catalog default (0 = single attempt).
     """
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter=provider_name, query=query)
 
     # Every invocation gets a fresh request context. Provider-specific
     # metadata is initialized inside the request callback below, so fields
@@ -234,10 +238,10 @@ async def run_provider[TResponse](
         max_retries = provider_retry_max_retries(provider_name)
     deadline = time.monotonic() + timeout_seconds
 
-    async def _fetch(client: httpx.AsyncClient) -> list[WebSearchResult]:
+    async def _fetch(client: httpx.AsyncClient) -> EngineCall:
         try:
             payload = await request(client)
-            results = parse_response(payload)
+            call = parse_response(payload)
         except ProviderRequestError as exc:
             # Merge provider-raised metadata (e.g. SearxngError carrying its
             # own http_status/retry_after) back into the request context so
@@ -270,6 +274,7 @@ async def run_provider[TResponse](
             response_meta.update(_response_metadata(response))
             error_summary = (
                 response.headers.get("x-brd-err-msg")
+                or response.headers.get("x-brd-error")
                 or response.headers.get("proxy-status")
                 or str(exc)
             )
@@ -314,16 +319,14 @@ async def run_provider[TResponse](
             )
             set_provider_request_metadata(metadata)
             raise ProviderRequestError(str(exc), metadata=metadata) from exc
-        attached = _attach_provider_name(results, provider_name)[:num_results]
+        attached = _finalize_call(call, provider_name, query, num_results)
         metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
-        metadata = _with_metadata(
-            metadata,
-            result_class="nonempty" if attached else "empty",
-        )
+        result_class = "nonempty" if attached.hits else ("error" if attached.failure else "empty")
+        metadata = _with_metadata(metadata, result_class=result_class)
         set_provider_request_metadata(metadata)
         return attached
 
-    async def _attempt(client: httpx.AsyncClient) -> list[WebSearchResult] | None:
+    async def _attempt(client: httpx.AsyncClient) -> EngineCall | None:
         try:
             return await _fetch(client)
         except ProviderRequestError as exc:
@@ -379,7 +382,7 @@ async def run_clientless_provider[TResponse](
     parse_response: ParseFn[TResponse],
     timeout_seconds: float | None = None,
     max_retries: int | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Execute a provider request without a shared HTTP client.
 
     Same error-contract and bounded-retry semantics as ``run_provider`` so
@@ -387,7 +390,7 @@ async def run_clientless_provider[TResponse](
     instead of leaking raw SDK exceptions.
     """
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter=provider_name, query=query)
 
     set_provider_request_metadata(ProviderRequestMetadata(provider=provider_name))
     if timeout_seconds is None:
@@ -396,10 +399,10 @@ async def run_clientless_provider[TResponse](
         max_retries = provider_retry_max_retries(provider_name)
     deadline = time.monotonic() + timeout_seconds
 
-    async def _fetch() -> list[WebSearchResult]:
+    async def _fetch() -> EngineCall:
         try:
             payload = await request()
-            results = parse_response(payload)
+            call = parse_response(payload)
         except ProviderRequestError as exc:
             merged = exc.metadata or get_provider_request_metadata()
             if merged is not None:
@@ -437,16 +440,14 @@ async def run_clientless_provider[TResponse](
             )
             set_provider_request_metadata(metadata)
             raise ProviderRequestError(str(exc), metadata=metadata) from exc
-        attached = _attach_provider_name(results, provider_name)[:num_results]
+        attached = _finalize_call(call, provider_name, query, num_results)
         metadata = get_provider_request_metadata() or ProviderRequestMetadata(provider_name)
-        metadata = _with_metadata(
-            metadata,
-            result_class="nonempty" if attached else "empty",
-        )
+        result_class = "nonempty" if attached.hits else ("error" if attached.failure else "empty")
+        metadata = _with_metadata(metadata, result_class=result_class)
         set_provider_request_metadata(metadata)
         return attached
 
-    async def _attempt() -> list[WebSearchResult] | None:
+    async def _attempt() -> EngineCall | None:
         try:
             return await _fetch()
         except ProviderRequestError as exc:

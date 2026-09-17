@@ -21,13 +21,14 @@ import re
 import sqlite3
 import threading
 import urllib.request
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from ..models import WebSearchResult
 from ..settings import settings
 from ..utils.paths import DEFAULT_BLOCKLIST_DB
+from .types import SearchHit
 
 logger = logging.getLogger(__name__)
 
@@ -234,8 +235,8 @@ def is_blocked_url(url: str) -> bool:
     return bool(index.regex is not None and index.regex.match(url))
 
 
-def filter_blocked_results(results: list[WebSearchResult]) -> list[WebSearchResult]:
-    return [result for result in results if not is_blocked_url(result.link)]
+def filter_blocked_results(results: Sequence[SearchHit]) -> list[SearchHit]:
+    return [result for result in results if not is_blocked_url(result.url)]
 
 
 def add_blocklist_pattern(glob_pattern: str, source: str = "manual") -> bool:

@@ -17,7 +17,6 @@ from mcp.types import TextContent
 
 from ..errors import classify_error
 from ..utils.guidance_messages import (
-    format_shaping_guidance,
     web_search_empty_guidance,
     web_search_specialized_gap_guidance,
 )
@@ -49,7 +48,7 @@ _RESPONSE_KEYS = frozenset({"results", "query", "content", "error", "answer"})
 def _unwrap_fastmcp_result(data: dict) -> dict:
     """Unwrap FastMCP's ``{"result": ...}`` envelope for union-typed tool returns.
 
-    FastMCP wraps non-object JSON schemas (e.g. ``WebSearchResponse | ToolErrorResponse``)
+    FastMCP wraps non-object JSON schemas (e.g. ``WebSearchPublicResponse | ToolErrorResponse``)
     in ``{"result": <actual_response>}``.  The guidance generators need the inner dict.
     """
     if not isinstance(data, dict):
@@ -114,21 +113,33 @@ def _gemini_is_available() -> bool:
 def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
     data = _unwrap_fastmcp_result(data)
     results = data.get("results", [])
-    providers = data.get("providers_used", [])
+    providers_value = data.get("providers_used")
+    providers = (
+        providers_value
+        if isinstance(providers_value, list)
+        else sorted(
+            {
+                provider
+                for result in results
+                if isinstance(result, dict)
+                for provider in (result.get("providers") or [])
+                if isinstance(provider, str) and provider
+            }
+        )
+    )
     urls = [r.get("url", "") for r in results]
     next_tools: list[str] = []
     next_prompts: list[str] = ["research_methodology"]
     parts: list[str] = []
     gemini_ok = _gemini_is_available()
     intent = data.get("intent")
-    shaping = data.get("query_shaping") or []
 
     if not results:
         guidance, tools = web_search_empty_guidance(
             intent=intent if isinstance(intent, str) else None,
             providers_used=providers if isinstance(providers, list) else [],
             query=str(data.get("query") or ""),
-            shaping=shaping if isinstance(shaping, list) else [],
+            shaping=(),
         )
         if gemini_ok:
             if "gemini_search" not in tools:
@@ -140,10 +151,6 @@ def _guide_web_search(data: dict) -> tuple[str, list[str], list[str]]:
         return (guidance, tools, next_prompts)
 
     parts.append(f"{len(results)} results from {len(providers)} providers.")
-
-    shape_msg = format_shaping_guidance(shaping if isinstance(shaping, list) else [])
-    if shape_msg:
-        parts.append(shape_msg)
 
     gap_msg, gap_tools = web_search_specialized_gap_guidance(
         intent=intent if isinstance(intent, str) else None,

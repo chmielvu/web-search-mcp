@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Tools
 
@@ -36,6 +36,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 
 | Tool | Returns | Notes |
 |---|---|---|
+| `web_search` | Ranked multi-engine web hits | No public `status`; empty `results` vs `warnings`; `cursor` pages leftover title/url links; `next` is fetch of ≤5 URLs. Catalog v3.0. Deprecated `gl` aliases to `region`. |
 | `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
@@ -52,7 +53,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 - Tool orchestration belongs in tool functions, not service adapters.
 - `emit_tool_observability_event` assigns one stable `tool_call_id` per invocation and writes bounded typed lifecycle rows to analytics `tool_calls`; request/response/error events must reuse that ID.
 - Tool telemetry payloads exclude credential-like fields and classify response rows as `success`, `empty`, `partial`, or `error` from explicit status/error/result counts.
-- `code_search/` keeps its typed `CodeSearchHit`/`CodeSearchResultType` boundary separate from `WebSearchResult`; provider adapters must not mutate the existing search providers.
+- `code_search/` keeps its typed `CodeSearchHit`/`CodeSearchResultType` boundary separate from the web search pipeline; provider adapters must not mutate the existing search providers.
 - `code_search` supports explicit modes: `code`, `discovery`, exclusive `huggingface` semantic Hub asset search, and exclusive `issues` (GitHub Issues + Discussions via authenticated GraphQL `search(type: ISSUE/DISCUSSION)`, ported from the retired web-search GitHub adapter; requires GITHUB_TOKEN/GH_TOKEN, skips code hydration/reranking, and records compiled conversation queries in query metadata). Hugging Face mode uses the public librarian-bots API, preserves asset metadata and semantic-score semantics, and does not run GitHub/code providers.
 - Natural, concept-heavy code queries are enriched privately by the existing GLiNER2 `/classify` + `/ner` service and `worker_llm` chain. An optional `research_goal` is passed separately to query rewriting and reranking, never compiled into provider syntax; exact identifiers, regexes, and repository-scoped queries skip LLM rewriting; all model output is validated as engine-neutral terms before deterministic provider compilation.
 - Sourcegraph receives native `content:`, `sym:`, `repo:`, `file:`, and `lang:` syntax. GitHub, grep.app, and Exa must enforce the same explicit repository/path/language scopes; `filters.py` applies the provider-neutral post-filter before ranking.

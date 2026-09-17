@@ -10,6 +10,7 @@ from typing import Any
 
 from ..analytics.ids import _candidate_id, _canonical_result_id
 from ..utils.url_canonicalize import extract_domain_from_url
+from .evidence import testimony_payload
 
 LOGGER = logging.getLogger(__name__)
 _OUTCOME_TASKS: set[asyncio.Task[Any]] = set()
@@ -61,12 +62,12 @@ async def persist_search_outcome(run):
         try:
             bounded_results: list[dict[str, object]] = [
                 {
-                    "title": result.title[:1000],
-                    "link": result.link,
-                    "snippet": result.snippet[:2000],
+                    "title": result.hit.title[:1000],
+                    "link": result.hit.url,
+                    "snippet": result.hit.snippet[:2000],
                     "rank": rank,
                 }
-                for rank, result in enumerate((r.results if r is not None else ())[:15], start=1)
+                for rank, result in enumerate((r.hits if r is not None else ())[:15], start=1)
             ]
             await append_query_outcome_record(
                 raw_query=outcome.request.query,
@@ -117,7 +118,7 @@ async def persist_search_outcome(run):
                 "provider_count": mc.get("provider_count", 0),
                 "merged_count": mc.get("merged_count", 0),
                 "reranked_count": mc.get("reranked_count", 0),
-                "final_result_count": len(r.results) if r is not None else 0,
+                "final_result_count": len(r.hits) if r is not None else 0,
                 "candidate_count": mc.get("candidate_count", 0),
                 "status": outcome.status,
                 "error_type": outcome.error_summary,
@@ -142,6 +143,8 @@ async def persist_search_outcome(run):
                     "session_id": outcome.session_id,
                     "phase_timings": dc.phase_timings,
                     "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
+                    "provider_expansions": list(dc.provider_expansions),
+                    "query_integrities": list(dc.query_integrities),
                     "seed_queries": list(outcome.plan.seed_queries[:4])
                     if outcome.plan and outcome.plan.seed_queries
                     else [],
@@ -229,9 +232,23 @@ async def persist_search_outcome(run):
                     "assigned_providers": list(b.provider_names),
                     "attempted_providers": list(ob.attempted_provider_names),
                     "skipped_providers": [],
-                    "results_count": len(ob.results),
+                    "results_count": sum(len(c.hits) for c in ob.calls),
                     "latency_ms": ob.elapsed_seconds * 1000.0,
-                    "payload_json": {},
+                    "payload_json": {
+                        "expansion": [seed for call in ob.calls for seed in call.expansion],
+                        "query_integrity": [
+                            {
+                                "provider": call.adapter,
+                                "sent_query": call.integrity.sent_query,
+                                "detected_query": call.integrity.detected_query,
+                                "truncated": call.integrity.truncated,
+                                "spelling": call.integrity.spelling,
+                                "result_count": call.integrity.result_count,
+                            }
+                            for call in ob.calls
+                            if call.integrity is not None
+                        ],
+                    },
                 },
             ),
         )
@@ -263,7 +280,7 @@ async def persist_search_outcome(run):
                         "provider_call_id": _canonical_result_id(
                             f"{rk}|{br.get('branch_index', '')}|{c.get('provider', '')}"
                         ),
-                        "payload_json": {},
+                        "payload_json": c.get("payload_json") or {},
                     },
                 ),
             )
@@ -273,38 +290,40 @@ async def persist_search_outcome(run):
                 insert_search_candidates,
                 {
                     "run_key": rk,
-                    "link": res.link,
-                    "canonical_result_id": _canonical_result_id(res.link),
-                    "title": res.title,
-                    "snippet": res.snippet,
-                    "domain": res.domain or extract_domain_from_url(res.link) or "",
+                    "link": res.hit.url,
+                    "canonical_result_id": _canonical_result_id(res.hit.url),
+                    "title": res.hit.title,
+                    "snippet": res.hit.snippet,
+                    "domain": res.hit.domain or extract_domain_from_url(res.hit.url) or "",
                     "rrf_score": res.retrieval_rrf_score or 0.0,
-                    "provider_count": len(res.providers or []),
-                    "providers": list(res.providers or []),
-                    "overlap_flag": len(res.providers or []) > 1,
-                    "payload_json": {"rank": rank},
+                    "provider_count": len(res.providers or ()),
+                    "providers": list(res.providers or ()),
+                    "overlap_flag": len(res.providers or ()) > 1,
+                    "payload_json": {"rank": rank, **testimony_payload(res.hit)},
                 },
             ),
         )
     if r is not None:
-        for rank, res in enumerate(r.results, start=1):
+        for rank, res in enumerate(r.hits, start=1):
             writes.append(
                 _Write(
                     insert_final_results,
                     {
                         "run_key": rk,
                         "rank": rank,
-                        "title": res.title,
-                        "link": res.link,
-                        "snippet": res.snippet,
-                        "domain": res.domain or extract_domain_from_url(res.link) or "",
+                        "title": res.hit.title,
+                        "link": res.hit.url,
+                        "snippet": res.hit.snippet,
+                        "domain": res.hit.domain or extract_domain_from_url(res.hit.url) or "",
                         "final_score": res.final_score,
-                        "providers": list(res.providers or []),
-                        "provider_count": len(res.providers or []),
-                        "entities_count": 0,
-                        "candidate_id": _candidate_id(res.link, res.title, res.snippet),
-                        "canonical_result_id": _canonical_result_id(res.link),
-                        "payload_json": {},
+                        "providers": list(res.providers or ()),
+                        "provider_count": len(res.providers or ()),
+                        "entities_count": (
+                            len(outcome.plan.understanding.entities) if outcome.plan else 0
+                        ),
+                        "candidate_id": _candidate_id(res.hit.url, res.hit.title, res.hit.snippet),
+                        "canonical_result_id": _canonical_result_id(res.hit.url),
+                        "payload_json": testimony_payload(res.hit),
                     },
                 ),
             )
@@ -397,15 +416,17 @@ async def persist_search_outcome(run):
 
             catalog_rows = [
                 {
-                    "canonical_result_id": _canonical_result_id(candidate.link),
-                    "canonical_url": candidate.link,
-                    "domain": candidate.domain or extract_domain_from_url(candidate.link) or "",
-                    "title_first_seen": candidate.title,
+                    "canonical_result_id": _canonical_result_id(candidate.hit.url),
+                    "canonical_url": candidate.hit.url,
+                    "domain": candidate.hit.domain
+                    or extract_domain_from_url(candidate.hit.url)
+                    or "",
+                    "title_first_seen": candidate.hit.title,
                     "first_seen_run_key": rk,
                     "total_run_appearances": 1,
                 }
                 for candidate in dc.merged_candidates
-                if getattr(candidate, "link", None)
+                if candidate.hit.url
             ]
             qt_rows = []
             branch_index_by_role = {

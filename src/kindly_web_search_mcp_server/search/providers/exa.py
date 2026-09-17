@@ -8,9 +8,10 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, provider_retry_max_retries, run_provider
 
 LOGGER = logging.getLogger(__name__)
@@ -71,17 +72,20 @@ def translate_exa_freshness(value: str | None) -> str | None:
     return cutoff.strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
-def _snippet(item: dict[str, Any]) -> str:
-    highlights = item.get("highlights")
-    if isinstance(highlights, list):
-        values = [value.strip() for value in highlights if isinstance(value, str) and value.strip()]
-        if values:
-            return " … ".join(values)[:4000]
+def _page_text(item: dict[str, Any]) -> str:
+    """Page text/summary as the snippet; highlights are stored separately."""
     for key in ("summary", "text"):
         value = item.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()[:4000]
     return ""
+
+
+def _highlights(item: dict[str, Any]) -> tuple[str, ...]:
+    highlights = item.get("highlights")
+    if not isinstance(highlights, list):
+        return ()
+    return tuple(value.strip() for value in highlights if isinstance(value, str) and value.strip())
 
 
 async def search_exa(
@@ -91,7 +95,7 @@ async def search_exa(
     search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
     **kwargs: Any,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Exa's native semantic ``/search`` endpoint."""
     api_key = _get_exa_api_key()
     bounded_num = max(1, min(int(num_results), 100))
@@ -99,7 +103,7 @@ async def search_exa(
         "query": query.strip()[:_EXA_MAX_QUERY_CHARS],
         "numResults": bounded_num,
         "type": "fast",
-        "contents": {"highlights": True},
+        "contents": {"highlights": True, "text": {"maxCharacters": 4000}},
     }
 
     unknown = set(kwargs) - _EXA_ARGUMENT_KEYS - _EXA_CONTENTS_ARGUMENT_KEYS - {"freshness"}
@@ -151,7 +155,7 @@ async def search_exa(
             raise ExaError("Exa response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         raw_results = data.get("results", [])
         if not isinstance(raw_results, list):
             raise ExaError("Exa response missing `results` list.")
@@ -162,31 +166,44 @@ async def search_exa(
         elif request_id:
             LOGGER.debug("exa requestId=%s", request_id)
 
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
             link = item.get("url")
             if not isinstance(link, str) or not link.strip():
                 continue
+            domain = extract_domain_from_url(link.strip())
+            if not domain:
+                continue
             title = item.get("title")
             if not isinstance(title, str) or not title.strip():
                 title = link
-            snippet = _snippet(item) or title
+            snippet = _page_text(item) or title.strip()
             published_date = item.get("publishedDate")
-            raw_score = item.get("score")
-            results.append(
-                WebSearchResult(
+            hits.append(
+                SearchHit(
                     title=title.strip(),
-                    link=link.strip(),
+                    url=link.strip(),
                     snippet=snippet,
-                    published_date=published_date if isinstance(published_date, str) else None,
-                    raw_score=float(raw_score) if isinstance(raw_score, (int, float)) else None,
+                    domain=domain,
+                    adapter="exa",
+                    source_name=(
+                        item["author"].strip()
+                        if isinstance(item.get("author"), str) and item["author"].strip()
+                        else None
+                    ),
+                    published=(
+                        published_date
+                        if isinstance(published_date, str) and published_date.strip()
+                        else None
+                    ),
+                    highlights=_highlights(item),
                 )
             )
-            if len(results) >= bounded_num:
+            if len(hits) >= bounded_num:
                 break
-        return results
+        return EngineCall(adapter="exa", query=query, hits=tuple(hits))
 
     return await run_provider(
         "exa",

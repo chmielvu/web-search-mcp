@@ -13,9 +13,10 @@ from urllib.parse import urlparse
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
-from .base import ProviderRequestError, _attach_provider_name
+from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall, SearchHit
+from .base import ProviderRequestError
 
 
 class DeGoogError(ProviderRequestError):
@@ -55,16 +56,16 @@ async def search_degoog(
     *,
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query a DeGoog instance and return parsed results.
 
     POST {DEGOOG_BASE_URL}/api/search with JSON body {"query": "..."}.
     DeGoog always returns JSON (no format param needed).
     """
     if not query.strip():
-        return []
+        return EngineCall(adapter="degoog", query=query)
     if num_results < 1:
-        return []
+        return EngineCall(adapter="degoog", query=query)
 
     base_url = _get_degoog_base_url()
     url = f"{base_url}/api/search"
@@ -91,7 +92,7 @@ async def search_degoog(
             raise DeGoogError("DeGoog response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         raw_results = data.get("results", [])
         if not isinstance(raw_results, list):
             raise DeGoogError("DeGoog response missing `results` list.")
@@ -99,7 +100,7 @@ async def search_degoog(
         if not raw_results:
             LOGGER.debug("DeGoog returned empty results list for query=%r", query)
 
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
@@ -115,32 +116,23 @@ async def search_degoog(
             if not isinstance(snippet, str) or not snippet.strip():
                 continue
 
-            sources = item.get("sources")
-            if isinstance(sources, list):
-                source_engines = [
-                    str(s).strip() for s in sources if isinstance(s, str) and s.strip()
-                ]
-            else:
-                source_engines = []
+            domain = extract_domain_from_url(link)
+            if not domain:
+                continue
 
-            raw_score = item.get("score")
-            score = None
-            if isinstance(raw_score, (int, float)):
-                score = float(raw_score)
-
-            results.append(
-                WebSearchResult(
+            hits.append(
+                SearchHit(
                     title=title,
-                    link=link,
+                    url=link,
                     snippet=snippet,
-                    source_engines=source_engines or None,
-                    raw_score=score,
+                    domain=domain,
+                    adapter="degoog",
                 )
             )
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
 
-        return results
+        return EngineCall(adapter="degoog", query=query, hits=tuple(hits))
 
     # Direct call without retry_with_backoff — DeGoog gets one 10s attempt.
     if http_client is not None:
@@ -148,5 +140,4 @@ async def search_degoog(
     else:
         async with httpx.AsyncClient(timeout=httpx.Timeout(timeout_seconds)) as client:
             payload = await _do_request(client)
-    results = _parse_response(payload)
-    return _attach_provider_name(results, "degoog")[:num_results]
+    return _parse_response(payload)

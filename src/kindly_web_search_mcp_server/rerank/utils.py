@@ -1,10 +1,9 @@
 """Shared rerank scoring helpers."""
 
-from __future__ import annotations
-
 import logging
 import math
 from collections.abc import Sequence
+from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, Literal
 
@@ -12,7 +11,7 @@ from ..analytics.rerank_telemetry import (
     record_ranked_stage,
     record_rerank_candidate_rows_async,
 )
-from ..models import WebSearchResult
+from ..search.types import ScoredHit
 from ..settings import settings
 from ..utils.url_canonicalize import canonicalize_url
 from .models import RankedStageOutcome, RerankResult
@@ -51,13 +50,13 @@ def compute_recency_score(published_date: str | None, half_life_days: int = 90) 
 
 
 def apply_ranked_results(
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     ranked_results: Sequence[RerankResult],
     *,
     stage_name: Literal["cross_encoder", "rankllm"],
     recency_weight: float = 0.15,
     half_life_days: int = 90,
-) -> tuple[list[WebSearchResult], list[float], float, float]:
+) -> tuple[list[ScoredHit], list[float], float, float]:
     """Apply a validated partial ranking and retain the untouched tail."""
     if stage_name not in {"cross_encoder", "rankllm"}:
         raise ValueError(f"unsupported rerank stage: {stage_name}")
@@ -69,7 +68,7 @@ def apply_ranked_results(
         raise ValueError("recency_weight must be finite and in [0, 1]")
 
     original_candidates = list(candidates)
-    candidate_keys = [canonicalize_url(candidate.link) for candidate in original_candidates]
+    candidate_keys = [canonicalize_url(candidate.hit.url) for candidate in original_candidates]
     if len(candidate_keys) != len(set(candidate_keys)):
         raise ValueError("rerank candidates contain duplicate canonical identities")
     if not ranked_results:
@@ -94,13 +93,13 @@ def apply_ranked_results(
 
     raw_scores = [float(result.relevance_score) for result in ordered_ranked]
     normalized_scores = normalize_scores_minmax(raw_scores)
-    scored_updates: list[tuple[float, int, int, WebSearchResult]] = []
+    scored_updates: list[tuple[float, int, int, ScoredHit]] = []
     for rank_position, (ranked_result, normalized_score) in enumerate(
         zip(ordered_ranked, normalized_scores, strict=True)
     ):
         candidate = original_candidates[ranked_result.index]
         if stage_name == "cross_encoder":
-            recency_score = compute_recency_score(candidate.published_date, half_life_days)
+            recency_score = compute_recency_score(candidate.hit.published, half_life_days)
             final_score = normalized_score
             update = {
                 "cross_encoder_score": float(ranked_result.relevance_score),
@@ -114,7 +113,7 @@ def apply_ranked_results(
                 "final_score": final_score,
             }
         scored_updates.append(
-            (final_score, rank_position, ranked_result.index, candidate.model_copy(update=update))
+            (final_score, rank_position, ranked_result.index, replace(candidate, **update))
         )
 
     ordered_indices = [item[2] for item in scored_updates]
@@ -135,7 +134,7 @@ def _failed_stage(
     stage_name: str,
     provider: str,
     model: str | None,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     output_limit: int,
     duration_seconds: float,
     error: Exception | None,
@@ -174,7 +173,7 @@ async def _apply_ranked_stage(
     model: str | None,
     input_tokens: int | None,
     output_tokens: int | None,
-    input_candidates: list[WebSearchResult],
+    input_candidates: list[ScoredHit],
     ranked_results: list[Any],
     duration_seconds: float,
     run_key: str | None,
@@ -186,7 +185,7 @@ async def _apply_ranked_stage(
     valid_passes: int = 0,
     failed_passes: int = 0,
 ) -> RankedStageOutcome:
-    before_candidates = [candidate.model_copy() for candidate in input_candidates]
+    before_candidates = list(input_candidates)
     candidates, relevance_scores, max_score, avg_score = apply_ranked_results(
         list(input_candidates),
         ranked_results,
@@ -197,7 +196,7 @@ async def _apply_ranked_stage(
     cross_encoder_scores = None
     if stage_name == "cross_encoder":
         cross_encoder_scores = {
-            canonicalize_url(candidate.link): float(candidate.cross_encoder_score)
+            canonicalize_url(candidate.hit.url): float(candidate.cross_encoder_score)
             for candidate in candidates
             if candidate.cross_encoder_score is not None
         }

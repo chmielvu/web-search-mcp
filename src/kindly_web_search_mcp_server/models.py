@@ -106,118 +106,6 @@ class FilterStats(BaseModel):
 # ============================================================================
 
 
-class WebSearchFetchHint(BaseModel):
-    """Machine-ready continuation to fetch the result page."""
-
-    action: str = Field(
-        default="fetch",
-        description="Continuation action (always 'fetch').",
-    )
-    tool: str = Field(
-        default="fetch",
-        description="Target tool to call for this continuation.",
-    )
-    query: dict[str, Any] = Field(
-        description="Keyword arguments for the fetch tool; always contains 'url'.",
-    )
-    why: str | None = Field(
-        default=None,
-        description="Explanation of why this result warrants fetching.",
-    )
-    confidence: Literal["high", "medium", "low"] | None = Field(
-        default=None,
-        description="Continuation confidence: 'high', 'medium', or 'low'.",
-    )
-
-
-class WebSearchEvidenceScore(BaseModel):
-    """Structured breakdown of ranking and evidence signals."""
-
-    final: float | None = Field(
-        default=None,
-        description="Final normalized score used for response ordering (0.0 to 1.0).",
-    )
-    semantic: float | None = Field(
-        default=None,
-        description="Raw cross-encoder relevance score before display normalization.",
-    )
-    lexical: float | None = Field(
-        default=None,
-        description="Single-stage RRF score combining provider rankings and BM25 lexical signal.",
-    )
-    engine_consensus: int | None = Field(
-        default=None,
-        description="Number of distinct search providers that surfaced this result.",
-    )
-
-
-class WebSearchResult(BaseModel):
-    """Single search result from web search."""
-
-    title: str
-    link: str
-    snippet: str
-    domain: str | None = None
-    published_date: str | None = None
-    providers: list[str] | None = None
-    retrieval_rrf_score: float | None = Field(
-        default=None,
-        description="Weighted reciprocal-rank-fusion score from provider and BM25 retrieval lists.",
-    )
-    bi_encoder_score: float | None = Field(
-        default=None,
-        description="Dense bi-encoder relevance score used to narrow the candidate pool.",
-    )
-    cross_encoder_score: float | None = Field(
-        default=None,
-        description="Raw cross-encoder relevance score before final-score normalization.",
-    )
-    rankllm_score: float | None = Field(
-        default=None,
-        description="Listwise RankLLM position score for the candidate.",
-    )
-    recency_score: float | None = Field(
-        default=None,
-        description="Temporal freshness score applied during reranking.",
-    )
-    diversity_penalty: float | None = Field(
-        default=None,
-        description="MMR redundancy penalty applied to the candidate.",
-    )
-    final_score: float | None = Field(
-        default=None,
-        description="Final score used for response ordering.",
-    )
-    final_rank: int | None = Field(
-        default=None,
-        description="One-based final rank assigned after all ranking stages.",
-    )
-    raw_score: float | None = Field(
-        default=None,
-        description="Unnormalized score returned by the provider before merge/rerank.",
-    )
-    source_engines: list[str] | None = Field(
-        default=None,
-        description="SearXNG engine names that surfaced the result, when known.",
-    )
-    citation_id: str | None = Field(
-        default=None,
-        description="1-based citation identifier in final rank order (e.g. 'c1', 'c2').",
-    )
-    evidence_score: WebSearchEvidenceScore | None = Field(
-        default=None,
-        description="Structured score breakdown for evidence evaluation.",
-    )
-    freshness_signal: Literal["fresh", "dated", "unknown"] | None = Field(
-        default=None,
-        description="Temporal classification: 'fresh' (<=90d), 'dated' (>90d), or 'unknown'.",
-    )
-    fetch_hint: WebSearchFetchHint | None = Field(
-        default=None,
-        description="Machine-ready continuation to inspect or verify this URL with the fetch tool.",
-    )
-
-
 class ProviderWarning(BaseModel):
     """Warning about a partial failure from a provider.
 
@@ -260,34 +148,6 @@ class ContentLink(BaseModel):
 # ============================================================================
 
 
-class WebSearchResponse(BaseModel):
-    """Response from web_search tool."""
-
-    query: str
-    results: list[WebSearchResult] = Field(default_factory=list)
-    total_results: int = Field(
-        default=0,
-        description=(
-            "Ranked-candidate count produced by the search pipeline before "
-            "domain post-processing. When domain_boost is supplied, "
-            "len(results) is the authoritative page size; total_results "
-            "reflects the pre-filter pool."
-        ),
-    )
-    providers_used: list[str] = Field(
-        default_factory=list,
-        description="Providers that successfully returned results.",
-    )
-    warnings: list[ProviderWarning] | None = None
-    diagnostics: list[dict[str, Any]] | None = None
-    intent: str | None = None
-    query_shaping: list[dict[str, Any]] | None = None
-    filter_stats: FilterStats | None = Field(
-        default=None,
-        description="Temporal post-filter outcome when an absolute window was applied.",
-    )
-
-
 class _PublicWebSearchModel(BaseModel):
     def model_dump(self, **kwargs: Any) -> dict[str, Any]:
         kwargs.setdefault("exclude_none", True)
@@ -299,7 +159,8 @@ class _PublicWebSearchModel(BaseModel):
 
 
 class WebSearchNext(_PublicWebSearchModel):
-    action: str
+    """Suggested next tool call. ``tool`` plus ``query`` is the call to make."""
+
     tool: str
     query: dict[str, Any]
     why: str
@@ -316,7 +177,7 @@ def make_next(
     why: str,
     confidence: NextConfidence = "medium",
 ) -> WebSearchNext:
-    return WebSearchNext(action="fetch", tool=tool, query=query, why=why, confidence=confidence)
+    return WebSearchNext(tool=tool, query=query, why=why, confidence=confidence)
 
 
 def fetch_next(
@@ -337,27 +198,23 @@ class WebSearchHit(_PublicWebSearchModel):
     domain: str | None = None
     published_date: str | None = None
     freshness: Literal["fresh", "dated", "unknown"]
-    score: float | None = None
     consensus: int | None = None
     providers: list[str] | None = None
 
 
 class WebSearchOverflowHit(_PublicWebSearchModel):
+    """Leftover ranked link from the same run. No snippet; fetch if still needed."""
+
     citation_id: str
     title: str
     url: str
-    stage: Literal["rankllm", "mmr_fallback", "cross", "rrf"]
 
 
 class WebSearchPublicResponse(_PublicWebSearchModel):
     query: str
-    status: Literal["ok", "empty", "partial"]
     results: list[WebSearchHit | WebSearchOverflowHit] = Field(default_factory=list)
-    intent: str | None = None
-    query_variants: dict[str, str] | None = None
     warnings: list[ProviderWarning] | None = None
     next: list[WebSearchNext] | None = None
-    has_more: bool | None = None
     remaining: int | None = None
     cursor: str | None = None
 

@@ -9,7 +9,7 @@ from opentelemetry import trace
 from opentelemetry.util.types import AttributeValue
 
 from ..analytics.producers import emit_observability_event
-from ..models import WebSearchResult
+from ..search.types import ScoredHit
 from ..telemetry import RERANK_INPUT_COUNT, RERANK_OUTPUT_COUNT, RERANK_STAGE, record_rerank_stage
 from ..utils.observability import serialize_search_results
 from ..utils.url_canonicalize import canonicalize_url
@@ -26,7 +26,7 @@ def emit_rerank_summary(
     model: str | None,
     query: str,
     input_count: int,
-    output: list[WebSearchResult],
+    output: list[ScoredHit],
     top_k: int,
     duration_seconds: float,
     max_score: float | None,
@@ -52,8 +52,8 @@ def build_rerank_candidate_rows(
     *,
     run_key: str,
     stage: str,
-    before_candidates: list[WebSearchResult],
-    after_candidates: list[WebSearchResult],
+    before_candidates: list[ScoredHit],
+    after_candidates: list[ScoredHit],
     payload_json: dict[str, Any] | None = None,
     bm25_scores: dict[str, float] | None = None,
     bm25_ranks: dict[str, int] | None = None,
@@ -79,22 +79,22 @@ def build_rerank_candidate_rows(
         mapping: dict[str, float] | dict[str, int] | None,
         canonical_link: str,
         source_link: str,
-        candidate: WebSearchResult,
+        candidate: ScoredHit,
         attribute: str,
     ) -> float | int | None:
         value = _lookup(mapping, canonical_link, source_link)
         return value if value is not None else getattr(candidate, attribute, None)
 
     try:
-        before_by_link: dict[str, tuple[int, WebSearchResult, str]] = {}
+        before_by_link: dict[str, tuple[int, ScoredHit, str]] = {}
         for index, candidate in enumerate(before_candidates):
-            canonical_link = canonicalize_url(candidate.link)
-            before_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.link))
+            canonical_link = canonicalize_url(candidate.hit.url)
+            before_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.hit.url))
 
-        after_by_link: dict[str, tuple[int, WebSearchResult, str]] = {}
+        after_by_link: dict[str, tuple[int, ScoredHit, str]] = {}
         for index, candidate in enumerate(after_candidates):
-            canonical_link = canonicalize_url(candidate.link)
-            after_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.link))
+            canonical_link = canonicalize_url(candidate.hit.url)
+            after_by_link.setdefault(canonical_link, (index + 1, candidate, candidate.hit.url))
 
         all_links = list(before_by_link)
         for canonical_link in after_by_link:
@@ -115,7 +115,9 @@ def build_rerank_candidate_rows(
                 "run_key": run_key,
                 "stage": stage,
                 "link": canonical_link,
-                "candidate_id": _candidate_id(canonical_link, candidate.title, candidate.snippet),
+                "candidate_id": _candidate_id(
+                    canonical_link, candidate.hit.title, candidate.hit.snippet
+                ),
                 "canonical_result_id": _canonical_result_id(canonical_link),
                 "rank_before": before_rank,
                 "rank_after": after_rank,
@@ -175,8 +177,8 @@ async def record_rerank_candidate_rows_async(
     *,
     run_key: str | None,
     stage: str,
-    before_candidates: list[WebSearchResult],
-    after_candidates: list[WebSearchResult],
+    before_candidates: list[ScoredHit],
+    after_candidates: list[ScoredHit],
     payload_json: dict[str, Any] | None = None,
     bm25_scores: dict[str, float] | None = None,
     bm25_ranks: dict[str, int] | None = None,

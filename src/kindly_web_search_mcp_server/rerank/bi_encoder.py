@@ -6,7 +6,7 @@ import asyncio
 import logging
 import math
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -16,7 +16,8 @@ from ..ml import (
     embed_query,
     embed_texts,
 )
-from ..models import WebSearchResult
+from ..search.evidence import render_search_hit_text
+from ..search.types import ScoredHit
 from ..settings import settings
 from ..utils.url_canonicalize import canonicalize_url
 from .models import (
@@ -28,21 +29,8 @@ from .models import (
 LOGGER = logging.getLogger(__name__)
 
 
-def _candidate_embedding_text(candidate: WebSearchResult, max_chars: int) -> str:
-    title = " ".join(candidate.title.split())
-    snippet = " ".join(candidate.snippet.split())
-    if max_chars <= 0:
-        return title
-    if not snippet:
-        return title[:max_chars]
-
-    separator = "\n"
-    snippet_budget = max_chars - len(title) - len(separator)
-    if snippet_budget <= 0:
-        return title[:max_chars]
-    if len(snippet) > snippet_budget:
-        snippet = snippet[:snippet_budget].rstrip()
-    return f"{title}{separator}{snippet}"
+def _candidate_embedding_text(candidate: ScoredHit, max_chars: int) -> str:
+    return render_search_hit_text(candidate.hit, max_chars=max_chars)
 
 
 async def _embed_candidate_texts(candidate_texts: list[str]) -> list[list[float]]:
@@ -68,8 +56,8 @@ async def _embed_candidate_texts(candidate_texts: list[str]) -> list[list[float]
 
 async def bi_encoder_rank(
     query_embedding: list[float],
-    candidates: list[WebSearchResult],
-) -> tuple[list[WebSearchResult], RerankEmbeddingContext | None]:
+    candidates: list[ScoredHit],
+) -> tuple[list[ScoredHit], RerankEmbeddingContext | None]:
     """Rank the complete pool and retain embeddings for downstream diversity."""
     max_chars = max(1, int(settings.rerank_bi_encoder_text_max_chars))
     candidate_texts = [_candidate_embedding_text(candidate, max_chars) for candidate in candidates]
@@ -115,7 +103,7 @@ async def bi_encoder_rank(
         query_embedding=query_embedding,
         candidates=[
             CandidateEmbedding(
-                url=canonicalize_url(candidate.link),
+                url=canonicalize_url(candidate.hit.url),
                 text=text,
                 dense=vector,
             )
@@ -132,7 +120,7 @@ async def bi_encoder_rank(
         key=lambda index: (-float(similarities[index]), index),
     )
     ranked_candidates = [
-        candidates[index].model_copy(update={"bi_encoder_score": float(similarities[index])})
+        replace(candidates[index], bi_encoder_score=float(similarities[index]))
         for index in ranked_indices
     ]
     return ranked_candidates, embedding_ctx
@@ -140,7 +128,7 @@ async def bi_encoder_rank(
 
 @dataclass(frozen=True, slots=True)
 class ConditionalBiOutcome:
-    candidates: list[WebSearchResult]
+    candidates: list[ScoredHit]
     embedding_context: RerankEmbeddingContext | None
     duration_seconds: float
     status: str
@@ -148,7 +136,7 @@ class ConditionalBiOutcome:
 
 async def run_conditional_bi_encoder(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     *,
     precomputed_embedding: list[float] | None,
     logger: logging.Logger,

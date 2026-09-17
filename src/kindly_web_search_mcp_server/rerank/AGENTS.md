@@ -1,5 +1,5 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
-<!-- Last updated: 2026-09-08 | Last verified: 2026-09-08 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Reranking
 
@@ -72,6 +72,7 @@ RANKLLM_ENABLED=false:  → MMR terminal (30 → 15)  [designed funnel terminal,
 - SDK retries disabled (`max_retries=0`); fallback belongs to orchestration.
 - RankLLM uses `gemini-3.5-flash-lite` primary, `gemini-3.1-flash-lite` Google fallback, then OpenRouter.
 - MMR is fail-open: embedding outages skip reorder, they do not fail the search.
+- Candidate documents include native testimony when present: unique highlight passages, source name/kind, answer kind, contributing engines, and origin adapters. Bi-encoder text is `title` plus those passages via `search.evidence.render_search_hit_text`. Public snippets stay snippet-only.
 
 ## Testing
 

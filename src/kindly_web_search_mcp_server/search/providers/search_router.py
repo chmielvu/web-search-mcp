@@ -6,8 +6,9 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, run_provider
 
 
@@ -36,7 +37,7 @@ async def search_search_router(
     *,
     num_results: int,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Search Router API and return parsed results.
 
     Endpoint:
@@ -64,12 +65,12 @@ async def search_search_router(
             raise SearchRouterError("Search Router response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         raw_results = data.get("results", [])
         if not isinstance(raw_results, list):
-            return []
+            return EngineCall(adapter="search_router", query=query)
 
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
@@ -86,20 +87,23 @@ async def search_search_router(
                 continue
             if not isinstance(snippet, str):
                 snippet = ""
-            if not isinstance(domain, str):
-                domain = None
+            if not isinstance(domain, str) or not domain.strip():
+                domain = extract_domain_from_url(link)
+            if not domain:
+                continue
 
-            results.append(
-                WebSearchResult(
+            hits.append(
+                SearchHit(
                     title=title,
-                    link=link,
+                    url=link,
                     snippet=snippet,
                     domain=domain,
+                    adapter="search_router",
                 )
             )
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
-        return results
+        return EngineCall(adapter="search_router", query=query, hits=tuple(hits))
 
     return await run_provider(
         "search_router",

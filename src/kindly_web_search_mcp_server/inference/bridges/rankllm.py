@@ -6,7 +6,6 @@ import asyncio
 import logging
 from typing import Any
 
-from ...models import WebSearchResult
 from ...rerank.llm import (
     LLMRerankOutcome,
     _build_request,
@@ -15,6 +14,7 @@ from ...rerank.llm import (
     _get_openrouter_coordinator,
     _run_coordinator,
 )
+from ...search.types import ScoredHit
 from ...settings import settings
 from ..chain import get_chain
 from ..engine import ChainExhaustedError, execute_with_fallback
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 async def rerank_with_rankllm_bridge(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     *,
     request_id: str | None = None,
 ) -> LLMRerankOutcome:

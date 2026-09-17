@@ -13,9 +13,10 @@ from pydantic import Field
 
 from ..analytics.producers import emit_tool_observability_event
 from ..errors import raise_tool_error
-from ..models import ProviderWarning, WebSearchPublicResponse, WebSearchResponse
+from ..models import ProviderWarning, WebSearchPublicResponse
 from ..search.filters import FilterValidationError, normalize_locale, resolve_window
 from ..search.options import SearchOptions
+from ..search.types import SearchRunResult
 from ..telemetry import (
     SEARCH_QUERY,
     create_chain_span,
@@ -34,136 +35,131 @@ async def web_search(
     query: Annotated[
         str,
         Field(
-            description="Search query string. Provide this or queries; be specific with keywords, dates, or technical terms."
+            description=(
+                'Search string, e.g. "Python 3.14 free-threading PEP 779". Provide this or queries.'
+            )
         ),
     ] = "",
     queries: Annotated[
         list[str] | None,
         Field(
             max_length=4,
-            description="Up to 4 seed queries for multi-query rewriting; keep all focused on one topic/objective. Alternative to query.",
+            description=(
+                "Up to 4 seed strings for one objective, e.g. "
+                '["Python 3.14 free-threading status", "PEP 779 supported"]. '
+                "Takes precedence over query when both are set."
+            ),
         ),
     ] = None,
     research_goal: Annotated[
         str,
         Field(
-            description="What you intend to learn or accomplish with this search. Used to validate that results serve your actual objective."
+            description=(
+                "What you need the results for. Defaults to the search string when omitted."
+            )
         ),
     ] = "",
     rewrite: Annotated[
         bool,
         Field(
-            description="When True (default), the query is LLM-rewritten for improved recall and provider coverage. Set False for exact-match searches."
+            description=(
+                "Rewrite the query for broader recall (default true). "
+                "Set false for exact literals, error strings, or quoted identifiers."
+            )
         ),
     ] = True,
     date_range: Annotated[
         Literal["day", "week", "month", "year"] | None,
-        Field(
-            description="Relative freshness bucket applied across providers (day/week/month/year)."
-        ),
+        Field(description="Relative freshness: day, week, month, or year."),
     ] = None,
     after_date: Annotated[
         str | None,
         Field(
-            description="Only results published on/after this date (YYYY-MM-DD). Wins over date_range when both are supplied."
+            description=(
+                "Keep pages published on/after this date, format YYYY-MM-DD "
+                '(e.g. "2026-01-01"). Overrides date_range when both are set.'
+            )
         ),
     ] = None,
     before_date: Annotated[
         str | None,
         Field(
-            description="Only results published on/before this date (YYYY-MM-DD). Wins over date_range when both are supplied."
+            description=(
+                "Keep pages published on/before this date, format YYYY-MM-DD "
+                '(e.g. "2026-09-17"). Overrides date_range when both are set.'
+            )
         ),
     ] = None,
     language: Annotated[
         str | None,
         Field(
-            description='Result language boost/filter per provider capability; ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").'
+            description='Language boost where the provider supports it. ISO 639-1 or BCP-47, e.g. "en" or "pt-BR".'
         ),
     ] = None,
     region: Annotated[
         str | None,
-        Field(description='Country bias/filter (ISO 3166-1 alpha-2, e.g. "PL").'),
-    ] = None,
-    gl: Annotated[
-        str | None,
-        Field(description="Deprecated alias for region; prefer region."),
+        Field(
+            description='Country bias where the provider supports it. ISO 3166-1 alpha-2, e.g. "PL".'
+        ),
     ] = None,
     domain_boost: Annotated[
         list[str] | None,
         Field(
-            description="Domains to prioritize in ranking. Boosts relevance scores without excluding other results."
+            description=(
+                "Domains to rank higher without excluding others, e.g. "
+                '["docs.python.org", "peps.python.org"].'
+            )
         ),
     ] = None,
     reranking_instructions: Annotated[
         str | None,
         Field(
-            description="Natural-language instructions steering the multi-stage reranker's ordering of results."
+            description=(
+                "Natural-language ordering preference for the reranker, e.g. "
+                '"Prefer official docs and PEPs over blogs."'
+            )
         ),
     ] = None,
     include_undated: Annotated[
         bool | None,
-        Field(description="Set true to also include results that have no published date."),
+        Field(
+            description=(
+                "Undated pages under a date window: omit for the default "
+                "(drop only from providers without native dates), true to keep them, "
+                "false to drop all undated pages."
+            )
+        ),
     ] = None,
     cursor: Annotated[
         str | None,
         Field(
-            description="Overflow continuation from a previous response's cursor field; pages leftover results, does not re-search."
+            description=(
+                "response.cursor from this tool. Pages leftover links from that run; "
+                "does not re-search. Cursor pages return title and url only."
+            )
         ),
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchPublicResponse:
-    """Multi-provider web search with RRF-ranked results across configured backends.
+    """Ranked web results from multiple search engines.
 
-    WHEN TO USE:
-    - Deep, thorough discovery across multiple search engines at once.
-    - When quick_web_search or gemini_search returned thin or shallow coverage.
-    - When you need date/locale/domain filters or provider-consensus signals
-      (how many engines agree a result is relevant).
+    Use when you need source URLs, publication dates, or agreement across engines.
+    Do not use for a one-shot factual answer (gemini_search), first-pass
+    reconnaissance (quick_web_search), library docs (quick_web_search mode="docs"),
+    or full page text (fetch).
 
-    WHEN NOT TO USE:
-    - Quick factual lookups (use gemini_search).
-    - Initial reconnaissance of an unfamiliar topic (use quick_web_search).
-    - Reading full page text (that is fetch's job).
+    Provide `query` or `queries`. `queries` wins when both are set. Omit `cursor`
+    for a new search.
 
-    INPUT: provide `query` or a non-empty `queries` list. Keep seed queries
-    focused on one objective; `queries` takes precedence when both are supplied.
+    Returns ranked `results` (citation_id, title, url, snippet, domain,
+    published_date, freshness, consensus, providers). Snippets are teasers —
+    call fetch on at most 5 URLs. Empty `results` means no hits; read `warnings`
+    for why. `warnings` with results means some providers or filters degraded;
+    keep the ranked hits. `cursor` pages leftover links from this run (title/url
+    only). `next` is a fetch call of the top URLs (max 5).
 
-    RETURNS:
-    - status: "ok", "partial", or "empty".
-    - results[]: ranked hits with citation_id, title, url, snippet, domain,
-      published_date, and provider-consensus metadata. Snippets are teasers,
-      not page text — call fetch to read the full pages.
-    - next: suggested follow-up calls, including fetch for the most promising URLs.
-    - cursor/has_more: when has_more is true, pass cursor back to page through
-      leftover results of this same run (it does not re-search).
-
-    Args:
-        query: Search query string. Be specific — include keywords, dates,
-            or technical terms for better recall.
-        queries: Up to 4 seed queries for multi-query rewriting; keep all
-            focused on one topic/objective. Alternative to query.
-        research_goal: What you intend to learn or accomplish with this search.
-            Used to validate that results serve your actual objective.
-        rewrite: When True (default), LLM rewrites the query for improved
-            recall and provider coverage. Set False for exact-match searches.
-        date_range: Relative freshness bucket applied across providers
-            (day/week/month/year).
-        after_date: Only results published on/after this date (YYYY-MM-DD).
-            Wins over date_range when both are supplied.
-        before_date: Only results published on/before this date (YYYY-MM-DD).
-            Wins over date_range when both are supplied.
-        language: Result language boost/filter per provider capability;
-            ISO 639-1 code (e.g. "en", "pl") or BCP-47 tag ("pt-BR").
-        region: Country bias/filter (ISO 3166-1 alpha-2, e.g. "PL").
-        gl: Deprecated alias for region; prefer region.
-        domain_boost: Domains to prioritize in ranking. Boosts relevance
-            scores without excluding other results.
-        reranking_instructions: Natural-language instructions steering the
-            multi-stage reranker's ordering of results.
-        include_undated: Set true to also include results that have no
-            published date.
-        cursor: Overflow continuation from a previous response's cursor field;
-            pages leftover results, does not re-search.
+    Errors: invalid cursor → search again without cursor; invalid dates → use
+    YYYY-MM-DD; missing query → supply query or queries.
     """
     from ..search.contracts import SearchRun, WebSearchRequest
     from ..search.service import execute_web_search
@@ -251,7 +247,7 @@ async def web_search(
             after_date=after_date,
             before_date=before_date,
         )
-        locale_spec = normalize_locale(language=language, region=region, gl=gl)
+        locale_spec = normalize_locale(language=language, region=region, gl=None)
     except FilterValidationError as exc:
         _record_tool_failure("web_search")
         raise_tool_error(exc, provider="filters")
@@ -304,7 +300,7 @@ async def web_search(
                     progress=ctx,
                     return_diagnostics=True,
                 )
-                response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
+                response, run = cast(tuple[SearchRunResult, SearchRun], search_result)
             except Exception as exc:
                 _record_tool_failure("web_search")
                 emit_tool_observability_event(
@@ -322,12 +318,12 @@ async def web_search(
         finally:
             reset_run_context(ctx_token)
 
-        root_span.set_attribute("search.num_results_returned", len(response.results))
+        root_span.set_attribute("search.num_results_returned", len(response.hits))
         root_span.set_status(trace.StatusCode.OK)
     record_search_request(
-        providers_used=response.providers_used,
+        providers_used=list(response.providers_used),
         duration_seconds=time.monotonic() - started,
-        result_count=len(response.results),
+        result_count=len(response.hits),
     )
     emit_tool_observability_event(
         LOGGER,
@@ -337,8 +333,8 @@ async def web_search(
         query=request.query,
         research_goal=request.research_goal,
         providers=response.providers_used,
-        results=response.results,
-        output_count=len(response.results),
+        results=response.hits,
+        output_count=len(response.hits),
         duration_ms=(time.monotonic() - started) * 1000,
     )
     warnings = response.warnings or []

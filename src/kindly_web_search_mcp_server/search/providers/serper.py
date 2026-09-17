@@ -6,11 +6,11 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..filters import google_tbs_bucket
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, run_provider
 
 
@@ -35,7 +35,7 @@ async def search_serper(
     num_results: int,
     search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Serper (Google SERP) API and return parsed results.
 
     Serper endpoint:
@@ -76,12 +76,12 @@ async def search_serper(
             raise SerperError("Serper response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         organic = data.get("organic", [])
         if not isinstance(organic, list):
-            return []
+            return EngineCall(adapter="serper", query=query)
 
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in organic:
             if not isinstance(item, dict):
                 continue
@@ -99,17 +99,20 @@ async def search_serper(
                 snippet = ""
 
             domain = extract_domain_from_url(link)
-            results.append(
-                WebSearchResult(
+            if not domain:
+                continue
+            hits.append(
+                SearchHit(
                     title=title.strip(),
-                    link=link.strip(),
+                    url=link.strip(),
                     snippet=snippet.strip(),
                     domain=domain,
+                    adapter="serper",
                 )
             )
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
-        return results
+        return EngineCall(adapter="serper", query=query, hits=tuple(hits))
 
     return await run_provider(
         "serper",

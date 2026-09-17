@@ -13,7 +13,7 @@ from typing import Any
 
 from qdrant_client import AsyncQdrantClient, models
 
-from ..models import WebSearchResult
+from ..search.types import ScoredHit
 from ..settings import settings
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class WebResultsIndex:
 
     async def index_results(
         self,
-        results: list[WebSearchResult],
+        results: list[ScoredHit],
         dense_embeddings: list[list[float]],
         sparse_embeddings: list[dict[str, list[int] | list[float]]],
         *,
@@ -162,7 +162,7 @@ class WebResultsIndex:
         for result, dense, sparse in zip(
             results, dense_embeddings, sparse_embeddings, strict=False
         ):
-            url = result.link.strip()
+            url = result.hit.url.strip()
             if not url:
                 continue
             pid = _uuid_from_url(url)
@@ -178,11 +178,22 @@ class WebResultsIndex:
                     },
                     payload={
                         "url": url,
-                        "title": result.title,
-                        "snippet": result.snippet,
-                        "domain": result.domain,
+                        "title": result.hit.title,
+                        "snippet": result.hit.snippet,
+                        "domain": result.hit.domain,
+                        "engine_rank": result.hit.engine_rank,
+                        "provider_score": result.hit.provider_score,
+                        "source_name": result.hit.source_name,
+                        "source_kind": result.hit.source_kind,
+                        "published": result.hit.published,
+                        "highlights": list(result.hit.highlights),
+                        "source_engines": list(result.hit.source_engines),
+                        "origin_adapters": list(
+                            dict.fromkeys((*result.providers, *result.hit.origin_adapters))
+                        ),
+                        "answer_kind": result.hit.answer_kind,
                         "intent": intent,
-                        "provider": result.providers,
+                        "provider": list(result.providers),
                         "entities": entities_json,
                         "indexed_at": now,
                     },
@@ -232,7 +243,7 @@ def get_web_results_index() -> WebResultsIndex | None:
 
 async def index_final_results(
     query_text: str,
-    results: list[WebSearchResult],
+    results: list[ScoredHit],
     dense_embeddings: list[list[float]],
     *,
     texts: list[str] | None = None,
@@ -259,9 +270,9 @@ async def index_final_results(
         t = effective_texts[i] if i < len(effective_texts) else ""
         if not t:
             t = (
-                f"{results[i].title}\n{results[i].snippet}"
-                if results[i].title and results[i].snippet
-                else (results[i].title or results[i].snippet or "")
+                f"{results[i].hit.title}\n{results[i].hit.snippet}"
+                if results[i].hit.title and results[i].hit.snippet
+                else (results[i].hit.title or results[i].hit.snippet or "")
             )
         sparse_embeddings.append(
             encode_bm25(t.strip()) if t.strip() else {"indices": [], "values": []}

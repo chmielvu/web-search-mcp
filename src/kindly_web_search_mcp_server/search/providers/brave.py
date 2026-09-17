@@ -7,12 +7,12 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.text_clean import clean_query as normalize_query
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..filters import brave_freshness as window_brave_freshness
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import run_provider
 from .brave_common import (
     BRAVE_LLM_CONTEXT_URL,
@@ -103,12 +103,12 @@ async def search_brave(
     search_lang: str | None = None,
     goggles: list[str] | None = None,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Brave LLM Context API and return parsed grounding results.
 
     Replaces the previous standard Brave Web search with the LLM-optimized
     ``/res/v1/llm/context`` endpoint. Parses ``grounding.generic`` into
-    ``WebSearchResult`` (title/link/snippet) and never synthesizes an answer.
+    ``SearchHit`` rows (title/url/snippet) and never synthesizes an answer.
     """
     api_key = _get_brave_api_key()
     # Resolved-window/locale fallbacks; explicit provider args keep precedence.
@@ -148,12 +148,12 @@ async def search_brave(
             raise BraveError("Brave LLM Context response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         grounding = data.get("grounding") if isinstance(data, dict) else None
         generic = grounding.get("generic") if isinstance(grounding, dict) else None
         if not isinstance(generic, list):
-            return []
-        results: list[WebSearchResult] = []
+            return EngineCall(adapter="brave", query=query)
+        hits: list[SearchHit] = []
         for entry in generic:
             if not isinstance(entry, dict):
                 continue
@@ -161,6 +161,9 @@ async def search_brave(
             if not isinstance(link, str) or not link.strip():
                 continue
             link = link.strip()
+            domain = extract_domain_from_url(link)
+            if not domain:
+                continue
             title = entry.get("title")
             if not isinstance(title, str) or not title.strip():
                 title = link.split("//")[-1].split("/")[0] or link
@@ -173,18 +176,18 @@ async def search_brave(
                 )
             if not isinstance(snippet, str):
                 snippet = ""
-            domain = extract_domain_from_url(link)
-            results.append(
-                WebSearchResult(
+            hits.append(
+                SearchHit(
                     title=title,
-                    link=link,
+                    url=link,
                     snippet=snippet.strip(),
                     domain=domain,
+                    adapter="brave",
                 )
             )
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
-        return results
+        return EngineCall(adapter="brave", query=query, hits=tuple(hits))
 
     return await run_provider(
         "brave",

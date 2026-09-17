@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..inference import ChainExhaustedError, ModelSpec, execute_with_fallback, get_chain
-from ..models import WebSearchResult
+from ..search.evidence import evidence_passages
+from ..search.types import ScoredHit
 from ..settings import settings
 from .models import (
     RANKLLM_INPUT_LIMIT,
@@ -38,22 +39,35 @@ class RerankProviderOutcome:
 
 
 def build_rerank_candidates(
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
 ) -> list[RerankCandidate]:
     import yaml
 
     rerank_candidates = []
     for index, candidate in enumerate(candidates):
         doc_dict = {
-            "Title": candidate.title,
-            "Snippet": candidate.snippet,
-            "URL": candidate.link,
-            "Domain": candidate.domain or "unknown",
+            "Title": candidate.hit.title,
+            "Snippet": candidate.hit.snippet,
+            "URL": candidate.hit.url,
+            "Domain": candidate.hit.domain or "unknown",
             "Providers": list(candidate.providers or []),
             "ProviderCount": len(candidate.providers) if candidate.providers else 1,
         }
-        if candidate.published_date:
-            doc_dict["PublishedDate"] = candidate.published_date
+        if candidate.hit.published:
+            doc_dict["PublishedDate"] = candidate.hit.published
+        passages = evidence_passages(candidate.hit)
+        if len(passages) > 1:
+            doc_dict["Highlights"] = list(passages[1:])
+        if candidate.hit.source_name:
+            doc_dict["Source"] = candidate.hit.source_name
+        if candidate.hit.source_kind:
+            doc_dict["SourceKind"] = candidate.hit.source_kind
+        if candidate.hit.answer_kind:
+            doc_dict["AnswerKind"] = candidate.hit.answer_kind
+        if candidate.hit.source_engines:
+            doc_dict["SourceEngines"] = list(candidate.hit.source_engines)
+        if candidate.hit.origin_adapters:
+            doc_dict["OriginProviders"] = list(candidate.hit.origin_adapters)
         yaml_str = yaml.safe_dump(
             doc_dict,
             sort_keys=False,
@@ -134,7 +148,7 @@ def parse_rerank_response(
 
 async def rerank_with_provider_fallback(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     *,
     instruction: str | None = None,
 ) -> RerankProviderOutcome:
@@ -185,7 +199,7 @@ async def rerank_with_provider_fallback(
 async def run_cross_encoder_stage(
     *,
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     query_type_hint: str | None,
     original_count: int,
     run_key: str | None,

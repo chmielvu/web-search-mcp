@@ -16,10 +16,13 @@ T = TypeVar("T")
 
 
 def _result_link[T](result: T) -> str:
-    """Duck-typed link accessor: pydantic models and plain dicts both work."""
+    """Duck-typed link accessor: handles ScoredHit, SearchHit, dicts, and models."""
     if isinstance(result, dict):
-        return str(result.get("link") or "")
-    return str(getattr(result, "link", None) or "")
+        return str(result.get("link") or result.get("url") or "")
+    hit = getattr(result, "hit", None)
+    if hit is not None:
+        return str(getattr(hit, "url", None) or getattr(hit, "link", None) or "")
+    return str(getattr(result, "url", None) or getattr(result, "link", None) or "")
 
 
 def _url_matches_domain(url: str, pattern: str) -> bool:

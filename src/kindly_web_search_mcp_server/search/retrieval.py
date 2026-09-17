@@ -5,20 +5,22 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections import OrderedDict
 from collections.abc import Awaitable, Sequence
+from dataclasses import replace
 from typing import Any
 
-from ..models import ProviderWarning, WebSearchResult
+from ..models import ProviderWarning
 from ..settings import settings
 from ..telemetry.spans import get_tracer
 from ..utils.query_pipeline import build_query_features, shape_for_branch
 from ..utils.task_scope import cancel_and_drain_tasks
 from ..utils.url_canonicalize import canonicalize_url
-from .contracts import BranchOutcome, ProviderRankedResults, QueryBranch, SearchRun
+from .contracts import BranchOutcome, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
+from .evidence import testimony_payload
 from .provider_registry import get_provider_adapter, get_provider_definition
 from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
+from .types import EngineCall, SearchHit
 
 
 def _warning(
@@ -65,6 +67,11 @@ def _provider_action_hint(
         error_type and error_type.startswith("http_5")
     ):
         return f"Provider {provider} failed transiently; a retry may succeed."
+    if error_type == "query_truncated":
+        return (
+            f"Provider {provider} truncated the submitted query; shorten or split the query "
+            "if missing terms are important."
+        )
     if error_type == "retrieve_budget":
         return (
             "Retrieve budget exhausted; reduce branch count or raise "
@@ -82,7 +89,7 @@ async def _call_provider(
     embedding_task: Awaitable[Sequence[float]] | None,
     *,
     retrieve_deadline: float,
-) -> tuple[str, Sequence[WebSearchResult] | BaseException, ProviderRequestMetadata, str]:
+) -> tuple[str, EngineCall | BaseException, ProviderRequestMetadata, str]:
     definition = get_provider_definition(provider_name)
     adapter = get_provider_adapter(provider_name)
     # Live budget only — do not trust catalog snapshot from import time.
@@ -121,17 +128,6 @@ async def _call_provider(
     )
     transform_metadata = dict(aug.metadata)
     rules_applied = aug.rules_applied
-    if aug.changed or aug.rules_applied:
-        run.diagnostics.query_shaping.append(
-            {
-                "provider": provider_name,
-                "branch_role": branch.role.value,
-                "original": run.request.query,
-                "shaped": aug.query,
-                "rules": list(aug.rules_applied),
-                "metadata": transform_metadata,
-            }
-        )
     run.diagnostics.query_transform_rows.append(
         {
             "run_key": run.run_key,
@@ -156,17 +152,16 @@ async def _call_provider(
             ),
             timeout=timeout,
         )
-        normalized = [
-            item.model_copy(update={"providers": sorted({*(item.providers or []), provider_name})})
-            for item in result
-        ]
+        result_class = (
+            "nonempty" if result.hits else ("error" if result.failure is not None else "empty")
+        )
         return (
             provider_name,
-            normalized,
+            result,
             get_provider_request_metadata()
             or ProviderRequestMetadata(
                 provider=provider_name,
-                result_class="nonempty" if normalized else "empty",
+                result_class=result_class,
             ),
             query_for_call,
         )
@@ -203,17 +198,48 @@ async def _call_provider(
 _MAX_URLS = 32
 
 
+def _query_integrity_payload(call: EngineCall) -> dict[str, Any] | None:
+    integrity = call.integrity
+    if integrity is None:
+        return None
+    return {
+        "sent_query": integrity.sent_query,
+        "detected_query": integrity.detected_query,
+        "truncated": integrity.truncated,
+        "spelling": integrity.spelling,
+        "result_count": integrity.result_count,
+    }
+
+
+def _call_payload(call: EngineCall) -> dict[str, Any]:
+    failure = call.failure
+    return {
+        "expansion": list(call.expansion),
+        "query_integrity": _query_integrity_payload(call),
+        "failure": (
+            {
+                "kind": failure.kind,
+                "message": failure.message,
+                "code": failure.code,
+                "retryable": failure.retryable,
+                "retry_after": failure.retry_after,
+            }
+            if failure is not None
+            else None
+        ),
+    }
+
+
 def _record_provider_result(
     *,
     branch: QueryBranch,
     branch_index: int,
     name: str,
-    value: Sequence[WebSearchResult] | BaseException | None,
+    value: EngineCall | BaseException | None,
     latency_ms: float,
-    rows: OrderedDict[str, WebSearchResult],
     warnings_by_name: dict[str, ProviderWarning],
     provider_calls: list[dict[str, Any]],
-    provider_ranked_results_list: list[ProviderRankedResults],
+    branch_engine_calls: list[EngineCall],
     provider_result_rows: list[dict[str, Any]] | None = None,
     run_key: str = "",
     status_override: str | None = None,
@@ -292,52 +318,78 @@ def _record_provider_result(
         )
         return
 
-    seen_urls = set()
-    deduped_results = []
-    for item in value:
-        url_key = canonicalize_url(item.link)
+    if value.failure is not None:
+        failure_kind_map = {
+            "rate_limited": "rate_limit",
+            "timeout": "timeout",
+            "bot_challenge": "bot_challenge",
+            "permission_denied": "auth",
+            "budget_exhausted": "retrieve_budget",
+            "upstream_5xx": "upstream",
+            "upstream_4xx": "http_status",
+            "parse_error": "provider_error",
+            "query_truncated": "provider_error",
+            "empty_result": "empty",
+        }
+        error_type = error_type_override or failure_kind_map.get(
+            value.failure.kind, "provider_error"
+        )
+        retry_after = value.failure.retry_after or metadata.retry_after
+        retryable = (
+            value.failure.retryable if value.failure.retryable is not None else metadata.retryable
+        )
+        warnings_by_name[name] = _warning(
+            name,
+            error_type,
+            value.failure.message,
+            action=_provider_action_hint(name, error_type, retry_after),
+            retry_after=retry_after,
+            retryable=retryable,
+        )
+
+    seen_urls: set[str] = set()
+    deduped_hits: list[SearchHit] = []
+    for item in value.hits:
+        url_key = canonicalize_url(item.url)
         if url_key not in seen_urls:
             seen_urls.add(url_key)
-            deduped_results.append(item)
-    provider_ranked_results_list.append(
-        ProviderRankedResults(
-            provider_name=name,
-            results=tuple(deduped_results),
+            deduped_hits.append(item)
+    if value.integrity is not None and value.integrity.truncated and name not in warnings_by_name:
+        detected = value.integrity.detected_query or "an altered query"
+        error_type = "query_truncated"
+        warnings_by_name[name] = _warning(
+            name,
+            error_type,
+            f"Provider detected {detected!r} after truncating the submitted query.",
+            action=_provider_action_hint(name, error_type, None),
+            retryable=False,
         )
-    )
+    branch_engine_calls.append(replace(value, hits=tuple(deduped_hits)))
+
     # Collect provider_result rows for funnel uplift analytics
     if provider_result_rows is not None:
         from ..analytics.ids import _canonical_result_id as _cri
 
-        for rank, item in enumerate(deduped_results, start=1):
+        for rank, item in enumerate(deduped_hits, start=1):
             provider_result_rows.append(
                 {
-                    "provider_result_id": _cri(f"{name}|{branch_index}|{item.link}"),
+                    "provider_result_id": _cri(f"{name}|{branch_index}|{item.url}"),
                     "provider_call_id": _cri(f"{run_key}|{branch_index}|{name}"),
                     "run_key": run_key,
                     "branch_id": _cri(f"{run_key}|{branch_index}"),
                     "provider": name,
                     "provider_rank": rank,
-                    "canonical_result_id": _cri(item.link),
-                    "raw_url": item.link,
-                    "title": getattr(item, "title", None),
-                    "snippet": getattr(item, "snippet", None),
-                    "raw_score": getattr(item, "raw_score", None),
+                    "canonical_result_id": _cri(item.url),
+                    "raw_url": item.url,
+                    "title": item.title,
+                    "snippet": item.snippet,
+                    "raw_score": item.provider_score,
                     "is_eligible": True,
                     "rejection_reason": None,
-                    "payload_json": None,
+                    "payload_json": testimony_payload(item),
                 }
             )
 
-    for item in value:
-        key = canonicalize_url(item.link)
-        if key not in rows:
-            rows[key] = item
-        else:
-            existing = rows[key]
-            existing.providers = sorted(
-                {*(existing.providers or []), *(item.providers or []), name}
-            )
     provider_calls.append(
         {
             "provider": name,
@@ -345,13 +397,16 @@ def _record_provider_result(
                 "incomplete"
                 if metadata.result_class == "incomplete"
                 else "error"
-                if metadata.result_class == "error"
+                if (metadata.result_class == "error" or value.failure is not None)
+                else "partial"
+                if value.integrity is not None and value.integrity.truncated
                 else "success"
             ),
             "branch_role": branch.role.value,
-            "num_results_returned": len(value),
+            "num_results_returned": len(deduped_hits),
             "latency_ms": latency_ms,
-            "candidate_urls": [item.link for item in value][:_MAX_URLS],
+            "candidate_urls": [item.url for item in deduped_hits][:_MAX_URLS],
+            "payload_json": _call_payload(value),
             **common,
         }
     )
@@ -362,21 +417,19 @@ def _assemble_branch_outcome(
     *,
     assigned_names: tuple[str, ...],
     attempted: tuple[str, ...],
-    rows: OrderedDict[str, WebSearchResult],
+    calls: tuple[EngineCall, ...],
     warnings_by_name: dict[str, ProviderWarning],
     provider_calls: list[dict[str, Any]],
-    provider_ranked_results: tuple[ProviderRankedResults, ...],
     elapsed_seconds: float,
 ) -> BranchOutcome:
     warnings = tuple(warnings_by_name[name] for name in assigned_names if name in warnings_by_name)
     return BranchOutcome(
         branch=branch,
         attempted_provider_names=attempted,
-        results=tuple(rows.values()),
+        calls=calls,
         warnings=warnings,
         elapsed_seconds=elapsed_seconds,
         provider_calls=tuple(provider_calls),
-        provider_ranked_results=provider_ranked_results,
     )
 
 
@@ -399,12 +452,9 @@ async def retrieve_branches(
 
         branch_assigned: list[tuple[str, ...]] = []
         branch_attempted: list[list[str]] = []
-        branch_rows: list[OrderedDict[str, WebSearchResult]] = []
         branch_warnings: list[dict[str, ProviderWarning]] = []
         branch_calls: list[list[dict[str, Any]]] = []
-        branch_provider_ranked_results: list[list[ProviderRankedResults]] = [
-            [] for _ in range(len(run.plan.branches))
-        ]
+        branch_engine_calls: list[list[EngineCall]] = [[] for _ in range(len(run.plan.branches))]
         branch_provider_result_rows: list[list[dict[str, Any]]] = [
             [] for _ in range(len(run.plan.branches))
         ]
@@ -413,7 +463,7 @@ async def retrieve_branches(
             asyncio.Task[
                 tuple[
                     str,
-                    Sequence[WebSearchResult] | BaseException,
+                    EngineCall | BaseException,
                     ProviderRequestMetadata,
                     str,
                     float,
@@ -427,7 +477,6 @@ async def retrieve_branches(
             branch_assigned.append(assigned_names)
             attempted: list[str] = []
             branch_attempted.append(attempted)
-            branch_rows.append(OrderedDict())
             branch_warnings.append({})
             branch_calls.append([])
 
@@ -439,7 +488,7 @@ async def retrieve_branches(
                     i: int = branch_index,
                 ) -> tuple[
                     str,
-                    Sequence[WebSearchResult] | BaseException,
+                    EngineCall | BaseException,
                     ProviderRequestMetadata,
                     str,
                     float,
@@ -483,7 +532,6 @@ async def retrieve_branches(
             for task in tasks:
                 branch_index, provider_name = slot_by_task[task]
                 branch = run.plan.branches[branch_index]
-                rows = branch_rows[branch_index]
                 warnings_by_name = branch_warnings[branch_index]
                 calls = branch_calls[branch_index]
 
@@ -498,10 +546,9 @@ async def retrieve_branches(
                         name=provider_name,
                         value=None,
                         latency_ms=elapsed_ms,
-                        rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        branch_engine_calls=branch_engine_calls[branch_index],
                         provider_result_rows=branch_provider_result_rows[branch_index],
                         run_key=run.run_key,
                         status_override="incomplete",
@@ -533,10 +580,9 @@ async def retrieve_branches(
                         name=provider_name,
                         value=exc,
                         latency_ms=elapsed_ms,
-                        rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        branch_engine_calls=branch_engine_calls[branch_index],
                         provider_result_rows=branch_provider_result_rows[branch_index],
                         run_key=run.run_key,
                         request_query=request_query,
@@ -554,10 +600,9 @@ async def retrieve_branches(
                         name=provider_name,
                         value=exc,
                         latency_ms=elapsed_ms,
-                        rows=rows,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                        branch_engine_calls=branch_engine_calls[branch_index],
                         provider_result_rows=branch_provider_result_rows[branch_index],
                         run_key=run.run_key,
                         request_query=request_query,
@@ -570,10 +615,9 @@ async def retrieve_branches(
                     name=provider_name,
                     value=value,
                     latency_ms=latency_ms,
-                    rows=rows,
                     warnings_by_name=warnings_by_name,
                     provider_calls=calls,
-                    provider_ranked_results_list=branch_provider_ranked_results[branch_index],
+                    branch_engine_calls=branch_engine_calls[branch_index],
                     provider_result_rows=branch_provider_result_rows[branch_index],
                     run_key=run.run_key,
                     request_query=request_query,
@@ -590,10 +634,9 @@ async def retrieve_branches(
                     branch,
                     assigned_names=branch_assigned[branch_index],
                     attempted=tuple(branch_attempted[branch_index]),
-                    rows=branch_rows[branch_index],
+                    calls=tuple(branch_engine_calls[branch_index]),
                     warnings_by_name=branch_warnings[branch_index],
                     provider_calls=branch_calls[branch_index],
-                    provider_ranked_results=tuple(branch_provider_ranked_results[branch_index]),
                     elapsed_seconds=time.monotonic() - retrieve_started,
                 )
             )
@@ -617,6 +660,17 @@ async def retrieve_branches(
         for branch_rows_list in branch_provider_result_rows:
             all_provider_result_rows.extend(branch_rows_list)
         run.diagnostics.provider_result_rows = all_provider_result_rows
+        run.diagnostics.query_integrities = [
+            {
+                "branch_index": branch_index,
+                "branch_role": outcome.branch.role.value,
+                "provider": call.adapter,
+                **payload,
+            }
+            for branch_index, outcome in enumerate(outcomes)
+            for call in outcome.calls
+            if (payload := _query_integrity_payload(call)) is not None
+        ]
         elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
         run.diagnostics.phase_timings["search.retrieve"] = elapsed_ms
         if run.diagnostics.enrichment is None:

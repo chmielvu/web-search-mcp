@@ -19,10 +19,16 @@ from urllib.parse import quote_plus
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
 from ...utils.url_canonicalize import extract_domain_from_url
-from .base import ProviderRequestError, RequestFn, run_provider
+from ..types import AnswerKind, EngineCall, EngineFailure, QueryIntegrity, SearchHit, SourceKind
+from .base import (
+    ProviderRequestError,
+    ProviderRequestMetadata,
+    RequestFn,
+    _parse_retry_after,
+    run_provider,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -56,12 +62,29 @@ class BrightDataError(ProviderRequestError):
         self,
         message: str,
         *,
+        provider: str = "brightdata",
         status_code: int | None = None,
         response_meta: dict[str, object] | None = None,
     ) -> None:
-        super().__init__(message)
+        metadata_values = response_meta or {}
+        retry_after_value = metadata_values.get("retry_after")
+        retry_after = (
+            _parse_retry_after(str(retry_after_value)) if retry_after_value is not None else None
+        )
+        super().__init__(
+            message,
+            metadata=ProviderRequestMetadata(
+                provider=provider,
+                http_status=status_code,
+                result_class="error",
+                error_summary=message[:500],
+                response_meta=metadata_values,
+                retry_after=retry_after,
+                retryable=status_code in _RETRYABLE_STATUS_CODES,
+            ),
+        )
         self.status_code = status_code
-        self.response_meta = response_meta or {}
+        self.response_meta = metadata_values
 
 
 class BrightDataConfigError(BrightDataError):
@@ -150,8 +173,8 @@ def build_google_url(
         url += f"&hl={language}"
     if exact_match:
         url += "&nfpr=1"
-    if start is not None:
-        url += f"&start={max(0, start)}"
+    if start is not None and start > 0:
+        url += f"&start={start}"
     url += "&brd_json=1"
     if search_type == "news":
         url += "&tbm=nws"
@@ -226,7 +249,12 @@ def detect_upstream_error(data: dict) -> str | None:
     headers = data.get("headers")
     msg = ""
     if isinstance(headers, dict):
-        msg = headers.get("x-brd-err-msg") or headers.get("proxy-status") or ""
+        msg = (
+            headers.get("x-brd-error")
+            or headers.get("x-brd-err-msg")
+            or headers.get("proxy-status")
+            or ""
+        )
     body = data.get("body")
     if isinstance(body, str) and body.strip():
         body = body.strip()[:240]
@@ -239,91 +267,452 @@ def _upstream_response_metadata(data: dict) -> dict[str, object]:
     if not isinstance(headers, dict):
         return {}
     response_meta: dict[str, object] = {}
-    for key in ("retry-after", "x-brd-err-msg", "proxy-status"):
+    for key in (
+        "retry-after",
+        "x-brd-error-code",
+        "x-brd-err-code",
+        "x-brd-error",
+        "x-brd-err-msg",
+        "x-brd-rate-limit",
+        "x-brd-rate-limit-period-ms",
+        "proxy-status",
+    ):
         value = headers.get(key)
         if value:
             response_meta[key.replace("-", "_")] = str(value)[:500]
     return response_meta
 
 
+# ------------------------------------------------------------------
+# Typed harvest helpers (Bright Data Full JSON schema, verified against
+# https://docs.brightdata.com/products/serp-api/parsed-json-results).
+# ------------------------------------------------------------------
+
+_EXPANSION_LIMIT = 4
+
+_FORUM_HOSTS = ("reddit.com", "quora.com", "stackexchange.com", "stackoverflow.com")
+_VIDEO_HOSTS = ("youtube.com", "youtu.be", "vimeo.com")
+_SOCIAL_HOSTS = (
+    "facebook.com",
+    "twitter.com",
+    "x.com",
+    "instagram.com",
+    "tiktok.com",
+    "linkedin.com",
+    "medium.com",
+)
+_DOCS_HOSTS = ("github.com", "gitlab.com", "readthedocs.io", "readthedocs.org")
+
+
+def _host_matches(host: str, domain: str) -> bool:
+    return host == domain or host.endswith(f".{domain}")
+
+
+def _classify_source(source_name: object, host: str) -> SourceKind | None:
+    """Classify the engine's source string/host into a coarse source kind."""
+    name = source_name.strip().lower() if isinstance(source_name, str) else ""
+    if any(_host_matches(host, domain) for domain in _FORUM_HOSTS) or "reddit" in name:
+        return "forum"
+    if any(_host_matches(host, domain) for domain in _VIDEO_HOSTS) or "youtube" in name:
+        return "video"
+    if any(_host_matches(host, domain) for domain in _SOCIAL_HOSTS):
+        return "social"
+    if any(_host_matches(host, domain) for domain in _DOCS_HOSTS) or name.startswith(
+        ("github", "gitlab", "developer", "docs")
+    ):
+        return "docs"
+    return None
+
+
+def _display_host(display_link: object) -> str | None:
+    """Resolve the hostname of a displayed URL such as ``example.com/path``."""
+    if not isinstance(display_link, str) or not display_link.strip():
+        return None
+    text = display_link.strip()
+    if "://" in text:
+        text = text.split("://", 1)[1]
+    token = text.split("\u203a")[0].split("\u00b7")[0].split("/")[0].strip()
+    return extract_domain_from_url(token)
+
+
+def _hit_domain(item: dict, link: str) -> str | None:
+    """Resolve the row domain: the displayed URL's host first, link host second."""
+    return _display_host(item.get("display_link")) or extract_domain_from_url(link)
+
+
+def _usable_text(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _strict_int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _organic_hits(items: list, *, adapter: str, limit: int) -> list[SearchHit]:
+    """Build page hits from Bright Data organic rows."""
+    hits: list[SearchHit] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title") or item.get("name")
+        link = item.get("link") or item.get("url")
+        if not (
+            isinstance(title, str) and title.strip() and isinstance(link, str) and link.strip()
+        ):
+            continue
+        link = link.strip()
+        domain = _hit_domain(item, link)
+        if not domain:
+            continue
+        engine_rank = _strict_int(item.get("global_rank"))
+        if engine_rank is None:
+            engine_rank = _strict_int(item.get("rank"))
+        source = item.get("source")
+        published = _usable_text(item.get("last_modified_date")) or _usable_text(item.get("date"))
+        highlights = item.get("snippet_highlighted_words")
+        hits.append(
+            SearchHit(
+                title=title.strip(),
+                url=link,
+                snippet=str(item.get("description") or item.get("snippet") or "").strip(),
+                domain=domain,
+                adapter=adapter,
+                engine_rank=engine_rank,
+                source_name=_usable_text(source),
+                source_kind=_classify_source(source, domain),
+                published=published,
+                highlights=(
+                    tuple(
+                        part.strip()
+                        for part in highlights
+                        if isinstance(part, str) and part.strip()
+                    )
+                    if isinstance(highlights, list)
+                    else ()
+                ),
+            )
+        )
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def _news_hits(data: dict, *, adapter: str, limit: int) -> list[SearchHit]:
+    """Build page hits from Bright Data news rows."""
+    hits: list[SearchHit] = []
+    news = data.get("news", [])
+    if not isinstance(news, list):
+        return hits
+    for item in news:
+        if not isinstance(item, dict):
+            continue
+        title = item.get("title")
+        link = item.get("link")
+        if not (
+            isinstance(title, str) and title.strip() and isinstance(link, str) and link.strip()
+        ):
+            continue
+        link = link.strip()
+        domain = _hit_domain(item, link)
+        if not domain:
+            continue
+        engine_rank = _strict_int(item.get("global_rank"))
+        hits.append(
+            SearchHit(
+                title=title.strip(),
+                url=link,
+                snippet=str(item.get("description") or "").strip(),
+                domain=domain,
+                adapter=adapter,
+                engine_rank=engine_rank,
+                source_name=_usable_text(item.get("source")),
+                source_kind="news",
+                published=_usable_text(item.get("date")),
+            )
+        )
+        if len(hits) >= limit:
+            break
+    return hits
+
+
+def _answer_hits(data: dict, *, adapter: str) -> list[SearchHit]:
+    """Harvest answer-tier rows: featured snippet, PAA answers, knowledge facts, forum threads.
+
+    Entries without a usable URL are dropped: a hit without a URL cannot be
+    cited or fetched.
+    """
+    hits: list[SearchHit] = []
+
+    def _row(
+        title: object,
+        url: object,
+        snippet: object,
+        kind: AnswerKind,
+        *,
+        source: object = None,
+        display: object = None,
+        rank: object = None,
+    ) -> None:
+        if not (isinstance(title, str) and title.strip() and isinstance(url, str) and url.strip()):
+            return
+        domain = _display_host(display) or extract_domain_from_url(url.strip())
+        if not domain:
+            return
+        engine_rank = _strict_int(rank)
+        hits.append(
+            SearchHit(
+                title=title.strip(),
+                url=url.strip(),
+                snippet=str(snippet or "").strip(),
+                domain=domain,
+                adapter=adapter,
+                engine_rank=engine_rank,
+                source_name=_usable_text(source),
+                source_kind=_classify_source(source, domain),
+                answer_kind=kind,
+            )
+        )
+
+    for item in data.get("featured_snippets") or []:
+        if not isinstance(item, dict):
+            continue
+        _row(
+            item.get("title") or item.get("value"),
+            item.get("link"),
+            item.get("description") or item.get("value"),
+            "featured_snippet",
+            source=item.get("source"),
+            display=item.get("display_link"),
+            rank=item.get("global_rank"),
+        )
+    for item in data.get("people_also_ask") or []:
+        if not isinstance(item, dict):
+            continue
+        _row(
+            item.get("title") or item.get("question"),
+            item.get("link"),
+            item.get("answer") or item.get("question"),
+            "paa",
+            display=item.get("display_link"),
+            rank=item.get("global_rank"),
+        )
+    knowledge = data.get("knowledge")
+    if isinstance(knowledge, dict):
+        knowledge_link = knowledge.get("description_link") or knowledge.get("link")
+        if isinstance(knowledge_link, str) and knowledge_link.strip():
+            _row(
+                knowledge.get("title"),
+                knowledge_link,
+                knowledge.get("description"),
+                "knowledge",
+                source=knowledge.get("description_source"),
+            )
+        facts = knowledge.get("facts")
+        if isinstance(facts, list):
+            for fact in facts:
+                if not isinstance(fact, dict):
+                    continue
+                fact_title = fact.get("predicate") or fact.get("title") or knowledge.get("title")
+                _row(fact_title, fact.get("link"), fact.get("value"), "knowledge")
+    forums = data.get("forums")
+    if isinstance(forums, dict):
+        for item in forums.get("items") or []:
+            if not isinstance(item, dict):
+                continue
+            answers = item.get("answers")
+            top_answer = ""
+            if isinstance(answers, list):
+                answer = next(
+                    (
+                        candidate
+                        for candidate in answers
+                        if isinstance(candidate, dict) and candidate.get("is_top_answer") is True
+                    ),
+                    None,
+                )
+                if answer is None:
+                    answer = next(
+                        (candidate for candidate in answers if isinstance(candidate, dict)),
+                        None,
+                    )
+                if answer is not None:
+                    top_answer = str(answer.get("text") or "")
+            _row(
+                item.get("title"),
+                item.get("link"),
+                top_answer,
+                "forum",
+                source=item.get("source"),
+            )
+    return hits
+
+
+def _expansion_seeds(data: dict) -> tuple[str, ...]:
+    """Harvest expansion seeds: related searches, chips, and PAA questions."""
+    seeds: list[str] = []
+    for section in (data.get("related") or [], data.get("chips") or []):
+        if not isinstance(section, list):
+            continue
+        for item in section:
+            if not isinstance(item, dict):
+                continue
+            text = _usable_text(item.get("text")) or _usable_text(item.get("label"))
+            if text and text not in seeds:
+                seeds.append(text)
+            if len(seeds) >= _EXPANSION_LIMIT:
+                return tuple(seeds)
+    paa = data.get("people_also_ask")
+    if isinstance(paa, list):
+        for item in paa:
+            if not isinstance(item, dict):
+                continue
+            question = _usable_text(item.get("question"))
+            if question and question not in seeds:
+                seeds.append(question)
+            if len(seeds) >= _EXPANSION_LIMIT:
+                break
+    return tuple(seeds)
+
+
+def _query_integrity(data: dict, sent_query: str) -> QueryIntegrity | None:
+    """Compare the engine's detected query against the query we sent.
+
+    Per the Bright Data debugging docs, a ``detected_query`` difference is a
+    genuine spelling correction when a ``spelling`` object is present and a
+    truncation (cloaked query) when it is absent.
+    """
+    general = data.get("general")
+    if not isinstance(general, dict):
+        return None
+    effective_query = _usable_text(general.get("query")) or sent_query
+    detected = _usable_text(general.get("detected_query"))
+    spelling_value = data.get("spelling")
+    spelling = spelling_value if isinstance(spelling_value, dict) else {}
+    has_spelling = bool(spelling)
+    spelling_text: str | None = None
+    if has_spelling:
+        for key in ("auto_corrected_text", "suggested_text"):
+            spelling_text = _usable_text(spelling.get(key))
+            if spelling_text:
+                break
+    results_cnt = general.get("results_cnt")
+    return QueryIntegrity(
+        sent_query=sent_query,
+        detected_query=detected,
+        truncated=bool(detected and detected != effective_query and not has_spelling),
+        spelling=spelling_text,
+        result_count=_strict_int(results_cnt),
+    )
+
+
 def parse_brightdata_response(
-    data: dict, search_type: str, num_results: int
-) -> list[WebSearchResult]:
+    data: dict, search_type: str, num_results: int, *, adapter: str, sent_query: str
+) -> EngineCall:
+    """Parse one Bright Data Google/Bing JSON payload into a typed engine call."""
     upstream = detect_upstream_error(data)
     if upstream:
         status_code = data.get("status_code")
         raise BrightDataError(
             upstream,
+            provider=adapter,
             status_code=status_code if isinstance(status_code, int) else None,
             response_meta=_upstream_response_metadata(data),
         )
 
-    results: list[WebSearchResult] = []
-
+    hits: list[SearchHit] = _answer_hits(data, adapter=adapter)
     if search_type == "news":
-        news = data.get("news", [])
-        if isinstance(news, list):
-            for item in news:
-                if not isinstance(item, dict):
-                    continue
-                title = item.get("title")
-                link = item.get("link")
-                snippet = item.get("description") or ""
-                if not (
-                    isinstance(title, str)
-                    and title.strip()
-                    and isinstance(link, str)
-                    and link.strip()
-                ):
-                    continue
-                results.append(
-                    WebSearchResult(
-                        title=title.strip(),
-                        link=link.strip(),
-                        snippet=str(snippet).strip(),
-                        domain=extract_domain_from_url(link.strip()),
-                        published_date=item.get("date"),
-                    )
-                )
-                if len(results) >= num_results:
-                    break
+        hits.extend(_news_hits(data, adapter=adapter, limit=num_results))
+    organic = data.get("organic", [])
+    if not isinstance(organic, list) or not organic:
+        web_pages = data.get("webPages")
+        organic = web_pages.get("value", []) if isinstance(web_pages, dict) else []
+    if isinstance(organic, list):
+        hits.extend(_organic_hits(organic, adapter=adapter, limit=num_results))
 
-    if len(results) == 0:
-        organic = data.get("organic", [])
-        if not isinstance(organic, list) or not organic:
-            web_pages = data.get("webPages")
-            organic = web_pages.get("value", []) if isinstance(web_pages, dict) else []
-        if isinstance(organic, list):
-            for item in organic:
-                if not isinstance(item, dict):
-                    continue
-                title = item.get("title") or item.get("name")
-                link = item.get("link") or item.get("url")
-                snippet = item.get("description") or item.get("snippet") or ""
-                if not (
-                    isinstance(title, str)
-                    and title.strip()
-                    and isinstance(link, str)
-                    and link.strip()
-                ):
-                    continue
-                results.append(
-                    WebSearchResult(
-                        title=title.strip(),
-                        link=link.strip(),
-                        snippet=str(snippet).strip(),
-                        domain=extract_domain_from_url(link.strip()),
-                    )
-                )
-                if len(results) >= num_results:
-                    break
+    ordered_hits = [
+        hit
+        for _, hit in sorted(
+            enumerate(hits),
+            key=lambda indexed: (
+                indexed[1].engine_rank is None,
+                indexed[1].engine_rank if indexed[1].engine_rank is not None else 0,
+                indexed[0],
+            ),
+        )
+    ]
 
-    return results
+    return EngineCall(
+        adapter=adapter,
+        query=sent_query,
+        hits=tuple(ordered_hits[:num_results]),
+        expansion=_expansion_seeds(data),
+        integrity=_query_integrity(data, sent_query),
+    )
 
 
 # ------------------------------------------------------------------
 # Bounded page-by-page transport.
 # ------------------------------------------------------------------
+
+# x-brd-error-code values verified against the SERP API error catalog
+# (https://docs.brightdata.com/products/serp-api/debugging).
+_RATE_LIMIT_CODES = frozenset(
+    {
+        "failed_query_rejected",
+        "repeat_query_rejected",
+        "sr_rate_limit",
+        "bucket_rate_limit",
+        "client_10110",
+    }
+)
+_CHALLENGE_CODES = frozenset({"verifying", "no_ready_cookies", "expect_element", "captcha"})
+_CHALLENGE_MARKERS = ("captcha", "no_ready_cookies", "expect_element", "challenge page")
+# Per-query rejections and challenge pages must not be retried for at least
+# 15 seconds per the docs; the missing header falls back to that floor.
+_MIN_QUERY_RETRY_SECONDS = 15.0
+
+
+def _engine_failure(exc: ProviderRequestError) -> EngineFailure:
+    """Classify a provider request failure into a typed engine failure."""
+    metadata = exc.metadata
+    status = metadata.http_status if metadata else None
+    response_meta = metadata.response_meta if metadata else {}
+    code_value = response_meta.get("x_brd_error_code") or response_meta.get("x_brd_err_code")
+    code = str(code_value).strip() if code_value else None
+    message = (metadata.error_summary if metadata else None) or str(exc)
+    retry_after = metadata.retry_after if metadata else None
+    if code in _RATE_LIMIT_CODES or status == 429:
+        return EngineFailure(
+            kind="rate_limited",
+            message=message,
+            code=code,
+            retryable=True,
+            retry_after=retry_after if retry_after is not None else _MIN_QUERY_RETRY_SECONDS,
+        )
+    if code in _CHALLENGE_CODES or any(marker in message.lower() for marker in _CHALLENGE_MARKERS):
+        retryable = code == "verifying"
+        return EngineFailure(
+            kind="bot_challenge",
+            message=message,
+            code=code,
+            retryable=retryable,
+            retry_after=_MIN_QUERY_RETRY_SECONDS if retryable else None,
+        )
+    if code == "unexpected_q":
+        return EngineFailure(kind="query_truncated", message=message, code=code)
+    if metadata is not None and metadata.error_type == "timeout":
+        return EngineFailure(kind="timeout", message=message, code=code)
+    if isinstance(status, int) and status in {401, 403, 407}:
+        return EngineFailure(kind="permission_denied", message=message, code=code)
+    if isinstance(status, int) and status >= 500:
+        return EngineFailure(kind="upstream_5xx", message=message, code=code)
+    if isinstance(status, int) and status >= 400:
+        return EngineFailure(kind="upstream_4xx", message=message, code=code)
+    return EngineFailure(kind="parse_error", message=message, code=code)
+
+
+def _empty_call(provider_name: str, query: str, failure: EngineFailure | None = None) -> EngineCall:
+    return EngineCall(adapter=provider_name, query=query, failure=failure)
 
 
 def _retry_delay(error: ProviderRequestError, remaining_seconds: float) -> float | None:
@@ -346,15 +735,26 @@ async def _run_page[TResponse](
     *,
     page_index: int,
     request_factory: Callable[[int, float], RequestFn[TResponse]],
-    parse_response: Callable[[TResponse], list[WebSearchResult]],
+    parse_response: Callable[[TResponse], EngineCall],
     http_client: httpx.AsyncClient | None,
     deadline: float,
-) -> list[WebSearchResult]:
-    """Run one page and allow at most one budget-aware transient retry."""
+) -> EngineCall:
+    """Run one page and allow at most one budget-aware transient retry.
+
+    A page that still fails after its retry budget returns a typed failed
+    call instead of raising, so earlier pages' hits are not discarded.
+    """
     for attempt in range(2):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            return []
+            return _empty_call(
+                provider_name,
+                query,
+                EngineFailure(
+                    kind="budget_exhausted",
+                    message="retrieve budget exhausted before page fetch",
+                ),
+            )
         try:
             return await run_provider(
                 provider_name=provider_name,
@@ -368,13 +768,13 @@ async def _run_page[TResponse](
         except ProviderRequestError as exc:
             status = getattr(exc.metadata, "http_status", None)
             if attempt or status not in _RETRYABLE_STATUS_CODES:
-                raise
+                return _empty_call(provider_name, query, _engine_failure(exc))
             remaining = deadline - time.monotonic()
             delay = _retry_delay(exc, remaining)
             if delay is None:
-                raise
+                return _empty_call(provider_name, query, _engine_failure(exc))
             await asyncio.sleep(delay)
-    return []
+    return _empty_call(provider_name, query)
 
 
 async def _run_paginated[TResponse](
@@ -383,10 +783,10 @@ async def _run_paginated[TResponse](
     num_results: int,
     *,
     request_factory: Callable[[int, float], RequestFn[TResponse]],
-    parse_response: Callable[[TResponse], list[WebSearchResult]],
+    parse_response: Callable[[TResponse], EngineCall],
     http_client: httpx.AsyncClient | None,
     timeout_seconds: float,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Fetch only the bounded pages needed to satisfy ``num_results``."""
     if http_client is None:
         # Reuse one connection pool across pages for direct callers. The
@@ -405,11 +805,14 @@ async def _run_paginated[TResponse](
     page_limit = min(_PAGE_SIZE, num_results)
     page_count = min(_MAX_PAGE_COUNT, max(1, math.ceil(num_results / _PAGE_SIZE)))
     deadline = time.monotonic() + timeout_seconds
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
     seen_links: set[str] = set()
+    expansion: list[str] = []
+    integrity: QueryIntegrity | None = None
+    failure: EngineFailure | None = None
 
     for page_index in range(page_count):
-        page_results = await _run_page(
+        page = await _run_page(
             provider_name,
             query,
             page_limit,
@@ -419,21 +822,35 @@ async def _run_paginated[TResponse](
             http_client=http_client,
             deadline=deadline,
         )
+        if integrity is None and page.integrity is not None:
+            integrity = page.integrity
         added = 0
-        for result in page_results:
-            key = result.link.strip().rstrip("/").casefold()
+        for hit in page.hits:
+            key = hit.url.strip().rstrip("/").casefold()
             if key in seen_links:
                 continue
             seen_links.add(key)
-            results.append(result)
+            hits.append(hit)
             added += 1
-            if len(results) >= num_results:
-                return results[:num_results]
-        if len(page_results) < page_limit or added == 0:
+        for seed in page.expansion:
+            if seed not in expansion and len(expansion) < _EXPANSION_LIMIT:
+                expansion.append(seed)
+        if failure is None and page.failure is not None:
+            failure = page.failure
+        if page.failure is not None and not page.hits:
+            break
+        if len(page.hits) < page_limit or added == 0:
             break
         if deadline - time.monotonic() <= 0:
             break
-    return results[:num_results]
+    return EngineCall(
+        adapter=provider_name,
+        query=query,
+        hits=tuple(hits[:num_results]),
+        expansion=tuple(expansion),
+        integrity=integrity,
+        failure=failure,
+    )
 
 
 # ------------------------------------------------------------------
@@ -453,9 +870,9 @@ async def search_brightdata(
     freshness: str | None = None,
     provider_name: str = "brightdata",
     yandex_region: str | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter=provider_name, query=query)
     if provider_name not in _SUPPORTED_PROVIDERS:
         raise ValueError(f"Unsupported Bright Data provider: {provider_name}")
 
@@ -488,9 +905,8 @@ async def search_brightdata(
             language=language,
         )
 
-    google_timeout = settings.search_retrieve_budget_seconds
+    google_timeout = max(30.0, float(settings.search_retrieve_budget_seconds))
     page_limit = min(_PAGE_SIZE, num_results)
-    use_light_json = search_type == "web" and num_results <= _PAGE_SIZE
 
     def _google_request_factory(page_index: int, request_timeout: float) -> RequestFn[dict]:
         async def _request(client: httpx.AsyncClient) -> dict:
@@ -503,11 +919,15 @@ async def search_brightdata(
                 freshness,
                 start=page_index * _PAGE_SIZE,
             )
-            body = {**payload_base, "url": google_url}
-            if use_light_json:
-                # Bright Data's current direct REST docs recommend this
-                # parsed top-10 format for lower latency and smaller payloads.
-                body["data_format"] = "parsed_light"
+            body = {
+                **payload_base,
+                "url": google_url,
+                # Per the SERP API docs, API requests enable mismatch delivery
+                # through the body rather than a target-URL parameter; with
+                # this on, truncated/corrected queries arrive as data and the
+                # parse validates them itself via general/spelling fields.
+                "data_options": {"return_mismatch": True},
+            }
             response = await client.post(
                 _REST_ENDPOINT,
                 json=body,
@@ -518,15 +938,21 @@ async def search_brightdata(
             try:
                 data = response.json()
             except ValueError as exc:
-                raise BrightDataError("BrightData response was not valid JSON.") from exc
+                raise BrightDataError(
+                    "BrightData response was not valid JSON.", provider=provider_name
+                ) from exc
             if not isinstance(data, dict):
-                raise BrightDataError("BrightData response was not a JSON object.")
+                raise BrightDataError(
+                    "BrightData response was not a JSON object.", provider=provider_name
+                )
             return data
 
         return _request
 
-    def _google_parse(data: dict) -> list[WebSearchResult]:
-        return parse_brightdata_response(data, search_type, page_limit)
+    def _google_parse(data: dict) -> EngineCall:
+        return parse_brightdata_response(
+            data, search_type, page_limit, adapter=provider_name, sent_query=query
+        )
 
     return await _run_paginated(
         provider_name,
@@ -547,7 +973,7 @@ async def _search_bing(
     headers: dict,
     country: str,
     language: str,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     bing_timeout = settings.search_retrieve_budget_seconds
     page_limit = min(_PAGE_SIZE, num_results)
 
@@ -570,15 +996,23 @@ async def _search_bing(
             try:
                 data = response.json()
             except ValueError as exc:
-                raise BrightDataError("BrightData Bing response was not valid JSON.") from exc
+                raise BrightDataError(
+                    "BrightData Bing response was not valid JSON.",
+                    provider="brightdata_bing",
+                ) from exc
             if not isinstance(data, dict):
-                raise BrightDataError("BrightData Bing response was not a JSON object.")
+                raise BrightDataError(
+                    "BrightData Bing response was not a JSON object.",
+                    provider="brightdata_bing",
+                )
             return data
 
         return _request
 
-    def _parse(data: dict) -> list[WebSearchResult]:
-        return parse_brightdata_response(data, "web", page_limit)
+    def _parse(data: dict) -> EngineCall:
+        return parse_brightdata_response(
+            data, "web", page_limit, adapter="brightdata_bing", sent_query=query
+        )
 
     return await _run_paginated(
         provider_name="brightdata_bing",
@@ -594,12 +1028,14 @@ async def _search_bing(
 def parse_yandex_html_response(
     html: str,
     num_results: int,
-) -> list[WebSearchResult]:
+    *,
+    adapter: str = "brightdata_yandex",
+) -> EngineCall:
     """Parse organic results from a raw Yandex SERP response."""
     from bs4 import BeautifulSoup
 
     soup = BeautifulSoup(html, "html.parser")
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
     for item in soup.select("li.serp-item, ul#search-result > li"):
         classes = item.get("class") or []
         if isinstance(classes, str):
@@ -619,16 +1055,21 @@ def parse_yandex_html_response(
             ".OrganicText, .TextContainer, .organic__text, .Organic-ContentWrapper"
         )
         snippet = snippet_tag.get_text(" ", strip=True) if snippet_tag else ""
-        results.append(
-            WebSearchResult(
+        domain = extract_domain_from_url(link)
+        if not domain:
+            continue
+        hits.append(
+            SearchHit(
                 title=title,
-                link=link,
+                url=link,
                 snippet=snippet,
+                domain=domain,
+                adapter=adapter,
             )
         )
-        if len(results) >= num_results:
+        if len(hits) >= num_results:
             break
-    return results
+    return EngineCall(adapter=adapter, query="", hits=tuple(hits))
 
 
 async def _search_yandex(
@@ -640,7 +1081,7 @@ async def _search_yandex(
     req_headers: dict,
     yandex_region: str | None,
     language: str,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Fetch Yandex SERP via BrightData and parse the raw HTML response."""
     yandex_timeout = settings.search_retrieve_budget_seconds
     page_limit = min(_PAGE_SIZE, num_results)
@@ -665,8 +1106,8 @@ async def _search_yandex(
 
         return _request
 
-    def _parse(html: str) -> list[WebSearchResult]:
-        return parse_yandex_html_response(html, page_limit)
+    def _parse(html: str) -> EngineCall:
+        return parse_yandex_html_response(html, page_limit, adapter="brightdata_yandex")
 
     return await _run_paginated(
         provider_name="brightdata_yandex",

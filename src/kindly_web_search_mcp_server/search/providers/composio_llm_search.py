@@ -6,7 +6,8 @@ from typing import Any
 
 from ...composio_client import execute_composio_tool
 from ...composio_tools import WEB_SEARCH_SLUG
-from ...models import WebSearchResult
+from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, run_clientless_provider
 
 COMPOSIO_LLM_SEARCH_SLUG = WEB_SEARCH_SLUG
@@ -61,10 +62,10 @@ async def search_composio_llm_search(
     num_results: int,
     http_client: Any = None,
     cancel_token: Any = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Composio web search and return lightweight provider records."""
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter="composio_llm_search", query=query)
 
     async def _request() -> dict[str, Any]:
         return await execute_composio_tool(
@@ -81,8 +82,8 @@ async def search_composio_llm_search(
             cancel_token=cancel_token,
         )
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
-        results: list[WebSearchResult] = []
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
+        hits: list[SearchHit] = []
         for item in _extract_result_items(data):
             if not isinstance(item, dict):
                 continue
@@ -95,16 +96,21 @@ async def search_composio_llm_search(
                 continue
             if not isinstance(snippet, str):
                 snippet = ""
-            results.append(
-                WebSearchResult(
+            domain = extract_domain_from_url(link)
+            if not domain:
+                continue
+            hits.append(
+                SearchHit(
                     title=title.strip(),
-                    link=link.strip(),
+                    url=link.strip(),
                     snippet=snippet.strip(),
+                    domain=domain,
+                    adapter="composio_llm_search",
                 )
             )
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
-        return results
+        return EngineCall(adapter="composio_llm_search", query=query, hits=tuple(hits))
 
     return await run_clientless_provider(
         "composio_llm_search",

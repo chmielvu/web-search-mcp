@@ -14,10 +14,10 @@ from typing import Any, Protocol
 import httpx
 from pydantic import Field
 
-from ..models import WebSearchResult
 from ..settings import settings
 from .contracts import ContractModel
 from .options import SearchOptions
+from .types import EngineCall
 
 __all__ = [
     "PROVIDER_ADAPTERS",
@@ -54,7 +54,7 @@ class ProviderAdapter(Protocol):
         arguments: Mapping[str, Any],
         http_client: httpx.AsyncClient,
         query_embedding: Awaitable[Sequence[float]] | None = None,
-    ) -> Sequence[WebSearchResult]: ...
+    ) -> EngineCall: ...
 
 
 class DiagnosisCategory(StrEnum):
@@ -323,7 +323,7 @@ def _make_adapter(module_name: str, function_name: str, *, catalog_name: str) ->
         arguments: Mapping[str, Any],
         http_client: httpx.AsyncClient,
         query_embedding: Awaitable[Sequence[float]] | None = None,
-    ) -> Sequence[WebSearchResult]:
+    ) -> EngineCall:
         kwargs = build_provider_call_kwargs(
             resolved_function,
             search_options=options,

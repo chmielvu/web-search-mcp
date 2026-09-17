@@ -10,11 +10,11 @@ import logging
 import re
 from typing import Any
 
-from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..filters import ddg_timelimit
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import ProviderRequestError, run_clientless_provider
 
 LOGGER = logging.getLogger(__name__)
@@ -55,7 +55,7 @@ async def search_ddg(
     search_options: SearchOptions | None = None,
     http_client: Any = None,  # Not used, ddgs has its own client
     **kwargs: Any,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Search DuckDuckGo using ddgs library.
 
     Uses asyncio.to_thread for blocking ddgs calls to maintain async compatibility.
@@ -69,13 +69,13 @@ async def search_ddg(
             "grokipedia,wikipedia" or "duckduckgo,yahoo,yandex,brave").
 
     Returns:
-        List of WebSearchResult objects from DuckDuckGo
+        Typed engine call with DuckDuckGo hits
     """
     if not query.strip():
-        return []
+        return EngineCall(adapter="ddg", query=query)
 
     if num_results < 1:
-        return []
+        return EngineCall(adapter="ddg", query=query)
 
     category = str(kwargs.get("category") or "text")
     backend = kwargs.get("backend")
@@ -104,7 +104,7 @@ async def search_ddg(
             timelimit=timelimit,
             region=region,
         ),
-        parse_response=lambda results: results,
+        parse_response=lambda hits: EngineCall(adapter="ddg", query=query, hits=tuple(hits)),
     )
 
 
@@ -116,7 +116,7 @@ def _search_ddg_sync(
     backend: str | None = None,
     timelimit: str | None = None,
     region: str | None = None,
-) -> list[WebSearchResult]:
+) -> list[SearchHit]:
     """Synchronous DDG search (wrapped in thread pool).
 
     Args:
@@ -128,7 +128,7 @@ def _search_ddg_sync(
             "auto" for news (bing/duckduckgo/yahoo).
 
     Returns:
-        List of WebSearchResult objects
+        List of SearchHit testimony rows from DuckDuckGo
     """
     from ddgs import DDGS
 
@@ -136,7 +136,7 @@ def _search_ddg_sync(
     if backend is None:
         backend = "auto" if is_news else "duckduckgo"
 
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
 
     # ty: ignore[invalid-argument-type] - ddgs declares (*args, **kwargs); the stub
     # does not model its timeout keyword.
@@ -181,29 +181,25 @@ def _search_ddg_sync(
 
             link_str = link.strip()
             domain = extract_domain_from_url(link_str)
+            if not domain:
+                continue
             published_date = item.get("date") or item.get("published")
             source = item.get("source") or item.get("source_engines")
-            source_engines = None
-            if isinstance(source, str) and source.strip():
-                source_engines = [source.strip()]
-            elif isinstance(source, list):
-                source_engines = [
-                    str(s) for s in source if isinstance(s, str) and s.strip()
-                ] or None
+            source_name = source.strip() if isinstance(source, str) and source.strip() else None
 
-            results.append(
-                WebSearchResult(
+            hits.append(
+                SearchHit(
                     title=_split_sitelink_title(title.strip()),
-                    link=link_str,
+                    url=link_str,
                     snippet=snippet.strip(),
                     domain=domain,
-                    published_date=str(published_date) if published_date else None,
-                    source_engines=source_engines,
-                    providers=["ddg"],
+                    adapter="ddg",
+                    published=str(published_date) if published_date else None,
+                    source_name=source_name,
                 )
             )
 
-            if len(results) >= num_results:
+            if len(hits) >= num_results:
                 break
 
-    return results
+    return hits

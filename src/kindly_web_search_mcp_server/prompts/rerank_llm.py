@@ -10,7 +10,8 @@ from typing import Final
 
 import yaml
 
-from ..models import WebSearchResult
+from ..search.evidence import evidence_passages
+from ..search.types import ScoredHit
 from .builders import REASONING_EFFORT_LOW, system_header
 
 _TEMPLATE_PATH: Final[Path] = Path(__file__).with_suffix(".yaml")
@@ -53,16 +54,27 @@ def _escape_prompt_xml(value: str | None) -> str:
     return _xml_escape(" ".join((value or "").split()), quote=True)
 
 
-def _format_candidate(candidate: WebSearchResult) -> str:
-    return "\n".join(
-        [
-            '<candidate_data type="untrusted_search_result">',
-            f"Title: {_escape_prompt_xml(candidate.title)}",
-            f"URL: {_escape_prompt_xml(candidate.link)}",
-            f"Snippet: {_escape_prompt_xml(candidate.snippet)}",
-            "</candidate_data>",
-        ]
-    )
+def _format_candidate(candidate: ScoredHit) -> str:
+    lines = [
+        '<candidate_data type="untrusted_search_result">',
+        f"Title: {_escape_prompt_xml(candidate.hit.title)}",
+        f"URL: {_escape_prompt_xml(candidate.hit.url)}",
+        f"Snippet: {_escape_prompt_xml(candidate.hit.snippet)}",
+    ]
+    if candidate.hit.published:
+        lines.append(f"PublishedDate: {_escape_prompt_xml(candidate.hit.published)}")
+    if candidate.hit.source_name:
+        lines.append(f"Source: {_escape_prompt_xml(candidate.hit.source_name)}")
+    if candidate.hit.source_kind:
+        lines.append(f"SourceKind: {_escape_prompt_xml(candidate.hit.source_kind)}")
+    if candidate.hit.answer_kind:
+        lines.append(f"AnswerKind: {_escape_prompt_xml(candidate.hit.answer_kind)}")
+    if candidate.providers:
+        lines.append(f"Providers: {_escape_prompt_xml(', '.join(candidate.providers))}")
+    for highlight in evidence_passages(candidate.hit)[1:4]:
+        lines.append(f"Evidence: {_escape_prompt_xml(highlight)}")
+    lines.append("</candidate_data>")
+    return "\n".join(lines)
 
 
 def _render_template(template: str, **values: str) -> str:
@@ -75,7 +87,7 @@ def _render_template(template: str, **values: str) -> str:
 def build_llm_rerank_messages(
     *,
     query: str,
-    candidates: list[tuple[int, int, WebSearchResult]],
+    candidates: list[tuple[int, int, ScoredHit]],
     research_goal: str | None = None,
     query_type_hint: str | None = None,
 ) -> list[dict[str, str]]:

@@ -1,18 +1,20 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import canonicalize_url, extract_domain_from_url
 from ..filters import searxng_time_range
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import (
     _RETRYABLE_HTTP_STATUSES,
     ProviderRequestError,
@@ -32,6 +34,25 @@ class SearxngConfigError(SearxngError):
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, slots=True)
+class _SearxngRow:
+    """Adapter-internal parse row carrying the engine-RRF working scores.
+
+    SearXNG runs its own internal engine-level RRF and consensus bonus before
+    the pipeline sees the hits, so the final combined score lives here and is
+    dropped once the row order it produced is emitted as ``SearchHit`` rows.
+    """
+
+    title: str
+    link: str
+    snippet: str
+    domain: str | None
+    engines: tuple[str, ...] = ()
+    score: float | None = None
+    published: str | None = None
+
 
 DEFAULT_SEARXNG_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -93,13 +114,13 @@ def _looks_like_url(url: str) -> bool:
 
 
 def _engine_consensus_rrf_scores(
-    results: list[WebSearchResult],
+    results: list[_SearxngRow],
     k: int = 60,
 ) -> dict[str, float]:
     """Score URLs by RRF over SearXNG internal-engine rankings.
 
     Args:
-        results: List of SearXNG results (each has source_engines field).
+        results: List of SearXNG parse rows (each carries its engine names).
         k: RRF constant (default 60).
 
     Returns:
@@ -107,9 +128,9 @@ def _engine_consensus_rrf_scores(
     """
     scores: dict[str, float] = {}
 
-    results_by_engine: dict[str, list[WebSearchResult]] = {}
+    results_by_engine: dict[str, list[_SearxngRow]] = {}
     for result in results:
-        for engine in result.source_engines or []:
+        for engine in result.engines:
             results_by_engine.setdefault(engine, []).append(result)
 
     for _engine, engine_results in results_by_engine.items():
@@ -126,25 +147,25 @@ def _engine_consensus_rrf_scores(
 
 
 def _apply_engine_consensus_bonus(
-    results: list[WebSearchResult],
+    results: list[_SearxngRow],
     bonus_per_engine: float = 0.05,
-) -> list[WebSearchResult]:
+) -> list[_SearxngRow]:
     """Apply consensus bonus based on number of engines that returned each result.
 
     Args:
-        results: List of SearXNG results.
+        results: List of SearXNG parse rows.
         bonus_per_engine: Bonus per additional engine (default 0.05).
 
     Returns:
-        Results with updated raw_score including consensus bonus.
+        Rows with updated scores including consensus bonus.
     """
-    boosted: list[WebSearchResult] = []
+    boosted: list[_SearxngRow] = []
     for result in results:
-        engine_count = len(result.source_engines or [])
+        engine_count = len(result.engines)
         if engine_count > 1:
             consensus_bonus = bonus_per_engine * (engine_count - 1)
-            current_score = result.raw_score or 0.0
-            result = result.model_copy(update={"raw_score": current_score + consensus_bonus})
+            current_score = result.score or 0.0
+            result = dataclasses.replace(result, score=current_score + consensus_bonus)
             LOGGER.debug(
                 "Consensus bonus: %s engines=%d bonus=%.3f",
                 result.link,
@@ -161,7 +182,7 @@ async def search_searxng(
     num_results: int,
     search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """
     Query a SearXNG instance and return parsed results.
 
@@ -172,10 +193,10 @@ async def search_searxng(
     SearXNG docs: https://docs.searxng.org/dev/search_api.html
     """
     if not query.strip():
-        return []
+        return EngineCall(adapter="searxng", query=query)
 
     if num_results < 1:
-        return []
+        return EngineCall(adapter="searxng", query=query)
 
     base_url = _get_searxng_base_url()
     url = f"{base_url}/search"
@@ -274,7 +295,7 @@ async def search_searxng(
             raise SearxngError("SearXNG response was not a JSON object.")
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         raw_results = data.get("results", [])
         if not isinstance(raw_results, list):
             raise SearxngError("SearXNG response missing `results` list.")
@@ -282,7 +303,7 @@ async def search_searxng(
         if not raw_results:
             LOGGER.debug("SearXNG returned empty results list for query=%r", query)
 
-        results: list[WebSearchResult] = []
+        rows: list[_SearxngRow] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
@@ -300,51 +321,67 @@ async def search_searxng(
 
             source_engines = item.get("engines")
             if isinstance(source_engines, list):
-                engines = [
+                engines = tuple(
                     str(engine).strip()
                     for engine in source_engines
                     if isinstance(engine, str) and engine.strip()
-                ]
+                )
             else:
-                engines = []
+                engines = ()
 
             raw_score = item.get("score")
             score = None
-            if isinstance(raw_score, (int, float)):
+            if isinstance(raw_score, (int, float)) and not isinstance(raw_score, bool):
                 score = float(raw_score)
 
             published_date = item.get("publishedDate") or item.get("published_date")
             if not isinstance(published_date, str) or not published_date.strip():
                 published_date = None
 
-            results.append(
-                WebSearchResult(
+            rows.append(
+                _SearxngRow(
                     title=title,
                     link=link,
                     snippet=snippet,
                     domain=extract_domain_from_url(link),
-                    published_date=published_date,
-                    source_engines=engines or None,
-                    raw_score=score,
+                    engines=engines,
+                    score=score,
+                    published=published_date,
                 )
             )
-            if len(results) >= num_results:
+            if len(rows) >= num_results:
                 break
 
-        if results:
-            engine_rrf_scores = _engine_consensus_rrf_scores(results, k=60)
-            results = _apply_engine_consensus_bonus(results, bonus_per_engine=0.05)
+        if rows:
+            # The in-adapter engine-RRF and consensus bonus are unchanged:
+            # combined = 0.7 * engine_rrf + 0.3 * instance score, then order.
+            engine_rrf_scores = _engine_consensus_rrf_scores(rows, k=60)
+            rows = _apply_engine_consensus_bonus(rows, bonus_per_engine=0.05)
 
-            for idx, result in enumerate(results):
-                canonical = canonicalize_url(result.link)
+            for idx, row in enumerate(rows):
+                canonical = canonicalize_url(row.link)
                 rrf_score = engine_rrf_scores.get(canonical, 0.0)
-                current_score = result.raw_score or 0.0
+                current_score = row.score or 0.0
                 combined_score = 0.7 * rrf_score + 0.3 * current_score
-                results[idx] = result.model_copy(update={"raw_score": combined_score})
+                rows[idx] = dataclasses.replace(row, score=combined_score)
 
-            results = sorted(results, key=lambda r: r.raw_score or 0.0, reverse=True)
+            rows = sorted(rows, key=lambda r: r.score or 0.0, reverse=True)
 
-        return results
+        hits = tuple(
+            SearchHit(
+                title=row.title,
+                url=row.link,
+                snippet=row.snippet,
+                domain=row.domain or "",
+                adapter="searxng",
+                provider_score=row.score,
+                published=row.published,
+                source_engines=row.engines,
+            )
+            for row in rows
+            if row.domain
+        )
+        return EngineCall(adapter="searxng", query=query, hits=hits)
 
     return await run_provider(
         "searxng",

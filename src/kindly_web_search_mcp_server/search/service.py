@@ -10,18 +10,19 @@ from collections.abc import Sequence
 import httpx
 
 from ..ml import embed_query, embed_texts
-from ..models import WebSearchResponse
 from .contracts import SearchRun, WebSearchRequest
+from .evidence import render_search_hit_text
 from .outcomes import submit_search_outcome
 from .planning import plan_search
 from .ranking import rank_and_finalize
 from .retrieval import retrieve_branches
+from .types import SearchRunResult
 
 LOGGER = logging.getLogger(__name__)
 _INDEX_TASKS: set[asyncio.Task[None]] = set()
 
 
-async def run_search_core(run: SearchRun) -> WebSearchResponse:
+async def run_search_core(run: SearchRun) -> SearchRunResult:
     core_started = time.monotonic()
     plan = await plan_search(run)
     needs_embedding = any("qdrant" in branch.provider_names for branch in plan.branches)
@@ -42,7 +43,7 @@ async def run_search_core(run: SearchRun) -> WebSearchResponse:
             await asyncio.gather(embedding_task, return_exceptions=True)
 
 
-def _schedule_web_results_indexing(run: SearchRun, response: WebSearchResponse) -> None:
+def _schedule_web_results_indexing(run: SearchRun, response: SearchRunResult) -> None:
     """Fire-and-forget write of final results into the remote Qdrant index.
 
     Non-fatal by contract: indexing failures never affect the search
@@ -53,17 +54,18 @@ def _schedule_web_results_indexing(run: SearchRun, response: WebSearchResponse) 
         try:
             from ..index import index_final_results
 
-            results = list(response.results)
+            results = list(response.hits)
             if not results:
                 return
+            texts = [render_search_hit_text(result.hit, max_chars=4000) for result in results]
             dense = run.diagnostics.candidate_embeddings
             query_vec = run.diagnostics.query_embedding
             by_url = {c.get("url", ""): c.get("dense") for c in dense}
-            embeddings = [by_url.get(r.link) or query_vec for r in results]
+            embeddings = [by_url.get(r.hit.url) or query_vec for r in results]
             if not embeddings or any(e is None for e in embeddings):
                 embeddings = list(
                     await embed_texts(
-                        [f"{r.title}\n{r.snippet}".strip() or r.link for r in results],
+                        texts,
                         timeout=20.0,
                     )
                 )
@@ -75,12 +77,18 @@ def _schedule_web_results_indexing(run: SearchRun, response: WebSearchResponse) 
                     len(results),
                 )
                 return
+            entities = (
+                [entity.model_dump(mode="json") for entity in run.plan.understanding.entities]
+                if run.plan is not None
+                else None
+            )
             await index_final_results(
                 run.request.query,
                 results,
                 vectors,
-                texts=[f"{r.title}\n{r.snippet}".strip() or r.link for r in results],
+                texts=texts,
                 intent=run.diagnostics.intent,
+                entities=entities,
             )
         except Exception:
             LOGGER.debug("web-results indexing failed (non-fatal)", exc_info=True)
@@ -100,7 +108,7 @@ async def execute_web_search(
     progress: object | None = None,
     return_diagnostics: bool = False,
     schedule_judges: bool = True,
-) -> WebSearchResponse | tuple[WebSearchResponse, SearchRun]:
+) -> SearchRunResult | tuple[SearchRunResult, SearchRun]:
     """Execute a web search. When return_diagnostics=True, returns (response, run)
     so the caller can build SearchDiagnostics from run.diagnostics."""
     run = SearchRun(

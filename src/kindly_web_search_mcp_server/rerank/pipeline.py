@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 from typing import Any
 
 from opentelemetry import trace
@@ -11,13 +12,13 @@ from opentelemetry import trace
 from ..analytics.producers import emit_observability_event
 from ..analytics.rerank_telemetry import emit_rerank_summary, record_bi_encoder_stage
 from ..ml import embed_query
-from ..models import WebSearchResult
 from ..prompts.rerank import (
     _normalize_prompt_text,
     build_rankllm_query,
     build_relevance_query,
     build_voyage_instruction,
 )
+from ..search.types import ScoredHit
 from ..settings import settings
 from ..telemetry import (
     INPUT_MIME_TYPE,
@@ -45,10 +46,10 @@ tracer: Any = trace.get_tracer("web-search-mcp")
 
 
 def _assign_terminal_scores(
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     terminal_stage: str,
-) -> list[WebSearchResult]:
-    updated: list[WebSearchResult] = []
+) -> list[ScoredHit]:
+    updated: list[ScoredHit] = []
     for candidate in candidates:
         if candidate.final_score is not None:
             updated.append(candidate)
@@ -70,26 +71,24 @@ def _assign_terminal_scores(
             scores = (candidate.bi_encoder_score, candidate.retrieval_rrf_score)
         else:
             scores = (candidate.retrieval_rrf_score,)
-        score = next((value for value in scores if value is not None), candidate.raw_score)
-        updated.append(
-            candidate.model_copy(update={"final_score": 0.0 if score is None else score})
-        )
+        score = next((value for value in scores if value is not None), None)
+        updated.append(replace(candidate, final_score=0.0 if score is None else score))
     return updated
 
 
-def _canonical_keys(candidates: list[WebSearchResult]) -> set[str]:
+def _canonical_keys(candidates: list[ScoredHit]) -> set[str]:
     from ..utils.url_canonicalize import canonicalize_url
 
-    return {canonicalize_url(candidate.link) for candidate in candidates if candidate.link}
+    return {canonicalize_url(candidate.hit.url) for candidate in candidates if candidate.hit.url}
 
 
 def _build_overflow_items(
     *,
-    final_results: list[WebSearchResult],
-    merged: list[WebSearchResult],
-    cross_full: list[WebSearchResult],
-    cross_window: list[WebSearchResult],
-    llm_full: list[WebSearchResult],
+    final_results: list[ScoredHit],
+    merged: list[ScoredHit],
+    cross_full: list[ScoredHit],
+    cross_window: list[ScoredHit],
+    llm_full: list[ScoredHit],
     rankllm_success: bool,
     mmr_applied: bool,
 ) -> list[RerankOverflowItem]:
@@ -99,15 +98,15 @@ def _build_overflow_items(
     seen = set(final_keys)
     overflow: list[RerankOverflowItem] = []
 
-    def add(stage: RerankOverflowStage, candidates: list[WebSearchResult]) -> None:
+    def add(stage: RerankOverflowStage, candidates: list[ScoredHit]) -> None:
         for candidate in candidates:
-            if not candidate.link:
+            if not candidate.hit.url:
                 continue
-            key = canonicalize_url(candidate.link)
+            key = canonicalize_url(candidate.hit.url)
             if key in seen:
                 continue
             seen.add(key)
-            overflow.append(RerankOverflowItem(stage=stage, result=candidate))
+            overflow.append(RerankOverflowItem(stage=stage, result=candidate.hit))
 
     if rankllm_success:
         add("rankllm", llm_full)
@@ -123,14 +122,14 @@ def _build_overflow_items(
             [
                 candidate
                 for candidate in cross_full
-                if canonicalize_url(candidate.link) not in window_keys
+                if canonicalize_url(candidate.hit.url) not in window_keys
             ],
         )
     add("rrf", merged)
     return overflow
 
 
-def _score_for_mmr(candidate: WebSearchResult) -> float:
+def _score_for_mmr(candidate: ScoredHit) -> float:
     for score in (
         candidate.cross_encoder_score,
         candidate.final_score,
@@ -139,12 +138,12 @@ def _score_for_mmr(candidate: WebSearchResult) -> float:
     ):
         if score is not None:
             return float(score)
-    raise ValueError(f"candidate {candidate.link!r} has no relevance score for MMR")
+    raise ValueError(f"candidate {candidate.hit.url!r} has no relevance score for MMR")
 
 
 async def rerank_results(
     query: str,
-    candidates: list[WebSearchResult],
+    candidates: list[ScoredHit],
     *,
     research_goal: str,
     query_type_hint: str | None = None,
@@ -278,8 +277,8 @@ async def rerank_results(
         )
         normalized_caller = _normalize_prompt_text(reranking_instructions, cap=500)
         llm_outcome = None
-        llm_candidates: list[WebSearchResult] = []
-        llm_full: list[WebSearchResult] = []
+        llm_candidates: list[ScoredHit] = []
+        llm_full: list[ScoredHit] = []
         rankllm_success = False
         llm_start = time.monotonic()
         if settings.rankllm_enabled:
@@ -370,7 +369,7 @@ async def rerank_results(
                 slate_embeddings: list[list[float]] = []
                 if embedding_context is not None:
                     for candidate in cross_candidates:
-                        embedded = embedding_context.find(candidate.link)
+                        embedded = embedding_context.find(candidate.hit.url)
                         if embedded is None:
                             slate_embeddings = []
                             break
@@ -389,22 +388,23 @@ async def rerank_results(
                     slate_embeddings = [
                         list(embedding.dense)
                         for candidate in cross_candidates
-                        for embedding in [fallback_context.find(candidate.link)]
+                        for embedding in [fallback_context.find(candidate.hit.url)]
                         if embedding is not None
                     ]
                 if len(slate_embeddings) != len(cross_candidates):
                     raise ValueError("MMR candidate embedding count mismatch")
                 slate = select_mmr_slate(
                     slate_embeddings,
-                    [candidate.link for candidate in cross_candidates],
+                    [candidate.hit.url for candidate in cross_candidates],
                     output_size=min(final_limit, len(cross_candidates)),
                     relevance_scores=[_score_for_mmr(candidate) for candidate in cross_candidates],
                 )
                 selected_count = min(final_limit, len(cross_candidates))
                 selected_indices = slate.selected_indices[:selected_count]
                 final_results = [
-                    cross_candidates[index].model_copy(
-                        update={"diversity_penalty": slate.diversity_penalties[index]}
+                    replace(
+                        cross_candidates[index],
+                        diversity_penalty=slate.diversity_penalties[index],
                     )
                     for index in selected_indices
                 ]

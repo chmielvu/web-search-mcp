@@ -7,12 +7,12 @@ import os
 import re
 from datetime import date
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
+from ...utils.url_canonicalize import extract_domain_from_url
+from ..types import EngineCall, SearchHit
 from .base import (
     _RETRYABLE_HTTP_STATUSES,
     ProviderRequestError,
@@ -227,7 +227,7 @@ def _parse_presentation_text(text: str) -> list[dict[str, str]]:
     return results
 
 
-def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+def _parse_response(data: dict[str, Any]) -> EngineCall:
     text = _message_text(data)
     if not text.strip():
         raise _invalid_response("Gemma returned empty assistant content.")
@@ -238,18 +238,22 @@ def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
         if not raw_results:
             raise _invalid_response("Gemma returned no parseable search results.")
 
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
     for item in raw_results:
         url = item["url"]
-        results.append(
-            WebSearchResult(
+        domain = extract_domain_from_url(url)
+        if not domain:
+            continue
+        hits.append(
+            SearchHit(
                 title=item["title"],
-                link=url,
+                url=url,
                 snippet=item["snippet"],
-                domain=urlparse(url).netloc or url,
+                domain=domain,
+                adapter="gemma",
             )
         )
-    return results
+    return EngineCall(adapter="gemma", query="", hits=tuple(hits))
 
 
 async def search_gemma(
@@ -260,15 +264,15 @@ async def search_gemma(
     arguments: dict[str, Any] | None = None,
     http_client: Any = None,
     query_embedding: Any = None,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Search using Pollinations' OpenAI-compatible ``gemini-fast`` model."""
     del options, query_embedding
     if not query.strip() or num_results < 1:
-        return []
+        return EngineCall(adapter="gemma", query=query)
 
     api_key = _configured_api_key()
     if not api_key:
-        return []
+        return EngineCall(adapter="gemma", query=query)
 
     timeout_seconds = settings.search_retrieve_budget_seconds
 

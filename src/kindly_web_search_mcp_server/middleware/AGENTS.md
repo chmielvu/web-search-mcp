@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Middleware
 
@@ -29,6 +29,8 @@ FastMCP middleware stack: rate limits, query guidance, tool protection.
 uv run pytest tests/test_middleware*.py
 uv run pytest tests/test_agent_steering_middleware.py
 ```
+### Recent Changes (2026-09-17)
+- `_guide_web_search` derives provider count from public hit `providers` when the public envelope no longer includes `providers_used`. Query-shaping guidance is no longer expected on the public MCP payload.
 ### Recent Changes (2026-09-09)
 - `_append_enrichment` no longer appends `agent_guidance` entries with empty
   `message` (clean bulk fetches shipped empty-message entries).

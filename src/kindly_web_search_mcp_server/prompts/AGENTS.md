@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-08-21 | Last verified: 2026-08-21 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Prompts
 
@@ -30,6 +30,7 @@ Prompt templates, builders, and registry for all subsystems.
 - `rerank.py` owns RankLLM's six-intent policy plus `SHARED_RANKING_INSTRUCTIONS`,
   and a separate short Voyage standing/intent instruction set
   (`build_voyage_instruction`). RankLLM still uses `build_rankllm_query`.
+- RankLLM candidate XML may include published date, source, source kind, answer kind, providers, and extra evidence passages; those fields stay off the public MCP hit.
 - `query_rewrite.py` owns the six-intent angle registry used by `_rewrite_queries`;
   the planner still emits the same six branches. Intent blocks are adapted from
   `query_writer_instructions` plus GitRAG / alexdong / dspy-opt / knowledge-ops /

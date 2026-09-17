@@ -164,12 +164,21 @@ def serialize_search_results(
             providers = list(result.get("providers") or [])
             score = result.get("score")
         else:
-            title = getattr(result, "title", "") or ""
-            link = getattr(result, "link", "") or ""
-            snippet = getattr(result, "snippet", "") or ""
-            domain = getattr(result, "domain", "")
-            providers = list(getattr(result, "providers", []) or [])
-            score = getattr(result, "score", None)
+            hit = getattr(result, "hit", None)
+            if hit is not None:
+                title = getattr(hit, "title", "") or ""
+                link = getattr(hit, "url", "") or ""
+                snippet = getattr(hit, "snippet", "") or ""
+                domain = getattr(hit, "domain", "") or ""
+                providers = list(getattr(result, "providers", ()) or [])
+                score = getattr(result, "final_score", getattr(result, "score", None))
+            else:
+                title = getattr(result, "title", "") or ""
+                link = getattr(result, "link", getattr(result, "url", "")) or ""
+                snippet = getattr(result, "snippet", "") or ""
+                domain = getattr(result, "domain", "") or ""
+                providers = list(getattr(result, "providers", []) or [])
+                score = getattr(result, "score", None)
         serialized.append(
             {
                 "title": preview_text(title, limit=1000),

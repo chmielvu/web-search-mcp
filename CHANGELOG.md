@@ -1,4 +1,21 @@
 ## [Unreleased]
+### Changed — web_search agent contract (2026-09-17)
+- Removed the public `status` field (`ok`/`empty`/`partial`). Empty `results` means no hits; `warnings` explain provider or filter degradation without implying the ranked hits are unusable.
+- Dropped public `intent`, `query_variants`, `has_more`, hit `score`, leftover `stage`, and `next.action`. Rank is list order; leftover pages are title/url links; `cursor` is the continuation token; `next.tool` plus `next.query` is the follow-up call.
+- `next` now suggests at most 5 fetch URLs. Overflow cursors are version 2; stale cursors tell the agent to search again without a cursor. Removed the deprecated MCP `gl` parameter (`region` is canonical; `gl`/`country` still alias through middleware).
+- Rewrote the tool description for when to use, when not to, return shape, and recovery. Catalog version is 3.0.
+
+### Changed — Provider testimony now drives ranking, indexing, and analytics (2026-09-17)
+- `SearchHit` carries `provider_score` and `origin_adapters`; `SearchRunResult.hits` is a frozen tuple. Merge keeps complementary native fields instead of discarding the shorter-snippet variant's source, highlights, engines, and answer kind.
+- BM25, bi-encoder, Qdrant indexing, Voyage YAML, and RankLLM XML now consume unique highlight passages plus source/answer metadata. Supported expansion seeds (two independent provider calls) may join the BM25 query; unsupported single-call expansions stay diagnostic-only.
+- Retrieval records native testimony, expansion, and query integrity on provider analytics rows; truncated Bright Data queries surface as typed `query_truncated` warnings. The Qdrant write/read path round-trips that testimony. Public MCP/CLI hit fields are unchanged.
+- Focused regressions cover merge preservation, evidence rendering, expansion support, truncation diagnostics, public-guidance provider counts, and Qdrant testimony round-trip.
+
+### Fixed — Search provider data-contract fidelity (2026-09-17)
+- Bright Data Full JSON parsing now orders mixed answer, news, and organic rows by native `global_rank`; uses the cited knowledge-description URL; selects documented forum top answers; compares `general.query` with `general.detected_query` for truncation; and retains structured error codes, retry headers, provider identity, and status in typed failures.
+- Exa now requests bounded page text instead of returning title-only snippets while retaining highlights and authors. Tavily no longer pays for an unused URL-less generated answer and requests per-result publication dates when temporal filtering is active. SearXNG retains the contributing engine list on internal hits.
+- Retrieval diagnostics now count and list the deduplicated hits actually admitted to each branch. Focused provider-contract regressions cover the parsers, request payloads, error classification, native metadata, and diagnostic counts.
+
 ### Fixed — Python Best Practices: Concurrency, Correctness & Hot-Path Hardening (2026-09-16)
 - **Concurrency & Safety**: Replaced unsafe `assert` statements in `tools/code_search/grepapp.py` with explicit exception raising; lazily initialized `asyncio.Lock` in `search/providers/telegram_client.py` and `training/query_understanding_jsonl.py` to prevent event-loop binding failures; synchronized `_REWRITE_CACHE` in `search/planning.py` using `OrderedDict` and an `asyncio.Lock` to eliminate race conditions on eviction.
 - **Correctness & Type Safety**: Enforced UTC awareness on naive timestamps in `rerank/utils.py::compute_recency_score`; explicitly excluded `bool` before `isinstance(..., int)` checks in `models.py::TokenUsage` and `content/crawl_pipeline.py`; replaced private `__args__` introspection in `tools/profiles.py` with standard `typing.get_args`; cleaned up format type narrowing in `content/documents.py`.

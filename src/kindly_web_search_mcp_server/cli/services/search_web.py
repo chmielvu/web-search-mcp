@@ -3,11 +3,11 @@ from __future__ import annotations
 import uuid
 from typing import Any, cast
 
-from ...models import WebSearchResponse
 from ...search.contracts import SearchRun, WebSearchRequest
 from ...search.diagnostics import build_diagnostics
 from ...search.options import SearchOptions
 from ...search.service import execute_web_search
+from ...search.types import SearchRunResult
 from ...utils.http_client import get_http_client
 
 
@@ -86,7 +86,7 @@ async def fetch_web_search_payload(
         return_diagnostics=True,
         schedule_judges=False,
     )
-    _response, run = cast(tuple[WebSearchResponse, SearchRun], search_result)
+    _response, run = cast(tuple[SearchRunResult, SearchRun], search_result)
     from ...utils.public_output import to_public_web_search_from_run
 
     payload = to_public_web_search_from_run(run).model_dump(exclude_none=True)

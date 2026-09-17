@@ -56,7 +56,7 @@ async def run_judge_evaluation(
     intent : str
         Search intent: 'general', 'ai_coding_and_infrastructure',
         'digital_humanities', 'comparison', 'social_media', or 'news'.
-    results : list[WebSearchResult]
+    results : list[ScoredHit]
         The final result list returned to the user.
     tool_name : str
         Tool name for the analytics record (default 'web_search').

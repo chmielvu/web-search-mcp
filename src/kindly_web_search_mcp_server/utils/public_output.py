@@ -9,22 +9,23 @@ from __future__ import annotations
 import base64
 import json
 import re
-from typing import Any, Literal
+from typing import Any
 
 from ..models import (
     ProviderWarning,
     WebSearchHit,
-    WebSearchNext,
     WebSearchOverflowHit,
     WebSearchPublicResponse,
-    WebSearchResult,
+    fetch_next,
 )
 from ..rerank.models import FINAL_RESULT_LIMIT
-from ..search.contracts import BranchRole, SearchRun
+from ..search.contracts import SearchRun
 from ..search.ranking import _build_freshness_signal
+from ..search.types import ScoredHit, SearchHit
 from .text_clean import clean_text_for_llm
 
-_OVERFLOW_CURSOR_VERSION = 1
+_OVERFLOW_CURSOR_VERSION = 2
+_FETCH_NEXT_LIMIT = 5
 
 # --- Snippet normalization (merged from snippet_normalizer.py) ---
 
@@ -99,104 +100,74 @@ def decode_web_search_overflow_cursor(cursor: str) -> dict[str, Any]:
     try:
         decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
     except Exception as exc:
-        raise ValueError("Invalid web_search cursor") from exc
+        raise ValueError(
+            "Invalid web_search cursor. Call web_search without cursor to start a new search, "
+            "then pass response.cursor to page leftover links from that run."
+        ) from exc
     if not isinstance(decoded, dict):
-        raise ValueError("Invalid web_search cursor")
+        raise ValueError(
+            "Invalid web_search cursor. Call web_search without cursor to start a new search."
+        )
     if decoded.get("v") != _OVERFLOW_CURSOR_VERSION or decoded.get("kind") != "web_search_overflow":
-        raise ValueError("Unsupported web_search cursor version")
+        raise ValueError(
+            "Unsupported web_search cursor version. Call web_search without cursor to start a new search."
+        )
     if "items" not in decoded or not isinstance(decoded["items"], list):
-        raise ValueError("Invalid web_search cursor")
+        raise ValueError(
+            "Invalid web_search cursor. Call web_search without cursor to start a new search."
+        )
     return decoded
 
 
-def to_public_hit(result: WebSearchResult, citation_id: str) -> WebSearchHit:
-    providers = result.providers
+def to_public_hit(result: ScoredHit, citation_id: str) -> WebSearchHit:
+    providers = list(result.providers) if result.providers else None
     return WebSearchHit(
         citation_id=citation_id,
-        title=result.title,
-        url=result.link,
-        snippet=normalize_snippet(result.snippet),
-        domain=result.domain,
-        published_date=result.published_date,
-        freshness=_build_freshness_signal(result.published_date),
-        score=result.final_score if result.final_score is not None else None,
+        title=result.hit.title,
+        url=result.hit.url,
+        snippet=normalize_snippet(result.hit.snippet),
+        domain=result.hit.domain,
+        published_date=result.hit.published,
+        freshness=_build_freshness_signal(result.hit.published),
         consensus=len(providers) if providers is not None else None,
         providers=providers if providers else None,
     )
 
 
-def _query_variants_from_plan(plan: Any) -> dict[str, str] | None:
-    if plan is None:
-        return None
-    by_role = {branch.role: branch.query for branch in plan.branches}
-    variants: dict[str, str] = {}
-    for role in BranchRole:
-        query = by_role.get(role)
-        if query is not None:
-            variants[role.value] = query
-    return variants or None
-
-
 def _compact_overflow(
-    overflow_items: list[tuple[str, WebSearchResult]],
+    overflow_items: list[tuple[str, SearchHit]],
 ) -> list[dict[str, str]]:
     compact: list[dict[str, str]] = []
-    for stage, item in overflow_items:
-        if not item.link:
+    for item in (row[1] for row in overflow_items):
+        if not item.url:
             continue
-        compact.append({"title": item.title, "url": item.link, "stage": stage})
+        compact.append({"title": item.title, "url": item.url})
     return compact
 
 
 def to_public_web_search(
     *,
     query: str,
-    intent: str | None,
-    query_variants: dict[str, str] | None,
-    hits: list[WebSearchResult],
-    overflow_items: list[tuple[str, WebSearchResult]],
+    hits: list[ScoredHit],
+    overflow_items: list[tuple[str, SearchHit]],
     warnings: list[ProviderWarning] | None,
 ) -> WebSearchPublicResponse:
     public_hits: list[WebSearchHit | WebSearchOverflowHit] = []
     for index, result in enumerate(hits, start=1):
-        if not result.link:
+        if not result.hit.url:
             continue
         public_hits.append(to_public_hit(result, f"c{index}"))
 
-    status: Literal["ok", "empty", "partial"]
-    if not public_hits:
-        status = "empty"
-    elif warnings:
-        status = "partial"
-    else:
-        status = "ok"
-
-    next_items: list[WebSearchNext] | None = None
-    if public_hits:
-        next_items = [
-            WebSearchNext(
-                action="fetch",
-                tool="fetch",
-                query={"urls": [hit.url for hit in public_hits]},
-                why=_PAGE1_FETCH_WHY,
-                confidence="high",
-            )
-        ]
-
     overflow = _compact_overflow(overflow_items)
     cursor: str | None = None
-    has_more: bool | None = None
     remaining: int | None = None
     if overflow:
-        has_more = True
         remaining = len(overflow)
         cursor = encode_web_search_overflow_cursor(
             {
                 "v": _OVERFLOW_CURSOR_VERSION,
                 "kind": "web_search_overflow",
                 "query": query,
-                "intent": intent,
-                "query_variants": query_variants,
                 "citation_base": len(public_hits),
                 "items": overflow,
                 "warnings": [w.model_dump(exclude_none=True) for w in warnings] if warnings else [],
@@ -205,13 +176,14 @@ def to_public_web_search(
 
     return WebSearchPublicResponse(
         query=query,
-        status=status,
         results=public_hits,
-        intent=intent,
-        query_variants=query_variants,
         warnings=warnings if warnings else None,
-        next=next_items,
-        has_more=has_more,
+        next=fetch_next(
+            [hit.url for hit in public_hits],
+            why=_PAGE1_FETCH_WHY,
+            confidence="high",
+            limit=_FETCH_NEXT_LIMIT,
+        ),
         remaining=remaining,
         cursor=cursor,
     )
@@ -221,15 +193,9 @@ def to_public_web_search_from_run(run: SearchRun) -> WebSearchPublicResponse:
     response = run.response
     if response is None:
         raise ValueError("Search run has no response")
-    plan = run.plan
-    intent = None
-    if plan is not None and plan.understanding is not None:
-        intent = str(plan.understanding.intent)
     return to_public_web_search(
         query=response.query,
-        intent=intent,
-        query_variants=_query_variants_from_plan(plan),
-        hits=list(response.results),
+        hits=list(response.hits),
         overflow_items=list(run.diagnostics.overflow_ranked),
         warnings=list(response.warnings) if response.warnings else None,
     )
@@ -240,39 +206,42 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
     page = items[:FINAL_RESULT_LIMIT]
     rest = items[FINAL_RESULT_LIMIT:]
     if not page:
-        raise ValueError("web_search cursor has no remaining results")
+        raise ValueError(
+            "web_search cursor has no remaining results. Call web_search without cursor to start a new search."
+        )
     citation_base = int(decoded.get("citation_base") or 0)
     overflow_hits: list[WebSearchHit | WebSearchOverflowHit] = []
     for index, item in enumerate(page, start=1):
+        title = item.get("title") if isinstance(item, dict) else None
+        url = item.get("url") if isinstance(item, dict) else None
+        if not isinstance(title, str) or not isinstance(url, str) or not url:
+            continue
         overflow_hits.append(
             WebSearchOverflowHit(
                 citation_id=f"c{citation_base + index}",
-                title=item["title"],
-                url=item["url"],
-                stage=item["stage"],
+                title=title,
+                url=url,
             )
         )
+    if not overflow_hits:
+        raise ValueError(
+            "web_search cursor has no remaining results. Call web_search without cursor to start a new search."
+        )
     query = str(decoded.get("query") or "")
-    intent = decoded.get("intent")
-    query_variants = decoded.get("query_variants")
     rebuilt_warnings = [
         ProviderWarning.model_validate(item)
         for item in (decoded.get("warnings") or [])
         if isinstance(item, dict)
     ]
     cursor = None
-    has_more = None
     remaining = None
     if rest:
-        has_more = True
         remaining = len(rest)
         cursor = encode_web_search_overflow_cursor(
             {
                 "v": _OVERFLOW_CURSOR_VERSION,
                 "kind": "web_search_overflow",
                 "query": query,
-                "intent": intent,
-                "query_variants": query_variants,
                 "citation_base": citation_base + len(page),
                 "items": rest,
                 "warnings": [w.model_dump(exclude_none=True) for w in rebuilt_warnings]
@@ -282,21 +251,14 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
         )
     return WebSearchPublicResponse(
         query=query,
-        status="partial" if rebuilt_warnings else "ok",
         results=overflow_hits,
-        intent=intent if intent else None,
-        query_variants=query_variants if query_variants else None,
         warnings=rebuilt_warnings or None,
-        next=[
-            WebSearchNext(
-                action="fetch",
-                tool="fetch",
-                query={"urls": [hit.url for hit in overflow_hits]},
-                why=_OVERFLOW_FETCH_WHY,
-                confidence="medium",
-            )
-        ],
-        has_more=has_more,
+        next=fetch_next(
+            [hit.url for hit in overflow_hits],
+            why=_OVERFLOW_FETCH_WHY,
+            confidence="medium",
+            limit=_FETCH_NEXT_LIMIT,
+        ),
         remaining=remaining,
         cursor=cursor,
     )

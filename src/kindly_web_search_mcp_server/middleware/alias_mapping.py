@@ -22,6 +22,9 @@ GLOBAL_ALIASES: dict[str, list[str]] = {
 }
 
 TOOL_ALIASES: dict[str, dict[str, list[str]]] = {
+    "web_search": {
+        "region": ["gl", "country"],
+    },
     "youtube_transcript": {
         "output_format": ["format", "response_format"],
     },

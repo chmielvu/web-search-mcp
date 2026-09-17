@@ -11,14 +11,16 @@ Docs: https://docs.tavily.com/documentation/api-reference/endpoint/search
 
 from __future__ import annotations
 
+import math
 from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import get_env_value, settings
+from ...utils.url_canonicalize import extract_domain_from_url
 from ..filters import tavily_time_range
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import (
     ProviderRequestError,
     ProviderRequestMetadata,
@@ -47,6 +49,8 @@ _TAVILY_ARG_KEYS = frozenset(
         "search_depth",
         "time_range",
         "include_answer",
+        "include_published_date",
+        "filter_by_published_date",
         "include_raw_content",
         "include_images",
         "include_image_descriptions",
@@ -96,7 +100,7 @@ async def search_tavily(
     search_options: SearchOptions | None = None,
     http_client: httpx.AsyncClient | None = None,
     **kwargs: Any,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """Query Tavily Search API and return parsed results.
 
     Parameters
@@ -125,7 +129,6 @@ async def search_tavily(
         "query": query,
         "max_results": int(num_results),
         "search_depth": "advanced",
-        "include_answer": True,
     }
 
     # --- map SearchOptions → Tavily params ---
@@ -135,6 +138,7 @@ async def search_tavily(
         if search_options.temporal is not None:
             temporal = search_options.temporal
             if not temporal.is_empty:
+                payload["include_published_date"] = True
                 if temporal.bucket is not None:
                     payload["time_range"] = tavily_time_range(temporal.bucket)
                 else:
@@ -190,12 +194,12 @@ async def search_tavily(
             )
         return data
 
-    def _parse_response(data: dict[str, Any]) -> list[WebSearchResult]:
+    def _parse_response(data: dict[str, Any]) -> EngineCall:
         raw_results = data.get("results", [])
         if not isinstance(raw_results, list):
             raise TavilyError("Tavily response missing `results` list.")
 
-        results: list[WebSearchResult] = []
+        hits: list[SearchHit] = []
         for item in raw_results:
             if not isinstance(item, dict):
                 continue
@@ -210,11 +214,48 @@ async def search_tavily(
                 or not isinstance(snippet, str)
             ):
                 continue
-
-            results.append(WebSearchResult(title=title, link=link, snippet=snippet))
-            if len(results) >= num_results:
+            domain = extract_domain_from_url(link.strip())
+            if not domain:
+                continue
+            published = item.get("published_date")
+            raw_score = item.get("score")
+            provider_score = (
+                float(raw_score)
+                if isinstance(raw_score, (int, float))
+                and not isinstance(raw_score, bool)
+                and math.isfinite(raw_score)
+                else None
+            )
+            hits.append(
+                SearchHit(
+                    title=title,
+                    url=link,
+                    snippet=snippet,
+                    domain=domain,
+                    adapter="tavily",
+                    provider_score=provider_score,
+                    published=published
+                    if isinstance(published, str) and published.strip()
+                    else None,
+                )
+            )
+            if len(hits) >= num_results:
                 break
-        return results
+
+        follow_ups = data.get("follow_up_questions")
+        expansion: tuple[str, ...] = ()
+        if isinstance(follow_ups, list):
+            seeds: list[str] = []
+            for question in follow_ups:
+                if isinstance(question, str) and question.strip():
+                    seeds.append(question.strip())
+                if len(seeds) >= 4:
+                    break
+            expansion = tuple(seeds)
+        # The URL-less top-level `answer` cannot become a row: a hit without
+        # a URL cannot be cited or fetched (same rule as Bright Data answer
+        # entries), and an unrenderable row would consume a final-page slot.
+        return EngineCall(adapter="tavily", query=query, hits=tuple(hits), expansion=expansion)
 
     return await run_provider(
         "tavily",

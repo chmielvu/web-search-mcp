@@ -27,11 +27,11 @@ from typing import Any
 
 import httpx
 
-from ...models import WebSearchResult
 from ...settings import settings
 from ...utils.url_canonicalize import extract_domain_from_url
 from ..intents import normalize_intent
 from ..options import SearchOptions
+from ..types import EngineCall, SearchHit
 from .base import (
     ProviderRequestError,
     ProviderRequestMetadata,
@@ -282,11 +282,11 @@ async def warm_access_token() -> None:
         LOGGER.warning("Discovery Engine token warm failed: %s", exc)
 
 
-def _parse_results(data: dict[str, Any], *, num_results: int) -> list[WebSearchResult]:
+def _parse_results(data: dict[str, Any], *, num_results: int, query: str = "") -> EngineCall:
     raw_results = data.get("results")
     if not isinstance(raw_results, list):
         raise DiscoveryEngineError("Discovery Engine response missing `results` list.")
-    results: list[WebSearchResult] = []
+    hits: list[SearchHit] = []
     for item in raw_results:
         if not isinstance(item, dict):
             continue
@@ -309,17 +309,21 @@ def _parse_results(data: dict[str, Any], *, num_results: int) -> list[WebSearchR
         if not title or not link:
             continue
         display_link = _plain_text(derived.get("displayLink"))
-        results.append(
-            WebSearchResult(
+        domain = display_link or extract_domain_from_url(link)
+        if not domain:
+            continue
+        hits.append(
+            SearchHit(
                 title=title,
-                link=link,
+                url=link,
                 snippet=snippet,
-                domain=display_link or extract_domain_from_url(link),
+                domain=domain,
+                adapter=PROVIDER_NAME,
             )
         )
-        if len(results) >= num_results:
+        if len(hits) >= num_results:
             break
-    return results
+    return EngineCall(adapter=PROVIDER_NAME, query=query, hits=tuple(hits))
 
 
 async def search_google_discovery_engine(
@@ -330,7 +334,7 @@ async def search_google_discovery_engine(
     http_client: httpx.AsyncClient | None = None,
     serving_config: str | None = None,
     **kwargs: Any,
-) -> list[WebSearchResult]:
+) -> EngineCall:
     """POST ``servingConfigs/*:search`` and return parsed web results."""
     del kwargs
     config = (serving_config or "").strip()
@@ -400,7 +404,7 @@ async def search_google_discovery_engine(
         query,
         num_results,
         request=_do_request,
-        parse_response=lambda data: _parse_results(data, num_results=num_results),
+        parse_response=lambda data: _parse_results(data, num_results=num_results, query=query),
         http_client=http_client,
         max_retries=provider_retry_max_retries(PROVIDER_NAME),
     )

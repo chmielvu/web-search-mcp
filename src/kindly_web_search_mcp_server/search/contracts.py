@@ -11,8 +11,9 @@ from typing import Annotated, Any, Literal
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
-from ..models import ProviderWarning, WebSearchResponse, WebSearchResult
+from ..models import ProviderWarning
 from .options import SearchOptions
+from .types import EngineCall, SearchHit, SearchRunResult
 from .understanding.models import QueryUnderstandingResult
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -102,20 +103,13 @@ class SearchPlan:
 
 
 @dataclass(frozen=True, slots=True)
-class ProviderRankedResults:
-    provider_name: str
-    results: tuple[WebSearchResult, ...]
-
-
-@dataclass(frozen=True, slots=True)
 class BranchOutcome:
     branch: QueryBranch
     attempted_provider_names: tuple[str, ...] = ()
-    results: tuple[WebSearchResult, ...] = ()
+    calls: tuple[EngineCall, ...] = ()
     warnings: tuple[ProviderWarning, ...] = ()
     elapsed_seconds: float = 0.0
     provider_calls: tuple[dict[str, Any], ...] = ()
-    provider_ranked_results: tuple[ProviderRankedResults, ...] = ()
 
 
 @dataclass
@@ -137,8 +131,9 @@ class DiagnosticsCollector:
     query_variant_rows: list[dict[str, Any]] = field(default_factory=list)
     query_transform_rows: list[dict[str, Any]] = field(default_factory=list)
     total_latency_ms: float | None = None
-    query_shaping: list[dict[str, Any]] = field(default_factory=list)
-    overflow_ranked: list[tuple[str, WebSearchResult]] = field(default_factory=list)
+    provider_expansions: list[dict[str, Any]] = field(default_factory=list)
+    query_integrities: list[dict[str, Any]] = field(default_factory=list)
+    overflow_ranked: list[tuple[str, SearchHit]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +143,7 @@ class SearchOutcome:
     request: WebSearchRequest
     plan: SearchPlan | None
     outcomes: tuple[BranchOutcome, ...]
-    response: WebSearchResponse | None
+    response: SearchRunResult | None
     error_summary: str | None
     rerank_metadata: Mapping[str, Any]
     timings: Mapping[str, float]
@@ -169,7 +164,7 @@ class SearchRun:
     rerank_metadata: dict[str, Any] = field(default_factory=dict)
     timings: dict[str, float] = field(default_factory=dict)
     status: Literal["running", "success", "error", "cancelled"] = "running"
-    response: WebSearchResponse | None = None
+    response: SearchRunResult | None = None
     error_summary: str | None = None
     diagnostics: DiagnosticsCollector = field(default_factory=DiagnosticsCollector)
     schedule_judges: bool = True
@@ -178,7 +173,7 @@ class SearchRun:
         self,
         status: Literal["success", "error", "cancelled"],
         *,
-        response: WebSearchResponse | None = None,
+        response: SearchRunResult | None = None,
         error_summary: str | None = None,
     ) -> None:
         if self.status != "running":
@@ -187,7 +182,7 @@ class SearchRun:
         self.response = response
         self.error_summary = error_summary
 
-    def succeed(self, response: WebSearchResponse) -> None:
+    def succeed(self, response: SearchRunResult) -> None:
         self._transition("success", response=response)
 
     def fail(self, error_summary: str) -> None:
@@ -205,7 +200,7 @@ class SearchRun:
             request=self.request,
             plan=self.plan,
             outcomes=tuple(self.outcomes),
-            response=self.response.model_copy(deep=True) if self.response is not None else None,
+            response=self.response,
             error_summary=self.error_summary,
             rerank_metadata=MappingProxyType(dict(self.rerank_metadata)),
             timings=MappingProxyType(dict(self.timings)),
