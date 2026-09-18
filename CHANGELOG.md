@@ -1,4 +1,60 @@
 ## [Unreleased]
+### Changed — Ignore patterns for planning, metadata, and agent tooling (2026-09-18)
+- Updated `.gitignore` to comprehensively exclude planning directories and files (`plans/`, `**/plans/`, `future-plans/`, `planning/`, `**/planning/`, `.planning/`, `**/.planning/`, `docs/plans/`, `docs/research/`, `*.plan`, `*.plan.md`), metadata structures (`.meta/`, `**/.meta/`, `/meta/`, `meta.json`, `.solomd/`), GitNexus intelligence cache (`.gitnexus/`, `**/.gitnexus/`), and AI agent/IDE states (`.omp/`, `**/.omp/`, `.ompcache/`, `.cursor/`, `.windsurf/`, `.codeium/`, `.cline/`, `.roo/`, `.roo-cline/`, `.augment/`, `.continue/`, `.devin/`, `.factory/`, `.aider*`).
+
+### Removed — Bright Data Bing and Yandex SERP adapters (2026-09-18)
+- Deleted the `brightdata_bing` and `brightdata_yandex` ProviderDefinition entries and their `PROVIDER_TEMPORAL_MODE` rows. Bright Data is now a Google-only provider; the kept catalog name is `brightdata` (temporal mode `relative_only`).
+- Dropped the `catalog_name` argument and the `inspect`-driven `provider_name=` injection branch from `_make_adapter` — no current provider function accepts `provider_name`, so no compatibility dispatch remains.
+- Updated the `paid_other` branch topology in `docs/DuckDB_schema.md` to `("serpapi",)` and refreshed the current Bright Data guidance in `src/kindly_web_search_mcp_server/search/AGENTS.md` to describe the adapter as Google-only (latency/Bing/Yandex families removed, generic Bing/Yandex mentions elsewhere unchanged).
+
+### Changed — Bright Data Google SERP fidelity (2026-09-18)
+- Enabled web freshness filters and social-intent mobile emulation, aligned requests with the configured retrieval budget, stopped premature retries during Bright Data's documented query-ban window, unwrapped Google redirect URLs for canonical cross-provider fusion, and harvested ranked top stories, videos, perspectives, social posts, shopping results, and organic AI Overview references from Full JSON responses.
+
+### Added — `content_fetch_diagnostics` fact table (2026-09-18)
+- Fetch rumdl/pipeline diagnostics persist as one row per finding
+  (`code`, `source`, `severity`, `phase`, `start_line`) keyed by
+  `terminal_event_id` + `tool_call_id` + `item_index` + `diagnostic_index`.
+  Query with `WHERE source = 'rumdl'` or use `vw_content_rumdl_findings`
+  / `vw_content_fetch_diagnostic_patterns`. The JSON blob on
+  `content_fetch_items` is unchanged.
+
+### Changed — Fetch public envelope drops lint and telemetry (2026-09-18)
+- `fetch` no longer returns rumdl diagnostics (`MD090` and other lint),
+  null `error`/`links`/`entities`/`output_path`, complete-body `window`,
+  or envelope telemetry (`total_chars_returned`, `wave_size`,
+  `waves_completed`, `duration_ms`). Analytics still stores the full
+  artifact diagnostics and window.
+- Public `diagnostics` are recovery notes only: `summary_failed`,
+  `jina_warning`, `index_output_failed`. `window` appears only when the
+  body is truncated or `offset` is used. MD090 is treated as a style rule
+  so it no longer lowers the quality score.
+
+### Fixed — Fetch timeout, Camoufox status, and exception narrowing (2026-09-17)
+- FastMCP `fetch` / `crawl_web` catalog timeouts are 240s (was 120s). The
+  pipeline budget is `fetch_deadline_seconds()` (240s when Unlocker is on)
+  so Web Unlocker is not killed after a slow Crawl4AI stage. Timeout errors
+  report that budget and tell the agent to retry once.
+- Camoufox no longer forges `http_status=200`. Origin status is copied from
+  sidecar headers or JSON when present; otherwise it is unset.
+- Jina preflight, page-cache lookup/store, and Crawl4AI/Camoufox health
+  checks catch transport errors instead of `except Exception`.
+
+### Changed — Fetch ladder uses Crawl4AI `/crawl` and always-on Web Unlocker (2026-09-17)
+- Single-URL fetch no longer calls Crawl4AI `POST /md`. It uses the same
+  agent-ready `POST /crawl` config as `crawl_web` (PruningContentFilter 0.3,
+  `body_width=0`, overlay/consent stripping). `target_elements=["article"]`
+  is sent only when DOM evidence says the page has an article.
+- Crawl4AI now runs on `route == browser` pages. Camoufox is skipped when
+  preflight already saw challenge evidence. Later generic stages stop once a
+  usable unblocked candidate exists. Crawl fallback skips the Crawl4AI rung.
+- `QualityReport.flags` now includes `bot_challenge` / `error_page`, and those
+  documents are not `accepted`. Analytics maps quality `rejected` to `partial`
+  and records `latency_ms`.
+- Bright Data Web Unlocker is an always-on fetch stage after Camoufox when
+  `BRIGHTDATA_API_KEY` and `BRIGHTDATA_UNLOCKER_ZONE` are set
+  (`format=raw`, `data_format=markdown`, one retry on `reject_block` /
+  `resolve_failed_*`).
+
 ### Changed — web_search agent contract (2026-09-17)
 - Removed the public `status` field (`ok`/`empty`/`partial`). Empty `results` means no hits; `warnings` explain provider or filter degradation without implying the ranked hits are unusable.
 - Dropped public `intent`, `query_variants`, `has_more`, hit `score`, leftover `stage`, and `next.action`. Rank is list order; leftover pages are title/url links; `cursor` is the continuation token; `next.tool` plus `next.query` is the follow-up call.

@@ -27,6 +27,7 @@ from .connection import (
 from .fetch_observability_schema import (
     _ensure_analytics_table_freshness,
     _ensure_content_backend_health,
+    _ensure_content_fetch_diagnostics,
     _ensure_content_fetch_items,
     _ensure_content_stage_attempts,
     _ensure_content_summary_rungs,
@@ -1588,6 +1589,7 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_content_summaries(connection)
             _ensure_content_stage_attempts(connection)
             _ensure_content_fetch_items(connection)
+            _ensure_content_fetch_diagnostics(connection)
             _ensure_content_summary_rungs(connection)
             _ensure_content_backend_health(connection)
             _ensure_analytics_table_freshness(connection)

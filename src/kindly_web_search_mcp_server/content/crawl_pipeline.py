@@ -15,12 +15,19 @@ from kindly_web_search_mcp_server.utils.url_canonicalize import (
 )
 
 from .constructor import ContentArtifact, finalize_artifact
-from .fetch_pipeline import evaluate_candidate, fetch_content_artifact, select_candidate
+from .fetch_pipeline import (
+    evaluate_candidate,
+    fetch_content_artifact,
+    raw_document_from_crawl_item,
+    select_candidate,
+)
 from .http_utils import SafeFetchError, validate_public_url
-from .models import Candidate, ContentError, Diagnostic, FetchOptions, RawDocument, TextDocument
+from .models import Candidate, ContentError, Diagnostic, FetchOptions
 from .remote_clients import (
     Crawl4AIClientError,
     Crawl4AIConfigError,
+    crawl4ai_browser_params,
+    crawl4ai_markdown_params,
     extract_crawl_markdown_candidates,
     get_crawl4ai_client,
 )
@@ -49,7 +56,7 @@ async def crawl_content_artifacts(request: CrawlWebRequest) -> list[CrawlArtifac
         )
 
     seed_urls, seed_failures = await _validate_seed_urls(request)
-    browser_params = _browser_params()
+    browser_params = crawl4ai_browser_params()
     crawler_params = _crawler_params(request)
     options = FetchOptions(processing_mode="index")
     visited = set(seed_urls)
@@ -116,66 +123,33 @@ async def crawl_content_artifacts(request: CrawlWebRequest) -> list[CrawlArtifac
     return outcomes
 
 
-def _browser_params() -> dict[str, object]:
-    """Build the bounded BrowserConfig parameter mapping."""
-    return {
-        "headless": True,
-        "verbose": False,
-        "text_mode": True,
-        "light_mode": True,
-    }
-
-
 def _crawler_params(request: CrawlWebRequest) -> dict[str, object]:
     """Build the bounded CrawlerRunConfig parameter mapping.
 
-    Content targets ``article`` plus a share/nav ``excluded_selector``
-    strip div-class boilerplate that tag exclusion cannot reach. The
-    markdown generator carries an explicit PruningContentFilter: the
-    server default generator has no filter, so ``fit_markdown`` would be
-    None and the fit/raw candidate selection in ``_finalize_page`` would
-    only ever see raw markdown. All thresholds were A/B tuned live on the
-    christophergs.com corpus (2026-09-15) to keep every code fence while
-    dropping boilerplate.
+    Delegates the Markdown generator and pruning filter to
+    :func:`crawl4ai_markdown_params`. ``target_elements`` is omitted unless
+    the request names a CSS target — sending ``article`` on a docs shell
+    yields empty fit Markdown.
     """
-    params: dict[str, object] = {
-        "cache_mode": "bypass",
-        "word_count_threshold": 2,
-        "remove_overlay_elements": True,
-        "remove_consent_popups": True,
-        "excluded_tags": ["nav", "header", "footer", "aside", "form"],
-        "exclude_external_links": False,
-        "exclude_social_media_domains": [],
-        "target_elements": ["article"],
-        "excluded_selector": "div[class*='share'], .post-nav, .sidebar",
-        "markdown_generator": {
-            "type": "DefaultMarkdownGenerator",
-            "params": {
-                "options": {"ignore_links": False},
-                "content_filter": {
-                    "type": "PruningContentFilter",
-                    "params": {
-                        "threshold": 0.3,
-                        "threshold_type": "fixed",
-                        "min_word_threshold": 0,
-                    },
-                },
-            },
-        },
-    }
+    css_selector = None
     if request.targets is not None and request.targets.css_selector:
-        params["css_selector"] = request.targets.css_selector
+        css_selector = request.targets.css_selector
     interaction = request.interaction
-    if interaction is not None:
-        if interaction.javascript_before_wait:
-            params["js_code_before_wait"] = list(interaction.javascript_before_wait)
-        if interaction.wait_for:
-            params["wait_for"] = interaction.wait_for
-        if interaction.javascript:
-            params["js_code"] = list(interaction.javascript)
-        if interaction.scan_full_page is not None:
-            params["scan_full_page"] = interaction.scan_full_page
-    return params
+    return crawl4ai_markdown_params(
+        css_selector=css_selector,
+        wait_for=None if interaction is None else interaction.wait_for,
+        javascript=(
+            None
+            if interaction is None or not interaction.javascript
+            else list(interaction.javascript)
+        ),
+        javascript_before_wait=(
+            None
+            if interaction is None or not interaction.javascript_before_wait
+            else list(interaction.javascript_before_wait)
+        ),
+        scan_full_page=None if interaction is None else interaction.scan_full_page,
+    )
 
 
 async def _validate_seed_urls(
@@ -384,7 +358,9 @@ async def _finalize_page(
     for attempt_index, entry in enumerate(extract_crawl_markdown_candidates(item)):
         variant = entry["variant"]
         markdown = entry["markdown"]
-        document = _raw_document(url, item, markdown, variant=variant, links=links)
+        document = raw_document_from_crawl_item(
+            url, dict(item), markdown, variant=variant, links=tuple(links)
+        )
         try:
             candidate = await evaluate_candidate(
                 document,
@@ -410,42 +386,6 @@ async def _finalize_page(
             options=options,
         )
     return await finalize_artifact(url, selected, options=options)
-
-
-def _raw_document(
-    url: str,
-    item: Mapping[str, object],
-    markdown: str,
-    *,
-    variant: str,
-    links: tuple[dict[str, object], ...],
-) -> RawDocument:
-    """Build one neutral Markdown document from a Crawl4AI result."""
-    metadata = item.get("metadata")
-    metadata_dict = dict(metadata) if isinstance(metadata, Mapping) else {}
-    metadata_dict["crawl_variant"] = variant
-    fetched_url = item.get("url") or item.get("source_url") or url
-    status_code = item.get("status_code") or item.get("status")
-    http_status = (
-        status_code if isinstance(status_code, int) and not isinstance(status_code, bool) else None
-    )
-    complete_value = item.get("complete")
-    complete = complete_value if isinstance(complete_value, bool) else None
-    title = item.get("title")
-    return RawDocument(
-        input_url=url,
-        fetched_url=str(fetched_url),
-        source_type="html",
-        fetch_backend="crawl4ai_remote",
-        body=TextDocument(text=markdown, format="markdown"),
-        content_type="text/markdown",
-        title=str(title) if title else None,
-        metadata=metadata_dict,
-        links=tuple(links),
-        http_status=http_status,
-        complete=complete,
-        scope="full",
-    )
 
 
 def _item_error(item: Mapping[str, object]) -> ContentError:
@@ -477,20 +417,22 @@ async def _fetch_fallback_artifact(
     *,
     options: FetchOptions,
 ) -> ContentArtifact:
-    """Retry one unacquired page through the single-URL acquisition ladder.
+    """Retry one unacquired page through the single-URL ladder, skipping Crawl4AI.
 
-    Crawl4AI's browser is the first choice for bounded traversal, but a page
-    it cannot acquire — a bot wall, a transient redirect stub, a thin
-    challenge page — still gets one pass through the shared ladder (Jina,
-    Crawl4AI Markdown, stealth browser, archive) so hard sites resolve the
-    same way they do for single-URL fetch. The original artifact survives
-    whenever the fallback does not produce accepted content.
+    The bounded crawl already used ``POST /crawl``. A page it cannot acquire
+    still gets one pass through Jina → Camoufox → Unlocker → archive.
+    The original artifact survives whenever the fallback does not produce
+    accepted content.
     """
     if not _needs_fetch_fallback(artifact):
         return artifact
     try:
-        fallback = await fetch_content_artifact(url, fetch_options=options)
-    except Exception as exc:
+        fallback = await fetch_content_artifact(
+            url,
+            fetch_options=options,
+            skip_stages=frozenset({"crawl4ai_remote"}),
+        )
+    except TimeoutError as exc:
         LOGGER.warning("Fetch fallback failed for %s: %s", url, exc)
         return artifact
     if fallback.error is None and fallback.quality.accepted:

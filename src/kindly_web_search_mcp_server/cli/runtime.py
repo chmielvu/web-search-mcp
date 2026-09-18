@@ -89,7 +89,11 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
                 drain_duckdb_writes,
                 shutdown_duckdb_write_executor,
             )
-            from ..content.remote_clients import close_camoufox_client, close_crawl4ai_client
+            from ..content.remote_clients import (
+                close_camoufox_client,
+                close_crawl4ai_client,
+                close_unlocker_client,
+            )
             from ..search.outcomes import drain_search_outcomes
             from ..settings import settings
             from ..telemetry.init import shutdown_telemetry
@@ -161,6 +165,7 @@ def run_cli_async(coro: Coroutine[Any, Any, Any]) -> Any:
             try:
                 await close_crawl4ai_client()
                 await close_camoufox_client()
+                await close_unlocker_client()
             except Exception as exc:
                 LOGGER.warning("Failed to close remote content clients: %s", exc)
             timings["remote_clients"] = time.perf_counter() - step_started

@@ -505,6 +505,12 @@ class Settings:
     brightdata_api_key: str = os.environ.get("BRIGHTDATA_API_KEY", "")
     brightdata_zone: str = os.environ.get("BRIGHTDATA_ZONE", "sdk_serp")
     brightdata_payload_extra: str = os.environ.get("BRIGHTDATA_PAYLOAD_EXTRA", "")
+    # Web Unlocker zone is a different product from SERP. Do not reuse
+    # BRIGHTDATA_SERP_ZONE / sdk_serp here — that zone cannot unlock pages.
+    brightdata_unlocker_zone: str = os.environ.get("BRIGHTDATA_UNLOCKER_ZONE", "")
+    brightdata_unlocker_timeout_seconds: float = _env_float(
+        "BRIGHTDATA_UNLOCKER_TIMEOUT_SECONDS", 90.0
+    )
     langsearch_api_key: str = os.environ.get("LANGSEARCH_API_KEY", "")
     langsearch_base_url: str = os.environ.get("LANGSEARCH_BASE_URL", "https://api.langsearch.com")
 

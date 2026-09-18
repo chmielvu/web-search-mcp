@@ -438,6 +438,12 @@ def insert_fetch_items(rows: list[dict[str, Any]], *, db_path: str | None = None
     _FETCH_ITEMS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
 
 
+def insert_fetch_diagnostics(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
+    from .inserts import _FETCH_DIAGNOSTICS_WRITER
+
+    _FETCH_DIAGNOSTICS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
+
+
 def insert_summary_rungs(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
     from .inserts import _SUMMARY_RUNGS_WRITER
 
@@ -569,6 +575,7 @@ def insert_content_operation_batches(
     content_summaries: list[dict[str, Any]] | None = None,
     stage_attempts: list[dict[str, Any]] | None = None,
     fetch_items: list[dict[str, Any]] | None = None,
+    fetch_diagnostics: list[dict[str, Any]] | None = None,
     summary_rungs: list[dict[str, Any]] | None = None,
     db_path: str | None = None,
 ) -> None:
@@ -577,6 +584,7 @@ def insert_content_operation_batches(
         _CONTENT_FETCHES_WRITER,
         _CONTENT_OPERATIONS_WRITER,
         _CONTENT_SUMMARIES_WRITER,
+        _FETCH_DIAGNOSTICS_WRITER,
         _FETCH_ITEMS_WRITER,
         _STAGE_ATTEMPTS_WRITER,
         _SUMMARY_RUNGS_WRITER,
@@ -598,6 +606,8 @@ def insert_content_operation_batches(
     if fetch_items:
         serialized_items = [_serialize_json_fields(r, ("diagnostics_json",)) for r in fetch_items]
         _FETCH_ITEMS_WRITER.insert_batch(serialized_items, db_path=db_path)
+    if fetch_diagnostics:
+        _FETCH_DIAGNOSTICS_WRITER.insert_batch(fetch_diagnostics, db_path=db_path)
     if summary_rungs:
         _SUMMARY_RUNGS_WRITER.insert_batch(summary_rungs, db_path=db_path)
 

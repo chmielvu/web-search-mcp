@@ -552,7 +552,7 @@ on `search_branches` and `provider_calls`. The six roles are:
 | 1 | `original_free` | Reachable from `("searxng", "ddg", "gemma", "degoog")` |
 | 2 | `paid_brave` | `("brave",)` when reachable |
 | 3 | `paid_google` | One of `("brightdata", "serper", "search_router")` round-robin |
-| 4 | `paid_other` | `("brightdata_yandex", "brightdata_bing", "serpapi")` |
+| 4 | `paid_other` | `("serpapi",)` |
 | 5 | `neural` | `("gemma", "qdrant", "composio_llm_search")` |
 | 6 | `specialized` | Intent-policy-selected providers |
 

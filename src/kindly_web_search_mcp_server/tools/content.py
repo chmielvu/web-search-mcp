@@ -24,7 +24,7 @@ from ..content.constructor import (
     rehydrate_cached_artifact,
 )
 from ..content.crawl_pipeline import CrawlArtifact, crawl_content_artifacts
-from ..content.fetch_pipeline import fetch_content_artifact
+from ..content.fetch_pipeline import fetch_content_artifact, fetch_deadline_seconds
 from ..content.models import (
     PROCESSING_POLICY_VERSION,
     ContentError,
@@ -88,7 +88,7 @@ async def _store_cache(artifact: ContentArtifact) -> None:
             extraction_method=artifact.fetch_backend or "cache",
             metadata=_cache_envelope(artifact),
         )
-    except Exception as exc:  # pragma: no cover - cache isolation
+    except (TimeoutError, OSError, RuntimeError, ValueError, TypeError) as exc:
         LOGGER.warning("Page cache store failed: %s", exc)
 
 
@@ -98,7 +98,7 @@ async def _lookup_cache(normalized_url: str, *, processing_mode: str) -> Content
         cached = await get_page_cache().alookup(
             _cache_key(normalized_url, processing_mode=processing_mode)
         )
-    except Exception as exc:  # pragma: no cover - cache isolation
+    except (TimeoutError, OSError, RuntimeError, ValueError, TypeError) as exc:
         LOGGER.warning("Page cache lookup failed: %s", exc)
         return None
     if not cached:
@@ -139,13 +139,15 @@ async def _fetch_one_artifact(
             stage_attempts=stage_attempts,
         )
     except TimeoutError:
+        budget = int(fetch_deadline_seconds())
         artifact = await finalize_artifact(
             input_url,
             None,
             options=fetch_options,
             failure=ContentError(
                 "timeout",
-                f"Fetch exceeded the {int(settings.web_fetch_timeout_seconds)} second request budget.",
+                f"Fetch exceeded the {budget} second request budget. "
+                "Retry once; if it persists, choose another URL.",
                 retryable=True,
                 status="error",
             ),
@@ -342,6 +344,62 @@ def _public_links(artifact: ContentArtifact, content_window: str) -> list[dict[s
     return out or None
 
 
+# Codes the agent can act on. Rumdl MD* lint, entity-extraction skips, and
+# processor QA stay on the artifact for analytics and never cross the MCP
+# boundary.
+_PUBLIC_DIAGNOSTIC_CODES = frozenset({"summary_failed", "jina_warning", "index_output_failed"})
+
+
+def _public_diagnostics(diagnostics: object) -> list[dict[str, Any]] | None:
+    """Return recovery notes only; drop rumdl and other internal QA findings."""
+    if not diagnostics:
+        return None
+    if not isinstance(diagnostics, (list, tuple)):
+        return None
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for entry in diagnostics:
+        retryable: bool | None = None
+        if dataclasses.is_dataclass(entry) and not isinstance(entry, type):
+            code = str(getattr(entry, "code", "") or "")
+            message = str(getattr(entry, "message", "") or "")
+        elif isinstance(entry, dict):
+            code = str(entry.get("code") or "")
+            message = str(entry.get("message") or "")
+            raw_retryable = entry.get("retryable")
+            retryable = raw_retryable if isinstance(raw_retryable, bool) else None
+        else:
+            continue
+        if code not in _PUBLIC_DIAGNOSTIC_CODES:
+            continue
+        key = (code, message)
+        if key in seen:
+            continue
+        seen.add(key)
+        payload: dict[str, Any] = {"code": code, "message": message}
+        if retryable is not None:
+            payload["retryable"] = retryable
+        out.append(payload)
+    return out or None
+
+
+def _public_window(*, offset: int, window: object) -> dict[str, Any] | None:
+    """Return pagination metadata only when the body is truncated or paged."""
+    has_more = bool(getattr(window, "has_more", False))
+    if not has_more and offset <= 0:
+        return None
+    payload: dict[str, Any] = {
+        "offset": int(getattr(window, "offset", 0) or 0),
+        "returned_chars": int(getattr(window, "returned_chars", 0) or 0),
+        "total_chars": int(getattr(window, "total_chars", 0) or 0),
+        "has_more": has_more,
+    }
+    next_offset = getattr(window, "next_offset", None)
+    if isinstance(next_offset, int) and not isinstance(next_offset, bool):
+        payload["next_offset"] = next_offset
+    return payload
+
+
 def _result_from_artifact(
     artifact: ContentArtifact,
     *,
@@ -354,33 +412,30 @@ def _result_from_artifact(
     raw_status = (artifact.status or "").strip().lower()
     access_signal = _access_signal_from_artifact(artifact)
     public_status, error_obj = _classify_status(artifact, raw_status, access_signal)
-    diagnostics_payload = (
-        [dataclasses.asdict(d) for d in artifact.diagnostics] if artifact.diagnostics else None
-    )
-    entities_payload = None
-    if artifact.entities is not None:
-        entities_payload = [
-            entity.model_dump(exclude_none=True) if hasattr(entity, "model_dump") else dict(entity)
-            for entity in artifact.entities
-        ]
-    result = {
+    result: dict[str, Any] = {
         "url": artifact.fetched_url or artifact.input_url or artifact.normalized_url,
         "status": public_status,
         "content": windowed.content,
-        "error": error_obj,
-        "links": _public_links(artifact, windowed.content) if include_links else None,
-        "window": {
-            "offset": windowed.window.offset,
-            "length": windowed.window.length,
-            "returned_chars": windowed.window.returned_chars,
-            "total_chars": windowed.window.total_chars,
-            "has_more": windowed.window.has_more,
-            "next_offset": windowed.window.next_offset,
-        },
-        "entities": entities_payload,
-        "diagnostics": diagnostics_payload,
-        "output_path": artifact.output_path,
     }
+    if error_obj is not None:
+        result["error"] = error_obj
+    if include_links:
+        links = _public_links(artifact, windowed.content)
+        if links:
+            result["links"] = links
+    window_payload = _public_window(offset=offset, window=windowed.window)
+    if window_payload is not None:
+        result["window"] = window_payload
+    if artifact.entities:
+        result["entities"] = [
+            entity.model_dump(exclude_none=True) if hasattr(entity, "model_dump") else dict(entity)
+            for entity in artifact.entities
+        ]
+    diagnostics_payload = _public_diagnostics(artifact.diagnostics)
+    if diagnostics_payload:
+        result["diagnostics"] = diagnostics_payload
+    if artifact.output_path:
+        result["output_path"] = artifact.output_path
     return result
 
 
@@ -456,6 +511,20 @@ def _analytics_payload(
         "wall": _analytics_wall(artifact),
         "error": error_payload,
         "coverage": artifact.coverage,
+        "diagnostics": (
+            [dataclasses.asdict(entry) for entry in artifact.diagnostics]
+            if artifact.diagnostics
+            else public_result.get("diagnostics")
+        ),
+        "window": public_result.get("window")
+        or {
+            "offset": 0,
+            "length": 0,
+            "returned_chars": len(full_markdown),
+            "total_chars": len(full_markdown),
+            "has_more": False,
+            "next_offset": None,
+        },
     }
 
 
@@ -627,15 +696,17 @@ async def fetch(
     - Cross-repo discovery (use code_search).
 
     RETURNS:
-    - results[]: one entry per URL, each with url, status ("success" or a typed
-      failure like "blocked", "login", "paywall", "js_shell"), content, and
-      error with category + resolution + retryable flag.
-    - window: pagination metadata (offset, returned_chars, total_chars,
-      has_more, next_offset) for a single-URL fetch.
-    - cursor: continuation for bulk fetches; pass back to page through
-      remaining URLs.
-    - links[]: outbound links (when include_links=true).
-    - output_path: populated per result when processing_mode="index".
+    - results[]: url, status, and content. ``error`` only on failure (code,
+      category, message, resolution, retryable).
+    - window: only when the body is truncated or ``offset`` is used (offset,
+      returned_chars, total_chars, has_more, next_offset). Absent when the
+      full body is in ``content``.
+    - cursor / has_more: bulk continuation; omitted when the wave is complete.
+    - links[]: outbound links when include_links=true and links exist.
+    - output_path: only when processing_mode="index" persisted a file.
+    - diagnostics: only recovery notes the agent can act on
+      (summary_failed, jina_warning, index_output_failed). Markdown lint
+      and pipeline QA are not returned.
 
     CHAINING:
     - Single URL: use offset to page through long content.
@@ -644,6 +715,11 @@ async def fetch(
       use focus_query to bias the summary.
     - processing_mode="index" persists the finalized markdown under
       REPO_ROOT/outputs and reports the absolute path per result.
+
+    TIMEOUTS:
+    - The tool budget is 240 seconds so Jina, Crawl4AI, Camoufox, and Web
+      Unlocker can run in sequence. A timeout error is retryable; retry once,
+      then choose another URL.
 
     ERROR RECOVERY: each failed URL returns a typed FetchError (code,
     category, message, resolution, retryable). Act on resolution before
@@ -729,14 +805,7 @@ async def fetch(
                     summary_text = str(summary_obj.get("summary") or "").strip()
                     if summary_text:
                         result["content"] = summary_text
-                        result["window"] = {
-                            "offset": 0,
-                            "length": len(summary_text),
-                            "returned_chars": len(summary_text),
-                            "total_chars": len(summary_text),
-                            "has_more": False,
-                            "next_offset": None,
-                        }
+                        result.pop("window", None)
                     else:
                         summary_failed = True
                         _mark_summary_failure(
@@ -772,7 +841,7 @@ async def fetch(
             total_requested=1,
             total_returned=1,
             total_chars_returned=len(result["content"]),
-            has_more=bool(result["window"].get("has_more")),
+            has_more=bool((result.get("window") or {}).get("has_more")),
             cursor=None,
             wave_size=wave_size,
             waves_completed=1,
@@ -857,14 +926,7 @@ async def fetch(
                     summary_text = str(summary.get("summary") or "").strip()
                     if summary_text:
                         admitted[index]["content"] = summary_text
-                        admitted[index]["window"] = {
-                            "offset": 0,
-                            "length": len(summary_text),
-                            "returned_chars": len(summary_text),
-                            "total_chars": len(summary_text),
-                            "has_more": False,
-                            "next_offset": None,
-                        }
+                        admitted[index].pop("window", None)
                     else:
                         summary_failed = True
                         _mark_summary_failure(
@@ -945,11 +1007,7 @@ def _crawl_result_from_artifact(
     if error_obj is not None and error_obj.get("stage") in {None, "none"}:
         error_obj["stage"] = "crawl4ai"
     error = FetchError.model_validate(error_obj) if error_obj is not None else None
-    diagnostics = (
-        [dataclasses.asdict(entry) for entry in artifact.diagnostics]
-        if artifact.diagnostics
-        else None
-    )
+    diagnostics = _public_diagnostics(artifact.diagnostics)
     content = artifact.markdown if detailed else None
     raw_links = _public_links(artifact, artifact.markdown) if detailed else None
     links = [ContentLink.model_validate(entry) for entry in raw_links] if raw_links else None

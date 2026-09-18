@@ -111,6 +111,17 @@ uv run pytest tests/test_code_search.py
 - `fetch` single-item responses populate `mode="single"` and summary failures
   no longer emit success telemetry while silently returning raw content.
 
+- `fetch` / `crawl_web` FastMCP catalog timeouts are 240s so Web Unlocker
+  can finish after Jina/Crawl4AI/Camoufox. Timeout errors are retryable and
+  name the actual budget.
+
+### Recent Changes (2026-09-18)
+- `fetch` public results omit rumdl lint, empty optionals, complete-body
+  `window`, and envelope telemetry (`total_chars_returned`, `wave_size`,
+  `waves_completed`, `duration_ms`). Recovery diagnostics stay:
+  `summary_failed`, `jina_warning`, `index_output_failed`.
+
+
 ### Recent Changes (2026-09-12)
 - `youtube_transcript` projects summary payloads to semantic fields only;
   provider, model, and token-usage metadata stay internal.

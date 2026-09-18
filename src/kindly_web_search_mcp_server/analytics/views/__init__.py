@@ -76,6 +76,7 @@ def _record_table_freshness(*, db_path: str) -> None:
         "content_summaries",
         "content_stage_attempts",
         "content_fetch_items",
+        "content_fetch_diagnostics",
         "content_summary_rungs",
         "content_backend_health",
     )

@@ -103,6 +103,10 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
         "Per-fetch-item shaped errors, quality, title, byte counts, redirect/stage-path data, "
         "and diagnostics. One-to-one with content_fetches on terminal_event_id, tool_call_id, and item_index."
     ),
+    "content_fetch_diagnostics": (
+        "One row per fetch diagnostic (rumdl MD* lint plus pipeline/source notes). "
+        "Queryable by source and code without unnesting diagnostics_json."
+    ),
     "content_summary_rungs": (
         "One row per summarization ladder rung tried, including batch and per-item fallback models."
     ),
@@ -204,6 +208,12 @@ _OBJECT_DESCRIPTIONS: dict[str, str] = {
     ),
     "vw_content_fetch_performance": (
         "Content retrieval performance across fetch backends, source types, and status."
+    ),
+    "vw_content_fetch_diagnostic_patterns": (
+        "Fetch diagnostic counts grouped by source, code, severity, and phase."
+    ),
+    "vw_content_rumdl_findings": (
+        "Rumdl markdown-lint findings from fetch, one row per MD* diagnostic."
     ),
     "vw_content_summary_output_signals": (
         "Content summary output shape signals: length, entities, key points, tokens, and model breakdown."

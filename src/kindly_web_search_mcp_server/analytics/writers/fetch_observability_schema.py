@@ -2,8 +2,8 @@
 
 Mirrors ``duckdb_data/reports/1109analysis/fetch_observability_schema.sql``.
 Producers: ``content/fetch_pipeline.py`` (stage attempts) and
-``utils/observability.py`` (fetch items, summary rungs). The
-``content_backend_health`` table has a schema and writer but no live
+``analytics/producers/content.py`` (fetch items, diagnostics, summary rungs).
+The ``content_backend_health`` table has a schema and writer but no live
 producer.
 """
 
@@ -14,6 +14,7 @@ import duckdb
 from .table_names import (
     _ATF_TABLE_NAME,
     _CBH_TABLE_NAME,
+    _CFD_TABLE_NAME,
     _CFI_TABLE_NAME,
     _CSA_TABLE_NAME,
     _CSRUG_TABLE_NAME,
@@ -93,6 +94,38 @@ def _ensure_content_fetch_items(connection: duckdb.DuckDBPyConnection) -> None:
     )
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_cfi_backend_time ON content_fetch_items(tool_call_id, recorded_at)"
+    )
+
+
+def _ensure_content_fetch_diagnostics(connection: duckdb.DuckDBPyConnection) -> None:
+    """One row per fetch diagnostic (rumdl MD* plus pipeline/source notes)."""
+    _create(
+        connection,
+        _CFD_TABLE_NAME,
+        """
+        terminal_event_id   VARCHAR NOT NULL,
+        tool_call_id        VARCHAR NOT NULL,
+        item_index          INTEGER NOT NULL,
+        diagnostic_index    INTEGER NOT NULL,
+        code                VARCHAR NOT NULL,
+        message             VARCHAR,
+        severity            VARCHAR,
+        source              VARCHAR,
+        start_line          INTEGER,
+        end_line            INTEGER,
+        phase               VARCHAR,
+        retryable           BOOLEAN,
+        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+        PRIMARY KEY (terminal_event_id, tool_call_id, item_index, diagnostic_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfd_code_time "
+        "ON content_fetch_diagnostics(source, code, recorded_at)"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_cfd_call "
+        "ON content_fetch_diagnostics(tool_call_id, item_index)"
     )
 
 

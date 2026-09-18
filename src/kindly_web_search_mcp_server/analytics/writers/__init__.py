@@ -36,6 +36,7 @@ from .core import (
     insert_content_operation,
     insert_content_operation_batches,
     insert_content_summaries,
+    insert_fetch_diagnostics,
     insert_fetch_items,
     insert_final_results,
     insert_funnel_uplift_batches,
@@ -68,6 +69,7 @@ from .core import (
 from .fetch_observability_schema import (
     _ensure_analytics_table_freshness,
     _ensure_content_backend_health,
+    _ensure_content_fetch_diagnostics,
     _ensure_content_fetch_items,
     _ensure_content_stage_attempts,
     _ensure_content_summary_rungs,
@@ -119,6 +121,7 @@ from .table_names import (
     _CBH_TABLE_NAME,
     _CE_TABLE_NAME,
     _CF_TABLE_NAME,
+    _CFD_TABLE_NAME,
     _CFI_TABLE_NAME,
     _CO_TABLE_NAME,
     _CSA_TABLE_NAME,
@@ -160,6 +163,7 @@ from .table_names import (
 
 __all__ = [
     "_CE_TABLE_NAME",
+    "_CFD_TABLE_NAME",
     "_CF_TABLE_NAME",
     "_CO_TABLE_NAME",
     "_CSD_TABLE_NAME",
@@ -212,6 +216,7 @@ __all__ = [
     "_ensure_code_search_runs",
     "_ensure_columns",
     "_ensure_content_backend_health",
+    "_ensure_content_fetch_diagnostics",
     "_ensure_content_fetch_items",
     "_ensure_content_fetches",
     "_ensure_content_operations",
@@ -270,6 +275,7 @@ __all__ = [
     "insert_content_operation",
     "insert_content_operation_batches",
     "insert_content_summaries",
+    "insert_fetch_diagnostics",
     "insert_fetch_items",
     "insert_final_results",
     "insert_funnel_uplift_batches",

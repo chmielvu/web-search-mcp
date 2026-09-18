@@ -5,11 +5,55 @@ Moved from ``utils/observability.py`` during the analytics/utils cutover.
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 from typing import Any
 from uuid import uuid4
 
 __all__ = ["_persist_content_analytics"]
+
+
+def _fetch_diagnostic_rows(
+    *,
+    terminal_event_id: str,
+    tool_call_id: str,
+    item_index: int,
+    diagnostics: object,
+) -> list[dict[str, Any]]:
+    """Flatten artifact diagnostics into ``content_fetch_diagnostics`` rows."""
+    if not isinstance(diagnostics, list):
+        return []
+    rows: list[dict[str, Any]] = []
+    for diagnostic_index, entry in enumerate(diagnostics):
+        if dataclasses.is_dataclass(entry) and not isinstance(entry, type):
+            payload = dataclasses.asdict(entry)
+        elif isinstance(entry, dict):
+            payload = entry
+        else:
+            continue
+        code = payload.get("code")
+        if not isinstance(code, str) or not code.strip():
+            continue
+        start_line = payload.get("start_line")
+        end_line = payload.get("end_line")
+        retryable = payload.get("retryable")
+        rows.append(
+            {
+                "terminal_event_id": terminal_event_id,
+                "tool_call_id": tool_call_id,
+                "item_index": item_index,
+                "diagnostic_index": diagnostic_index,
+                "code": code.strip(),
+                "message": payload.get("message"),
+                "severity": payload.get("severity"),
+                "source": payload.get("source"),
+                "start_line": start_line if isinstance(start_line, int) else None,
+                "end_line": end_line if isinstance(end_line, int) else None,
+                "phase": payload.get("phase"),
+                "retryable": retryable if isinstance(retryable, bool) else None,
+            }
+        )
+    return rows
 
 
 def _persist_content_analytics(
@@ -46,9 +90,9 @@ def _persist_content_analytics(
 
         fetch_rows = []
         summary_rows = []
-
         stage_attempt_rows = []
         fetch_item_rows = []
+        fetch_diagnostic_rows = []
         summary_rung_rows = []
 
         if tool_name == "fetch":
@@ -125,6 +169,14 @@ def _persist_content_analytics(
                         if isinstance(diagnostics, (dict, list))
                         else None,
                     }
+                )
+                fetch_diagnostic_rows.extend(
+                    _fetch_diagnostic_rows(
+                        terminal_event_id=terminal_event_id,
+                        tool_call_id=tool_call_id,
+                        item_index=idx,
+                        diagnostics=diagnostics,
+                    )
                 )
                 summary_data = item.get("summary")
                 if isinstance(summary_data, dict):
@@ -228,6 +280,7 @@ def _persist_content_analytics(
             content_summaries=summary_rows,
             stage_attempts=stage_attempt_rows,
             fetch_items=fetch_item_rows,
+            fetch_diagnostics=fetch_diagnostic_rows,
             summary_rungs=summary_rung_rows,
         )
     except Exception as exc:

@@ -424,54 +424,76 @@ class CrawlWebResponse(_PublicCrawlModel):
     duration_ms: int = 0
 
 
-class FetchWindow(BaseModel):
-    """Pagination metadata for one fetched content body."""
+class _PublicFetchModel(BaseModel):
+    """Fetch response model that omits empty optional fields from compact output."""
 
     model_config = ConfigDict(extra="forbid")
 
+    def model_dump(self, **kwargs: Any) -> dict[str, Any]:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump(**kwargs)
+
+    def model_dump_json(self, **kwargs: Any) -> str:
+        kwargs.setdefault("exclude_none", True)
+        return super().model_dump_json(**kwargs)
+
+
+class FetchWindow(_PublicFetchModel):
+    """Pagination metadata for a truncated fetch body.
+
+    Omitted from the public result when the full body is returned. ``length`` is
+    the internal request size and is never serialized.
+    """
+
     offset: int = 0
-    length: int = 0
+    length: int = Field(default=0, exclude=True)
     returned_chars: int = 0
     total_chars: int = 0
     has_more: bool = False
-    next_offset: int | None = None
+    next_offset: int | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
-class FetchResult(BaseModel):
+class FetchResult(_PublicFetchModel):
     """Single URL result returned by the unified fetch tool."""
-
-    model_config = ConfigDict(extra="forbid")
 
     url: str
     status: PublicStatus
     content: str = ""
-    error: FetchError | None = None
-    links: list[ContentLink] | None = None
-    window: FetchWindow = Field(default_factory=FetchWindow)
-    entities: list[EntitySpan] | None = None
-    diagnostics: list[dict[str, Any]] | None = None
+    error: FetchError | None = Field(default=None, exclude_if=lambda value: value is None)
+    links: list[ContentLink] | None = Field(default=None, exclude_if=lambda value: value is None)
+    window: FetchWindow | None = Field(default=None, exclude_if=lambda value: value is None)
+    entities: list[EntitySpan] | None = Field(default=None, exclude_if=lambda value: value is None)
+    diagnostics: list[dict[str, Any]] | None = Field(
+        default=None,
+        exclude_if=lambda value: value is None,
+        description=(
+            "Actionable recovery notes only (summary_failed, jina_warning, "
+            "index_output_failed). Lint and pipeline QA stay internal."
+        ),
+    )
     output_path: str | None = Field(
         default=None,
+        exclude_if=lambda value: value is None,
         description=(
             "Absolute file path under REPO_ROOT/outputs when processing_mode='index' persisted "
-            "the finalized markdown; None in agent mode."
+            "the finalized markdown; omitted in agent mode."
         ),
     )
 
 
-class FetchResponse(BaseModel):
+class FetchResponse(_PublicFetchModel):
     """Response from the unified fetch tool."""
 
     mode: Literal["single", "bulk"]
     results: list[FetchResult] = Field(default_factory=list)
     total_requested: int = 0
     total_returned: int = 0
-    total_chars_returned: int = 0
-    has_more: bool = False
-    cursor: str | None = None
-    wave_size: int = 10
-    waves_completed: int = 0
-    duration_ms: int = 0
+    has_more: bool = Field(default=False, exclude_if=lambda value: value is False)
+    cursor: str | None = Field(default=None, exclude_if=lambda value: value is None)
+    total_chars_returned: int = Field(default=0, exclude=True)
+    wave_size: int = Field(default=10, exclude=True)
+    waves_completed: int = Field(default=0, exclude=True)
+    duration_ms: int = Field(default=0, exclude=True)
 
 
 class DiscoverLinksResponse(BaseModel):

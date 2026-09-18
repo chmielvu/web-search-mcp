@@ -85,7 +85,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
     "social_media": IntentSearchPolicy(
         intent="social_media",
         provider_arguments={
-            "brightdata": {"country": "us", "language": "en", "exact_match": False},
+            "brightdata": {"country": "us", "language": "en", "exact_match": False, "mobile": True},
             "ddg": {"backend": "duckduckgo,yahoo,yandex,brave"},
             "exa": {"type": "auto", "category": "personal site"},
         },
@@ -94,7 +94,7 @@ _INTENT_POLICIES: dict[SearchIntent, IntentSearchPolicy] = {
         intent="news",
         policy_version="1.1",
         provider_arguments={
-            "brightdata": {"search_type": "news", "language": "en"},
+            "brightdata": {"search_type": "news", "language": "en", "freshness": "week"},
             "brave_news": {"freshness": "week"},
             "tavily": {"topic": "news", "time_range": "week", "search_depth": "advanced"},
             "ddg": {"category": "news"},

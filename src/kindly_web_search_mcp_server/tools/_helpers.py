@@ -9,7 +9,11 @@ from contextlib import asynccontextmanager
 from fastmcp.server.context import Context
 
 from ..analytics.async_writes import shutdown_duckdb_write_executor
-from ..content.remote_clients import close_camoufox_client, close_crawl4ai_client
+from ..content.remote_clients import (
+    close_camoufox_client,
+    close_crawl4ai_client,
+    close_unlocker_client,
+)
 from ..ml.gliner_client import gliner_query_budget_seconds
 from ..search.outcomes import drain_search_outcomes
 from ..settings import settings
@@ -235,6 +239,7 @@ async def _app_lifespan(app: object) -> AsyncIterator[dict]:
     try:
         await close_crawl4ai_client()
         await close_camoufox_client()
+        await close_unlocker_client()
     except Exception as exc:
         LOGGER.warning(
             "Error closing remote content clients during shutdown: %s", type(exc).__name__

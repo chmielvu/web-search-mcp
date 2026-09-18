@@ -278,14 +278,38 @@ tmpgithub-mcp-server/
 # Additional ignores for files/dirs that should not be tracked
 # ======================
 
-# Planning/research directories (not source code)
+# Planning/research directories and files (not source code)
 plans/
+**/plans/
 future-plans/
+planning/
+**/planning/
+.planning/
+**/.planning/
+docs/plans/
+docs/research/
+*.plan
+*.plan.md
 
-# Coding agent state/config directories
+# Coding agent state/config directories & tooling
 .codex/
 .superpowers/
 .playwright-mcp/
+.gitnexus/
+**/.gitnexus/
+.solomd/
+**/.solomd/
+.cursor/
+.windsurf/
+.codeium/
+.cline/
+.roo/
+.roo-cline/
+.augment/
+.continue/
+.devin/
+.factory/
+.aider*
 
 # Local analytics data (binary DuckDB files)
 .kindly/
@@ -436,3 +460,11 @@ dashboards/
 # oh-my-pi local agent settings (machine-specific)
 .omp/
 
+**/.omp/
+.ompcache/
+
+# Meta directories and files
+.meta/
+**/.meta/
+/meta/
+meta.json

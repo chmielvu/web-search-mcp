@@ -4,7 +4,7 @@
 
 # AGENTS.md - Search
 
-Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 17 providers.
+Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 
 ## Key Files
 
@@ -21,13 +21,15 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 17 providers.
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
 | `blocklist.py` | SQLite-backed URL blocking |
-| `provider_registry.py` | Provider definitions (17), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
+| `provider_registry.py` | Provider definitions (15), adapter wiring, reachability, round-robin selection, diagnostics (merged `provider_catalog.py`) |
 | `intents.py` | Canonical intents, aliases, normalization + intent-specific provider arguments, goggles, freshness, options (merged `intent_policy.py`) |
 | `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |
 | `providers/` | 20 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
 | `quick/` | Quick web search modes: Parallel web, YouTube discovery, and library documentation |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
+- Bright Data Google supports web/news freshness and mobile SERP emulation through provider kwargs. Full JSON harvesting keeps only URL-bearing, citable rows and orders mixed SERP sections by native `global_rank` before applying the requested result bound.
+- Bright Data query-ban and verification errors carry a 15-second retry hint but are not retried inside the interactive request budget.
 
 ## Contracts
 
@@ -72,13 +74,13 @@ a structured warning listing skipped sources. Lookups fail open (empty list + lo
 
 ## Bright Data SERP adapter
 
-- One module: `providers/brightdata.py` holds the Google/Bing/Yandex entry points, the target-URL builders, the response parser, upstream-error detection, and the bounded pagination transport for `POST https://api.brightdata.com/request`.
+Bright Data exposes only the Google SERP provider under the catalog name `brightdata`.
+
+- One module: `providers/brightdata.py` holds the Google entry point, the Google target-URL builder, the response parser, upstream-error detection, and the bounded pagination transport for `POST https://api.brightdata.com/request`.
 - Configure `BRIGHTDATA_SERP_ZONE` explicitly; `BRIGHTDATA_ZONE` remains a compatibility alias, while the implicit `sdk_serp` fallback is rejected. An account whose real SERP zone is named `sdk_serp` must therefore set the variable explicitly — the settings default is not enough.
 - Google uses Full JSON for every search and bounded `start` pagination for larger result windows. Mixed answer, news, and organic rows are ordered by documented `global_rank`, with unranked evidence following ranked rows.
-- The parser accepts both the URL-based `organic` response and Bright Data's documented Bing `webPages.value` response. Query-integrity checks compare `general.query` (the effective engine query) with `general.detected_query`, using `spelling` to distinguish correction from truncation. HTTP/envelope failures retain status, retry, both Bright Data error-header families, and coarse auth/rate-limit/upstream classification.
-- Destination-link fidelity differs per engine: Bright Data Bing returns real absolute result URLs, while Google may return Google redirect links (`https://www.google.com/goto?url=…`). The displayed host is preferred when available so redirect URLs do not erase the source domain.
-- Latency: Google commonly answers in ~2-7s, while Bing and Yandex have been measured at 11-36s. All three read `settings.search_retrieve_budget_seconds` (default 20), so Bing and Yandex time out unless that budget is raised for the run.
-- The three catalog names share one adapter function; `_make_adapter` injects `provider_name=<catalog name>` so `brightdata_bing` and `brightdata_yandex` reach their own engines. Without that injection every alias runs the Google path — check the returned links when auditing engine coverage (Google returns `goto?url=` redirects, Bing returns real URLs).
+- Query-integrity checks compare `general.query` (the effective engine query) with `general.detected_query`, using `spelling` to distinguish correction from truncation. HTTP/envelope failures retain status, retry, both Bright Data error-header families, and coarse auth/rate-limit/upstream classification.
+- Destination-link fidelity: Google may return Google redirect links (`https://www.google.com/goto?url=…`). The displayed host is preferred when available so redirect URLs do not erase the source domain.
 
 ## Gemma SERP adapter
 

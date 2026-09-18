@@ -8,12 +8,16 @@ Pipeline flow:
       │    ↓ miss
   resolver registry       (REGISTRY in content/resolver_registry.py)
       │    ↓ first acquisition target
-  DOM-routed Jina candidate (preflight classify → per-route engine)
-      │    ↓ rejected
-  Crawl4AI candidate      (runs after a rejected/failed generic attempt)
-      │    ↓ no acceptance yet
-  browser (Camoufox) / Wayback archive fallbacks — always on when the
-  corresponding client is configured
+  DOM-routed Jina candidate (preflight classify → per-route engine;
+                             skipped on ``route == browser``)
+      │    ↓ no usable candidate
+  Crawl4AI ``POST /crawl`` (agent-ready fit Markdown; runs on browser-route too)
+      │    ↓ no usable candidate
+  Camoufox (skipped when preflight already saw challenge evidence)
+      │    ↓ no usable candidate
+  Bright Data Web Unlocker (always on when configured)
+      │    ↓ no usable candidate
+  Wayback archive
       │    ↓
   MarkdownProcessor → Candidate for every path
       │    ↓
@@ -32,6 +36,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Final
 from urllib.parse import urlparse
@@ -43,13 +48,9 @@ from ..telemetry import record_content_error
 from ..utils.url_canonicalize import canonicalize_url
 from .constructor import ContentArtifact, ContentError, finalize_artifact
 from .dom_detector import RouteDecision, analyze_html
-from .http_utils import safe_fetch_url
-from .jina_reader import (
-    JinaReaderError,
-)
-from .jina_reader import (
-    fetch_raw_document as fetch_jina_raw_document,
-)
+from .http_utils import SafeFetchError, safe_fetch_url
+from .jina_reader import JinaReaderError
+from .jina_reader import fetch_raw_document as fetch_jina_raw_document
 from .markdown_processor import MarkdownProcessor
 from .models import (
     AcquisitionError,
@@ -69,8 +70,13 @@ from .models import (
 from .remote_clients import (
     CamoufoxClientError,
     Crawl4AIClientError,
+    UnlockerClientError,
+    crawl4ai_browser_params,
+    crawl4ai_markdown_params,
+    extract_crawl_markdown_candidates,
     get_camoufox_client,
     get_crawl4ai_client,
+    get_unlocker_client,
 )
 from .renderers import render_raw_document
 from .resolver_registry import REGISTRY
@@ -80,9 +86,8 @@ from .resolvers.wayback import fetch_wayback_raw
 LOGGER = logging.getLogger(__name__)
 
 # Re-export the canonical contracts declared in :mod:`content.models` so
-# legacy `from ..content.fetch_pipeline import FetchOptions` paths keep
-# resolving. The single source of truth is ``content.models``; do not
-# redefine here.
+# callers that historically imported them from this module keep resolving.
+# The single source of truth is ``content.models``; do not redefine here.
 __all__ = (
     "ContentArtifact",
     "ContentError",
@@ -94,9 +99,26 @@ __all__ = (
     "StageAttempt",
     "evaluate_candidate",
     "fetch_content_artifact",
+    "fetch_deadline_seconds",
     "finalize_artifact",
+    "raw_document_from_crawl_item",
     "select_candidate",
 )
+
+FETCH_DEADLINE_FLOOR_SECONDS = 60.0
+FETCH_UNLOCKER_BUDGET_SECONDS = 240.0
+
+
+def fetch_deadline_seconds() -> float:
+    """Wall-clock budget for one fetch, including Web Unlocker when configured.
+
+    FastMCP ``fetch`` / ``crawl_web`` catalog timeouts must stay at least this
+    large or the tool wrapper kills Unlocker before it returns.
+    """
+    budget = max(FETCH_DEADLINE_FLOOR_SECONDS, settings.web_fetch_timeout_seconds)
+    if get_unlocker_client() is not None:
+        budget = max(budget, FETCH_UNLOCKER_BUDGET_SECONDS)
+    return budget
 
 
 # ------------------------------------------------------------------
@@ -129,6 +151,8 @@ class StageAttempt:
             return self.outcome
         if self.outcome in {"accepted", "selected", "hit"}:
             return "success"
+        if self.outcome == "rejected":
+            return "partial"
         return "error"
 
     def to_dict(self, *, item_index: int, normalized_url: str) -> dict[str, Any]:
@@ -155,9 +179,10 @@ _STAGE_ORDER: Final[dict[str, int]] = {
     "jina_generic": 2,
     "crawl4ai_remote": 3,
     "browser_optional": 4,
-    "archive_optional": 5,
-    "llms_txt": 6,
-    "selection": 7,
+    "unlocker_remote": 5,
+    "archive_optional": 6,
+    "llms_txt": 7,
+    "selection": 8,
 }
 
 
@@ -190,6 +215,7 @@ class _AttemptLog:
         error_code: str | None = None,
         selection_reason: str | None = None,
         candidate: Candidate | None = None,
+        latency_ms: float | None = None,
     ) -> None:
         """Record one attempt, deriving measured facts from ``candidate`` when given."""
         chars = len(candidate.processed.markdown) if candidate is not None else None
@@ -200,7 +226,7 @@ class _AttemptLog:
                 backend=backend,
                 outcome=outcome,
                 error_code=error_code,
-                latency_ms=None,
+                latency_ms=latency_ms,
                 selection_reason=selection_reason,
                 chars_kept=chars,
                 quality_score=score,
@@ -279,7 +305,7 @@ async def _decide_jina_route(url: str, ctx: FetchContext) -> RouteDecision:
             timeout_seconds=preflight_timeout,
             max_response_bytes=1_500_000,
         )
-    except Exception as exc:
+    except (TimeoutError, SafeFetchError, httpx.HTTPError, OSError, ValueError) as exc:
         LOGGER.debug("Jina preflight unavailable for %s: %s", url, exc)
         return analyze_html("", status=200)
     content_type = (fetched.content_type or "").split(";")[0].strip().lower()
@@ -313,35 +339,99 @@ async def _acquire_via_jina(
     )
 
 
-async def _acquire_via_crawl4ai(url: str, *, ctx: FetchContext) -> RawDocument:
-    """Crawl4AI remote non-browser markdown → RawDocument."""
+def raw_document_from_crawl_item(
+    url: str,
+    item: Mapping[str, Any],
+    markdown: str,
+    *,
+    variant: str,
+    links: tuple[dict[str, Any], ...] = (),
+) -> RawDocument:
+    """Build one neutral Markdown document from a Crawl4AI ``/crawl`` result."""
+    metadata = item.get("metadata")
+    metadata_dict = dict(metadata) if isinstance(metadata, Mapping) else {}
+    metadata_dict["crawl_variant"] = variant
+    metadata_dict["extraction_method"] = "crawl4ai_crawl"
+    fetched_url = item.get("redirected_url") or item.get("url") or item.get("source_url") or url
+    status_code = item.get("status_code") or item.get("status")
+    http_status = (
+        status_code if isinstance(status_code, int) and not isinstance(status_code, bool) else None
+    )
+    complete_value = item.get("success")
+    complete = complete_value if isinstance(complete_value, bool) else None
+    title = item.get("title")
+    if not title and isinstance(metadata, Mapping):
+        meta_title = metadata.get("title")
+        title = meta_title if isinstance(meta_title, str) else None
+    return RawDocument(
+        input_url=url,
+        fetched_url=str(fetched_url),
+        source_type="html",
+        fetch_backend="crawl4ai_remote",
+        body=TextDocument(text=markdown, format="markdown"),
+        content_type="text/markdown",
+        title=str(title) if title else None,
+        metadata=metadata_dict,
+        links=links,
+        http_status=http_status,
+        complete=complete,
+        scope="full",
+        bytes_downloaded=len(markdown.encode("utf-8")),
+    )
+
+
+def _crawl4ai_target_elements(decision: RouteDecision | None) -> list[str] | None:
+    """Choose Crawl4AI ``target_elements`` from DOM evidence, or omit them."""
+    if decision is None:
+        return None
+    if decision.target_selector:
+        return [decision.target_selector]
+    if decision.signals.has_article:
+        return ["article"]
+    return None
+
+
+async def _acquire_via_crawl4ai(
+    url: str,
+    *,
+    ctx: FetchContext,
+    decision: RouteDecision | None = None,
+) -> list[RawDocument]:
+    """Crawl4AI ``POST /crawl`` agent-ready Markdown → one RawDocument per variant."""
     client = get_crawl4ai_client()
     if client is None:
         raise Crawl4AIClientError("Crawl4AI client not configured", retryable=False)
-    markdown = await client.fetch_markdown(url, mode="fit")
-    if len(markdown.encode("utf-8")) > ctx.max_response_bytes:
-        raise Crawl4AIClientError(
-            f"Crawl4AI response exceeds {ctx.max_response_bytes} byte cap",
-            retryable=False,
-        )
-    return RawDocument(
-        input_url=url,
-        fetched_url=url,
-        source_type="html",
-        fetch_backend="crawl4ai_remote",
-        body=TextDocument(text=markdown),
-        content_type="text/markdown",
-        title=None,
-        metadata={"extraction_method": "crawl4ai_md"},
-        links=(),
-        diagnostics=(),
-        http_status=200,
-        response_headers={},
-        complete=True,
-        scope="full",
-        bytes_downloaded=len(markdown.encode("utf-8")),
-        redirect_count=0,
+    remaining = ctx.timeout(maximum=settings.crawl4ai_timeout_seconds)
+    items = await client.crawl(
+        [url],
+        browser_params=crawl4ai_browser_params(),
+        crawler_params=crawl4ai_markdown_params(
+            target_elements=_crawl4ai_target_elements(decision),
+            wait_for=decision.wait_for_selector if decision is not None else None,
+        ),
+        timeout=remaining,
     )
+    if not items:
+        raise Crawl4AIClientError("Crawl4AI /crawl returned no results", retryable=True)
+    item = items[0]
+    if item.get("success") is False:
+        message = str(item.get("error") or item.get("message") or "Crawl4AI failed")
+        raise Crawl4AIClientError(message, retryable=False)
+    entries = extract_crawl_markdown_candidates(item)
+    if not entries:
+        raise Crawl4AIClientError("Crawl4AI returned no Markdown", retryable=False)
+    documents: list[RawDocument] = []
+    for entry in entries:
+        markdown = entry["markdown"]
+        if len(markdown.encode("utf-8")) > ctx.max_response_bytes:
+            raise Crawl4AIClientError(
+                f"Crawl4AI response exceeds {ctx.max_response_bytes} byte cap",
+                retryable=False,
+            )
+        documents.append(
+            raw_document_from_crawl_item(url, item, markdown, variant=entry["variant"])
+        )
+    return documents
 
 
 async def _acquire_via_camoufox(url: str, *, ctx: FetchContext) -> RawDocument:
@@ -349,28 +439,62 @@ async def _acquire_via_camoufox(url: str, *, ctx: FetchContext) -> RawDocument:
 
     Camoufox returns raw HTML, not markdown. The MarkdownProcessor
     evaluator runs the sanitize / shape pass; the body keeps ``format="html"``
-    so callers know the body still needs sanitizing.
+    so callers know the body still needs sanitizing. Origin HTTP status is
+    copied when the sidecar exposes it; it is left unset rather than forged.
     """
     client = get_camoufox_client()
     if client is None:
         raise CamoufoxClientError("Camoufox client not configured", retryable=False)
-    html = await client.fetch_html(url, max_bytes=ctx.max_response_bytes)
+    remaining = ctx.timeout(maximum=settings.camoufox_timeout_seconds)
+    result = await client.fetch_html(url, max_bytes=ctx.max_response_bytes, timeout=remaining)
     return RawDocument(
         input_url=url,
-        fetched_url=url,
+        fetched_url=result.fetched_url or url,
         source_type="html",
         fetch_backend="camoufox_remote",
-        body=TextDocument(text=html, format="html"),
+        body=TextDocument(text=result.html, format="html"),
         content_type="text/html",
         title=None,
         metadata={"extraction_method": "camoufox_remote"},
         links=(),
         diagnostics=(),
-        http_status=200,
-        response_headers={},
+        http_status=result.http_status,
+        response_headers=result.response_headers,
         complete=True,
         scope="full",
-        bytes_downloaded=len(html.encode("utf-8")),
+        bytes_downloaded=len(result.html.encode("utf-8")),
+        redirect_count=0,
+    )
+
+
+async def _acquire_via_unlocker(url: str, *, ctx: FetchContext) -> RawDocument:
+    """Bright Data Web Unlocker Markdown → RawDocument."""
+    client = get_unlocker_client()
+    if client is None:
+        raise UnlockerClientError("Web Unlocker client not configured", retryable=False)
+    remaining = ctx.timeout(maximum=settings.brightdata_unlocker_timeout_seconds)
+    result = await client.fetch_markdown(url, timeout=remaining)
+    if len(result.markdown.encode("utf-8")) > ctx.max_response_bytes:
+        raise UnlockerClientError(
+            f"Web Unlocker response exceeds {ctx.max_response_bytes} byte cap",
+            retryable=False,
+        )
+    return RawDocument(
+        input_url=url,
+        fetched_url=url,
+        source_type="html",
+        fetch_backend="brightdata_unlocker",
+        body=TextDocument(text=result.markdown, format="markdown"),
+        content_type="text/markdown",
+        title=None,
+        metadata={"extraction_method": "brightdata_unlocker"},
+        links=(),
+        diagnostics=(),
+        http_status=result.http_status,
+        response_headers=result.response_headers,
+        complete=True,
+        scope="full",
+        bytes_downloaded=len(result.markdown.encode("utf-8")),
         redirect_count=0,
     )
 
@@ -416,12 +540,13 @@ async def _cache_candidate_lookup(
         from ..cache import get_page_cache
 
         cache = get_page_cache()
-    except Exception:
+    except (ImportError, OSError, RuntimeError) as exc:
+        LOGGER.warning("Page cache unavailable for %s: %s", canonical_url, exc)
         return None
     try:
         key = _cache_key(canonical_url, options)
         entry = await cache.alookup(key)
-    except Exception as exc:  # pragma: no cover - cache isolation
+    except (TimeoutError, OSError, RuntimeError, ValueError, TypeError) as exc:
         LOGGER.warning("Page cache lookup failed for %s: %s", canonical_url, exc)
         return None
     if not entry:
@@ -598,7 +723,6 @@ def _rank_candidate(candidate: Candidate) -> tuple[int, int, int, int, float, in
         "garbled_content",
         "empty_content",
         "incomplete",
-        "skip_mdformat",
     }
     http_5_blocked = any(flag.startswith("http_5") for flag in flags)
     blocked = candidate.failure is not None
@@ -622,6 +746,12 @@ def _candidate_blocked(candidate: Candidate) -> bool:
     return _rank_candidate(candidate)[0] == 0
 
 
+def _has_usable_candidate(candidates: list[Candidate]) -> bool:
+    """True when selection would keep an accepted, unblocked candidate."""
+    best = select_candidate(candidates)
+    return best is not None and best.processed.quality.accepted and not _candidate_blocked(best)
+
+
 # ------------------------------------------------------------------
 # Public entry. PipelineSlice owns this surface; tools/CLI call it.
 # ------------------------------------------------------------------
@@ -635,22 +765,23 @@ async def fetch_content_artifact(
     http_client: httpx.AsyncClient | None = None,
     deadline: float | None = None,
     stage_attempts: list | None = None,
+    skip_stages: frozenset[str] = frozenset(),
 ) -> ContentArtifact:
     """Run the orchestration: cache → registry → generic → finalize.
 
-    Every completed path (cache hit, resolver, Jina, Crawl4AI,
-    browser/archive fallbacks) flows through :class:`MarkdownProcessor` and
+    Every completed path flows through :class:`MarkdownProcessor` and
     contributes one entry to the attempt log. Selection chooses the best
     Candidate and one call into :func:`finalize_artifact` produces the
-    artifact.
+    artifact. Generic stages after the first usable candidate are skipped.
     """
     options = fetch_options or FetchOptions()
     normalized = canonicalize_url(input_url)
     attempts = _AttemptLog(stage_attempts, normalized_url=normalized)
     candidates: list[Candidate] = []
+    skipped = skip_stages
 
     if deadline is None:
-        deadline = time.monotonic() + max(60.0, settings.web_fetch_timeout_seconds)
+        deadline = time.monotonic() + fetch_deadline_seconds()
     owns_client = http_client is None
     if owns_client:
         http_client = httpx.AsyncClient(
@@ -665,7 +796,6 @@ async def fetch_content_artifact(
     )
 
     try:
-        # 1. cache (versioned key includes policy + mode)
         cached = await _cache_candidate_lookup(normalized, options=options)
         if cached is not None:
             candidates.append(cached)
@@ -675,13 +805,13 @@ async def fetch_content_artifact(
                 outcome="hit",
             )
 
-        # 2. resolver registry ordered by priority
         registry_iterable = registry if registry is not None else REGISTRY
         parsed = ParsedURL.parse(input_url)
         for spec in registry_iterable:
+            started = time.perf_counter()
             try:
                 target = spec.match(parsed)
-            except Exception as exc:
+            except (TypeError, ValueError, AttributeError) as exc:
                 LOGGER.debug("Resolver %s.match failed: %s", spec.name, exc)
                 continue
             if target is None:
@@ -696,6 +826,7 @@ async def fetch_content_artifact(
                     backend=spec.name,
                     outcome="error",
                     error_code=failure.code,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
                 failure_doc = _empty_failure_document(
                     input_url=input_url,
@@ -712,13 +843,14 @@ async def fetch_content_artifact(
                 if not target.allow_generic:
                     break
                 continue
-            except Exception as exc:
+            except (TimeoutError, httpx.HTTPError) as exc:
                 LOGGER.debug("Resolver %s raised: %s", spec.name, exc)
                 attempts.record_outcome(
                     label="resolver_registry",
                     backend=spec.name,
                     outcome="error",
                     error_code=type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
                 continue
             candidate = await evaluate_candidate(
@@ -736,38 +868,25 @@ async def fetch_content_artifact(
                 backend=spec.name,
                 outcome=outcome,
                 candidate=candidate,
+                latency_ms=(time.perf_counter() - started) * 1000,
             )
             if not target.allow_generic:
                 break
             if candidate.processed.quality.accepted and candidate.document.complete is not False:
                 break
 
-        # 3. DOM-routed Jina Reader — skipped when the registry already
-        # produced an accepted candidate for this request.
-        registry_accepted = any(
-            candidate.processed.quality.accepted and candidate.document.fetch_backend != "cache"
-            for candidate in candidates
-        )
-        jina_skipped = False
         decision: RouteDecision | None = None
-        if registry_accepted:
-            jina_skipped = True
-            attempts.record_outcome(
-                label="jina_generic",
-                backend="jina_reader",
-                outcome="skipped",
-                selection_reason="registry candidate accepted",
-            )
-        else:
+        if not _has_usable_candidate(candidates):
+            started = time.perf_counter()
             decision = await _decide_jina_route(input_url, ctx)
             if decision.route == "browser":
-                # JS shells and challenges defer to the Camoufox stage.
                 LOGGER.debug("Jina stage skipped: DOM route is browser (%s)", decision.reasons)
                 attempts.record_outcome(
                     label="jina_generic",
                     backend="jina_reader",
                     outcome="skipped",
                     selection_reason=f"dom_route:browser:{' '.join(decision.reasons)}",
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
             else:
                 try:
@@ -788,6 +907,7 @@ async def fetch_content_artifact(
                         ),
                         selection_reason=f"dom_route:{decision.route}",
                         candidate=jina_candidate,
+                        latency_ms=(time.perf_counter() - started) * 1000,
                     )
                 except (TimeoutError, JinaReaderError, httpx.HTTPError) as exc:
                     LOGGER.debug("Jina generic failed: %s", exc)
@@ -797,26 +917,18 @@ async def fetch_content_artifact(
                         backend="jina_reader",
                         outcome="error",
                         error_code=failure.code,
+                        latency_ms=(time.perf_counter() - started) * 1000,
                     )
 
-        # 4. Crawl4AI — only after a rejected or failed generic attempt; never
-        # for binary targets, never after an accepted candidate.
-        best_before = select_candidate(candidates)
-        accepted_before = (
-            best_before is not None
-            and best_before.processed.quality.accepted
-            and not _candidate_blocked(best_before)
-        )
         if (
-            not jina_skipped
-            and not accepted_before
+            not _has_usable_candidate(candidates)
+            and "crawl4ai_remote" not in skipped
             and not _is_binary_target(input_url)
-            and decision is not None
-            and decision.route != "browser"
             and get_crawl4ai_client() is not None
         ):
+            started = time.perf_counter()
             try:
-                crawl_document = await _acquire_via_crawl4ai(input_url, ctx=ctx)
+                crawl_documents = await _acquire_via_crawl4ai(input_url, ctx=ctx, decision=decision)
             except Crawl4AIClientError as exc:
                 LOGGER.warning("Crawl4AI remote failed for %s: %s", input_url, exc)
                 record_content_error(
@@ -827,82 +939,142 @@ async def fetch_content_artifact(
                     backend="crawl4ai_remote",
                     outcome="error",
                     error_code=type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
-            except Exception as exc:
+            except (TimeoutError, httpx.HTTPError) as exc:
                 LOGGER.debug("Crawl4AI raised: %s", exc)
                 attempts.record_outcome(
                     label="crawl4ai_remote",
                     backend="crawl4ai_remote",
                     outcome="error",
                     error_code=type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
             else:
-                crawl_candidate = await evaluate_candidate(
-                    crawl_document, attempt_index=len(candidates), options=options
-                )
-                candidates.append(crawl_candidate)
-                attempts.record_outcome(
-                    label="crawl4ai_remote",
-                    backend="crawl4ai_remote",
-                    outcome=(
-                        "accepted" if crawl_candidate.processed.quality.accepted else "rejected"
-                    ),
-                    candidate=crawl_candidate,
-                )
+                batch_start = len(candidates)
+                for crawl_document in crawl_documents:
+                    crawl_candidate = await evaluate_candidate(
+                        crawl_document, attempt_index=len(candidates), options=options
+                    )
+                    candidates.append(crawl_candidate)
+                batch = candidates[batch_start:]
+                if batch:
+                    accepted_batch = [item for item in batch if item.processed.quality.accepted]
+                    logged = accepted_batch[-1] if accepted_batch else batch[-1]
+                    attempts.record_outcome(
+                        label="crawl4ai_remote",
+                        backend="crawl4ai_remote",
+                        outcome=("accepted" if logged.processed.quality.accepted else "rejected"),
+                        candidate=logged,
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                    )
 
-        # 5. browser (Camoufox) fallback — always on when the client is configured
-        try:
-            _browser_timeout = ctx.timeout(maximum=35.0)
-        except TimeoutError:
-            _browser_timeout = 10.0
+        challenge = bool(decision is not None and decision.signals.challenge_evidence)
         if (
-            not accepted_before
+            not _has_usable_candidate(candidates)
             and not _is_binary_target(input_url)
             and get_camoufox_client() is not None
         ):
-            try:
-                browser_document = await _acquire_via_camoufox(input_url, ctx=ctx)
-            except CamoufoxClientError as exc:
-                LOGGER.warning("Browser fallback failed for %s: %s", input_url, exc)
+            started = time.perf_counter()
+            if challenge:
                 attempts.record_outcome(
                     label="browser_optional",
                     backend="camoufox_remote",
-                    outcome="error",
-                    error_code=type(exc).__name__,
-                )
-            except Exception as exc:
-                LOGGER.debug("Browser fallback raised: %s", exc)
-                attempts.record_outcome(
-                    label="browser_optional",
-                    backend="camoufox_remote",
-                    outcome="error",
-                    error_code=type(exc).__name__,
+                    outcome="skipped",
+                    selection_reason="challenge_evidence",
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
             else:
-                browser_candidate = await evaluate_candidate(
-                    browser_document, attempt_index=len(candidates), options=options
-                )
-                candidates.append(browser_candidate)
+                try:
+                    browser_document = await _acquire_via_camoufox(input_url, ctx=ctx)
+                except CamoufoxClientError as exc:
+                    LOGGER.warning("Browser fallback failed for %s: %s", input_url, exc)
+                    attempts.record_outcome(
+                        label="browser_optional",
+                        backend="camoufox_remote",
+                        outcome="error",
+                        error_code=type(exc).__name__,
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                    )
+                except (TimeoutError, httpx.HTTPError) as exc:
+                    LOGGER.debug("Browser fallback raised: %s", exc)
+                    attempts.record_outcome(
+                        label="browser_optional",
+                        backend="camoufox_remote",
+                        outcome="error",
+                        error_code=type(exc).__name__,
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                    )
+                else:
+                    browser_candidate = await evaluate_candidate(
+                        browser_document, attempt_index=len(candidates), options=options
+                    )
+                    candidates.append(browser_candidate)
+                    attempts.record_outcome(
+                        label="browser_optional",
+                        backend="camoufox_remote",
+                        outcome=(
+                            "accepted"
+                            if browser_candidate.processed.quality.accepted
+                            else "rejected"
+                        ),
+                        candidate=browser_candidate,
+                        latency_ms=(time.perf_counter() - started) * 1000,
+                    )
+
+        if (
+            not _has_usable_candidate(candidates)
+            and not _is_binary_target(input_url)
+            and get_unlocker_client() is not None
+        ):
+            started = time.perf_counter()
+            try:
+                unlocker_document = await _acquire_via_unlocker(input_url, ctx=ctx)
+            except UnlockerClientError as exc:
+                LOGGER.warning("Web Unlocker failed for %s: %s", input_url, exc)
                 attempts.record_outcome(
-                    label="browser_optional",
-                    backend="camoufox_remote",
+                    label="unlocker_remote",
+                    backend="brightdata_unlocker",
+                    outcome="error",
+                    error_code=exc.error_code or type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+            except (TimeoutError, httpx.HTTPError) as exc:
+                LOGGER.debug("Web Unlocker raised: %s", exc)
+                attempts.record_outcome(
+                    label="unlocker_remote",
+                    backend="brightdata_unlocker",
+                    outcome="error",
+                    error_code=type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
+                )
+            else:
+                unlocker_candidate = await evaluate_candidate(
+                    unlocker_document, attempt_index=len(candidates), options=options
+                )
+                candidates.append(unlocker_candidate)
+                attempts.record_outcome(
+                    label="unlocker_remote",
+                    backend="brightdata_unlocker",
                     outcome=(
-                        "accepted" if browser_candidate.processed.quality.accepted else "rejected"
+                        "accepted" if unlocker_candidate.processed.quality.accepted else "rejected"
                     ),
-                    candidate=browser_candidate,
+                    candidate=unlocker_candidate,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
 
-        # 6. Wayback archive fallback — always on.
-        if not accepted_before:
+        if not _has_usable_candidate(candidates):
+            started = time.perf_counter()
             try:
                 archive_document = await _acquire_via_wayback(input_url, ctx=ctx)
-            except Exception as exc:
+            except (TimeoutError, httpx.HTTPError, AcquisitionError) as exc:
                 LOGGER.debug("Archive fallback raised: %s", exc)
                 attempts.record_outcome(
                     label="archive_optional",
                     backend="wayback_archive",
                     outcome="error",
                     error_code=type(exc).__name__,
+                    latency_ms=(time.perf_counter() - started) * 1000,
                 )
             else:
                 if archive_document is not None:
@@ -919,6 +1091,7 @@ async def fetch_content_artifact(
                             else "rejected"
                         ),
                         candidate=archive_candidate,
+                        latency_ms=(time.perf_counter() - started) * 1000,
                     )
 
         selected = select_candidate(candidates)

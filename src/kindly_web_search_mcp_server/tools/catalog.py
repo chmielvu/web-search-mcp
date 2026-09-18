@@ -22,13 +22,15 @@ DEFAULT_PROFILE_TOOLS = frozenset(
 )
 
 
-# Tool-level timeouts in seconds (None = no timeout enforced by FastMCP)
+# Tool-level timeouts in seconds (None = no timeout enforced by FastMCP).
+# ``fetch`` / ``crawl_web`` must cover Jina + Crawl4AI + Camoufox + Unlocker
+# (see ``fetch_deadline_seconds``); 120s kills Unlocker after a slow Crawl4AI.
 _TOOL_TIMEOUTS: dict[str, float | None] = {
     "generate_sitemap": 90.0,
     "grok_search": 60.0,
     "web_search": 120.0,
-    "fetch": 120.0,
-    "crawl_web": 120.0,
+    "fetch": 240.0,
+    "crawl_web": 240.0,
     "academic_search": 45.0,
     "code_search": 120.0,
     "code_fetch": 180.0,

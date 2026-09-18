@@ -1,4 +1,8 @@
-"""Remote HTTP clients for content rendering: Crawl4AI `/md` (cloud markdown) + Camoufox `/content` (stealth-Firefox raw HTML).
+"""Remote HTTP clients for content rendering.
+
+Crawl4AI ``POST /crawl`` (agent-ready Markdown), Camoufox ``POST /content``
+(stealth-Firefox HTML), and Bright Data Web Unlocker ``POST /request``
+(Markdown past anti-bot walls).
 
 Singleton pattern: one client instance per backend, lazy-initialized from settings.
 
@@ -6,23 +10,33 @@ Crawl4AI usage::
 
     client = get_crawl4ai_client()
     if client is not None:
-        markdown = await client.fetch_markdown("https://example.com")
+        items = await client.crawl(
+            ["https://example.com"],
+            browser_params=crawl4ai_browser_params(),
+            crawler_params=crawl4ai_markdown_params(),
+        )
 
 Camoufox usage::
 
     client = get_camoufox_client()
     if client is not None:
-        html = await client.fetch_html("https://example.com")
+        page = await client.fetch_html("https://example.com")
+
+Web Unlocker usage::
+
+    client = get_unlocker_client()
+    if client is not None:
+        result = await client.fetch_markdown("https://example.com")
 """
 
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import threading
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -74,8 +88,83 @@ def extract_crawl_markdown_candidates(item: Mapping[str, Any]) -> list[dict[str,
     return candidates
 
 
+def crawl4ai_browser_params() -> dict[str, object]:
+    """BrowserConfig params for Markdown crawls.
+
+    ``text_mode`` / ``light_mode`` skip image and font downloads that never
+    appear in Markdown. Real Chrome + patchright come from the server config.
+    """
+    return {
+        "headless": True,
+        "verbose": False,
+        "text_mode": True,
+        "light_mode": True,
+    }
+
+
+def crawl4ai_markdown_params(
+    *,
+    target_elements: list[str] | None = None,
+    css_selector: str | None = None,
+    wait_for: str | None = None,
+    javascript: list[str] | None = None,
+    javascript_before_wait: list[str] | None = None,
+    scan_full_page: bool | None = None,
+) -> dict[str, object]:
+    """CrawlerRunConfig params that emit agent-ready fit Markdown.
+
+    An explicit PruningContentFilter is required: without it the server
+    returns ``fit_markdown=None``. Threshold 0.3 / fixed / min 0 keeps code
+    fences while dropping share/nav chrome (live A/B 2026-09-15).
+    ``target_elements`` is omitted unless the caller knows the page has that
+    container — sending ``article`` on a docs shell yields empty fit Markdown.
+    """
+    params: dict[str, object] = {
+        "cache_mode": "bypass",
+        "word_count_threshold": 2,
+        "remove_overlay_elements": True,
+        "remove_consent_popups": True,
+        "excluded_tags": ["nav", "header", "footer", "aside", "form"],
+        "exclude_external_links": False,
+        "exclude_social_media_domains": [],
+        "excluded_selector": "div[class*='share'], .post-nav, .sidebar",
+        "markdown_generator": {
+            "type": "DefaultMarkdownGenerator",
+            "params": {
+                "options": {
+                    "ignore_links": False,
+                    "body_width": 0,
+                    "escape_html": False,
+                    "skip_internal_links": False,
+                },
+                "content_filter": {
+                    "type": "PruningContentFilter",
+                    "params": {
+                        "threshold": 0.3,
+                        "threshold_type": "fixed",
+                        "min_word_threshold": 0,
+                    },
+                },
+            },
+        },
+    }
+    if target_elements:
+        params["target_elements"] = list(target_elements)
+    if css_selector:
+        params["css_selector"] = css_selector
+    if wait_for:
+        params["wait_for"] = wait_for
+    if javascript_before_wait:
+        params["js_code_before_wait"] = list(javascript_before_wait)
+    if javascript:
+        params["js_code"] = list(javascript)
+    if scan_full_page is not None:
+        params["scan_full_page"] = scan_full_page
+    return params
+
+
 class Crawl4AIClient:
-    """HTTP client for Crawl4AI markdown and browser-backed crawl endpoints."""
+    """HTTP client for the trusted Crawl4AI ``/crawl`` endpoint."""
 
     def __init__(
         self,
@@ -98,39 +187,13 @@ class Crawl4AIClient:
         self._health_cache: tuple[float, bool] | None = None
         self._capability_cache: tuple[float, dict[str, Any]] | None = None
 
-    async def fetch_markdown(
-        self,
-        url: str,
-        *,
-        mode: str = "fit",
-        query: str | None = None,
-    ) -> str:
-        """POST /md — clean markdown extraction."""
-        payload: dict[str, Any] = {"url": url, "f": mode, "c": "0"}
-        if query and mode == "bm25":
-            payload["q"] = query
-        data = await self._post_json("/md", payload)
-        if isinstance(data, dict):
-            markdown = (
-                data.get("markdown")
-                or data.get("content")
-                or data.get("result")
-                or json.dumps(data)
-            )
-        elif isinstance(data, str):
-            markdown = data
-        else:
-            markdown = str(data)
-        if not markdown.strip():
-            raise Crawl4AIClientError("Crawl4AI /md returned empty content")
-        return markdown
-
     async def crawl(
         self,
         urls: list[str],
         *,
         browser_params: Mapping[str, Any],
         crawler_params: Mapping[str, Any],
+        timeout: float | None = None,
     ) -> list[dict[str, Any]]:
         """POST /crawl with typed BrowserConfig and CrawlerRunConfig wrappers."""
         payload = {
@@ -144,7 +207,7 @@ class Crawl4AIClient:
                 "params": dict(crawler_params),
             },
         }
-        data = await self._post_json("/crawl", payload)
+        data = await self._post_json("/crawl", payload, timeout=timeout)
         if isinstance(data, list):
             if not all(isinstance(item, Mapping) for item in data):
                 raise Crawl4AIClientError(
@@ -175,7 +238,7 @@ class Crawl4AIClient:
         try:
             resp = await self._http.get("/health", timeout=10.0)
             healthy = resp.status_code == 200
-        except Exception:
+        except (httpx.RequestError, OSError):
             healthy = False
         self._health_cache = (now, healthy)
         return healthy
@@ -237,10 +300,12 @@ class Crawl4AIClient:
                 f"Crawl4AI {path} returned non-JSON data", retryable=False
             ) from exc
 
-    async def _post_json(self, path: str, payload: dict[str, Any]) -> Any:
+    async def _post_json(
+        self, path: str, payload: dict[str, Any], *, timeout: float | None = None
+    ) -> Any:
         """POST JSON to a Crawl4AI endpoint and return parsed response."""
         try:
-            resp = await self._http.post(path, json=payload)
+            resp = await self._http.post(path, json=payload, timeout=timeout)
             resp.raise_for_status()
         except httpx.TimeoutException as exc:
             raise Crawl4AIClientError(f"Crawl4AI {path} timed out: {exc}", retryable=True) from exc
@@ -292,6 +357,76 @@ class CamoufoxClientError(RuntimeError):
         self.retryable = retryable
 
 
+@dataclass(frozen=True, slots=True)
+class CamoufoxResult:
+    """HTML body and origin metadata from one Camoufox ``/content`` call."""
+
+    html: str
+    http_status: int | None
+    fetched_url: str | None
+    response_headers: dict[str, str]
+
+
+_CAMOUFOX_STATUS_HEADERS = (
+    "x-origin-status",
+    "x-status-code",
+    "x-http-status",
+    "x-response-status",
+)
+
+
+def _camoufox_origin_status(headers: httpx.Headers) -> int | None:
+    """Read origin HTTP status from sidecar response headers when present."""
+    for name in _CAMOUFOX_STATUS_HEADERS:
+        raw = headers.get(name)
+        if raw is None or not raw.strip():
+            continue
+        try:
+            value = int(raw)
+        except ValueError:
+            continue
+        if 100 <= value <= 599:
+            return value
+    return None
+
+
+def _camoufox_parse_body(resp: httpx.Response) -> tuple[str, int | None, str | None]:
+    """Extract HTML, optional origin status, and optional fetched URL."""
+    origin_status = _camoufox_origin_status(resp.headers)
+    content_type = (resp.headers.get("content-type") or "").split(";", 1)[0].strip().lower()
+    fetched_url: str | None = None
+    if content_type in {"application/json", "text/json"}:
+        try:
+            payload = resp.json()
+        except ValueError as exc:
+            raise CamoufoxClientError("Camoufox returned invalid JSON", retryable=False) from exc
+        if not isinstance(payload, Mapping):
+            raise CamoufoxClientError("Camoufox JSON body was not an object", retryable=False)
+        html_value = payload.get("html") or payload.get("content") or payload.get("body")
+        if not isinstance(html_value, str) or not html_value.strip():
+            raise CamoufoxClientError("Camoufox JSON body had no HTML", retryable=True)
+        status_value = (
+            payload.get("status") or payload.get("statusCode") or payload.get("status_code")
+        )
+        if (
+            origin_status is None
+            and isinstance(status_value, int)
+            and not isinstance(status_value, bool)
+        ):
+            origin_status = status_value if 100 <= status_value <= 599 else None
+        url_value = payload.get("url") or payload.get("fetched_url") or payload.get("finalUrl")
+        fetched_url = url_value if isinstance(url_value, str) else None
+        return html_value, origin_status, fetched_url
+    if content_type not in {"", "text/html", "application/xhtml+xml"}:
+        raise CamoufoxClientError(
+            f"Camoufox returned unsupported content type {content_type!r}", retryable=False
+        )
+    html = resp.text
+    if not html.strip():
+        raise CamoufoxClientError("Camoufox returned empty body", retryable=True)
+    return html, origin_status, fetched_url
+
+
 class CamoufoxClient:
     """HTTP client for the VPS Camoufox stealth-Firefox sidecar (POST /content -> raw HTML)."""
 
@@ -314,16 +449,23 @@ class CamoufoxClient:
         )
         self._health_cache: tuple[float, bool] | None = None
 
-    async def fetch_html(self, url: str, *, max_bytes: int | None = None) -> str:
-        """POST /content -> raw HTML string.
+    async def fetch_html(
+        self,
+        url: str,
+        *,
+        max_bytes: int | None = None,
+        timeout: float | None = None,
+    ) -> CamoufoxResult:
+        """POST /content and return HTML plus origin status when the sidecar sends it.
 
         Retries on HTTP 502/503 (cold-start browser init / transient gateway
-        errors) with exponential backoff, up to 3 attempts.
+        errors) with exponential backoff, up to 3 attempts. Origin status is
+        unset when the sidecar only returns HTML — never forged as 200.
         """
         payload = {"url": url, "gotoOptions": {"waitUntil": "networkidle", "timeout": 15000}}
         for attempt in range(1, 4):
             try:
-                resp = await self._http.post("/content", json=payload)
+                resp = await self._http.post("/content", json=payload, timeout=timeout)
             except httpx.TimeoutException as exc:
                 raise CamoufoxClientError(f"Camoufox timed out: {exc}", retryable=True) from exc
             except httpx.RequestError as exc:
@@ -340,22 +482,21 @@ class CamoufoxClient:
                     f"Camoufox returned HTTP {resp.status_code}",
                     retryable=resp.status_code >= 500,
                 )
-            if not resp.headers.get("content-type", "").startswith("text/html"):
-                raise CamoufoxClientError(
-                    "Camoufox returned non-HTML content type", retryable=False
-                )
-            body = resp.text
-            if not body.strip():
-                raise CamoufoxClientError("Camoufox returned empty body", retryable=True)
+            html, origin_status, fetched_url = _camoufox_parse_body(resp)
             max_body_bytes = max_bytes or self._MAX_HTML_BYTES
-            if len(body.encode("utf-8")) > max_body_bytes:
+            if len(html.encode("utf-8")) > max_body_bytes:
                 message = (
                     "Camoufox response exceeds 8 MiB cap"
                     if max_bytes is None
                     else f"Camoufox response exceeds {max_body_bytes} byte cap"
                 )
                 raise CamoufoxClientError(message, retryable=False)
-            return body
+            return CamoufoxResult(
+                html=html,
+                http_status=origin_status,
+                fetched_url=fetched_url,
+                response_headers=dict(resp.headers),
+            )
         raise CamoufoxClientError("Camoufox request failed after 3 attempts", retryable=True)
 
     async def health_check(self) -> bool:
@@ -368,7 +509,7 @@ class CamoufoxClient:
         try:
             resp = await self._http.get("/health", timeout=10.0)
             healthy = resp.status_code == 200
-        except Exception:
+        except (httpx.RequestError, OSError):
             healthy = False
         self._health_cache = (now, healthy)
         return healthy
@@ -379,9 +520,162 @@ class CamoufoxClient:
 
 
 # ------------------------------------------------------------------
+# Bright Data Web Unlocker
+# ------------------------------------------------------------------
+
+_UNLOCKER_RETRYABLE_CODES = frozenset({"reject_block"})
+_UNLOCKER_ENDPOINT = "https://api.brightdata.com/request"
+
+
+class UnlockerClientError(RuntimeError):
+    """Raised when a Web Unlocker call fails."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        retryable: bool = False,
+        error_code: str | None = None,
+        http_status: int | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.retryable = retryable
+        self.error_code = error_code
+        self.http_status = http_status
+
+
+@dataclass(frozen=True, slots=True)
+class UnlockerResult:
+    """Markdown body returned by a successful Unlocker request."""
+
+    markdown: str
+    http_status: int | None
+    response_headers: dict[str, str]
+
+
+def _unlocker_retryable(error_code: str | None) -> bool:
+    """True when a later peer is worth one retry."""
+    if error_code is None:
+        return False
+    return error_code in _UNLOCKER_RETRYABLE_CODES or error_code.startswith("resolve_failed_")
+
+
+def _header_int(headers: httpx.Headers, name: str) -> int | None:
+    """Parse an optional integer response header."""
+    raw = headers.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+class UnlockerClient:
+    """HTTP client for Bright Data Web Unlocker ``POST /request``."""
+
+    def __init__(self, api_key: str, zone: str, *, timeout: float = 90.0) -> None:
+        self._zone = zone
+        self._timeout = timeout
+        self._http = httpx.AsyncClient(
+            timeout=httpx.Timeout(timeout, connect=10.0),
+            follow_redirects=True,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+        )
+
+    async def fetch_markdown(self, url: str, *, timeout: float | None = None) -> UnlockerResult:
+        """Return page Markdown, retrying once on peer-level unlock failures."""
+        payload = {
+            "zone": self._zone,
+            "url": url,
+            "format": "raw",
+            "data_format": "markdown",
+        }
+        last_error: UnlockerClientError | None = None
+        for attempt in range(2):
+            try:
+                return await self._request_markdown(payload, timeout=timeout)
+            except UnlockerClientError as exc:
+                if not exc.retryable or attempt == 1:
+                    raise
+                last_error = exc
+                await asyncio.sleep(1.0)
+        raise UnlockerClientError(
+            "Web Unlocker failed after retry", retryable=False
+        ) from last_error
+
+    async def _request_markdown(
+        self, payload: dict[str, str], *, timeout: float | None = None
+    ) -> UnlockerResult:
+        """POST one Unlocker request and classify the response."""
+        try:
+            resp = await self._http.post(_UNLOCKER_ENDPOINT, json=payload, timeout=timeout)
+        except httpx.TimeoutException as exc:
+            raise UnlockerClientError(f"Web Unlocker timed out: {exc}", retryable=False) from exc
+        except httpx.RequestError as exc:
+            raise UnlockerClientError(
+                f"Web Unlocker connection failed: {exc}", retryable=True
+            ) from exc
+
+        error_code = resp.headers.get("x-brd-error-code") or resp.headers.get("x-brd-err-code")
+        error_message = resp.headers.get("x-brd-error") or resp.headers.get("x-brd-err-msg")
+        origin_status = _header_int(resp.headers, "x-brd-status-code")
+        if resp.status_code in {400, 401, 403, 407}:
+            detail = (resp.text or error_message or "").strip()[:300]
+            raise UnlockerClientError(
+                f"Web Unlocker returned HTTP {resp.status_code}: {detail}",
+                retryable=False,
+                error_code=error_code,
+                http_status=resp.status_code,
+            )
+        if error_code:
+            message = error_message or error_code
+            raise UnlockerClientError(
+                f"Web Unlocker failed ({error_code!r}): {message}",
+                retryable=_unlocker_retryable(error_code),
+                error_code=error_code,
+                http_status=origin_status or resp.status_code,
+            )
+        if resp.status_code == 429:
+            raise UnlockerClientError(
+                f"Web Unlocker returned HTTP 429: {(error_message or resp.text)[:200]}",
+                retryable=False,
+                error_code="sr_rate_limit",
+                http_status=429,
+            )
+        if resp.status_code >= 500:
+            raise UnlockerClientError(
+                f"Web Unlocker returned HTTP {resp.status_code}",
+                retryable=True,
+                http_status=resp.status_code,
+            )
+        markdown = resp.text
+        if not isinstance(markdown, str) or not markdown.strip():
+            raise UnlockerClientError(
+                "Web Unlocker returned empty content",
+                retryable=False,
+                http_status=origin_status or resp.status_code,
+            )
+        return UnlockerResult(
+            markdown=markdown,
+            http_status=origin_status if origin_status is not None else 200,
+            response_headers=dict(resp.headers),
+        )
+
+    async def close(self) -> None:
+        """Close the underlying HTTP client."""
+        await self._http.aclose()
+
+
+# ------------------------------------------------------------------
 # Module-level singletons
 
 _client: Crawl4AIClient | None = None
+_unlocker_client_LOCK = threading.RLock()
+_unlocker_client: UnlockerClient | None = None
 _client_LOCK = threading.RLock()
 _camoufox_client_LOCK = threading.RLock()
 _camoufox_client: CamoufoxClient | None = None
@@ -448,6 +742,43 @@ async def close_camoufox_client() -> None:
     if _camoufox_client is not None:
         await _camoufox_client.close()
         _camoufox_client = None
+
+
+def get_unlocker_client() -> UnlockerClient | None:
+    """Get or create the singleton Unlocker client.
+
+    Returns None unless both ``BRIGHTDATA_API_KEY`` and
+    ``BRIGHTDATA_UNLOCKER_ZONE`` are set.
+    """
+    global _unlocker_client
+    from ..settings import settings
+
+    api_key = settings.brightdata_api_key.strip()
+    zone = settings.brightdata_unlocker_zone.strip()
+    if not api_key or not zone:
+        return None
+    if _unlocker_client is None:
+        with _unlocker_client_LOCK:
+            if _unlocker_client is None:
+                _unlocker_client = UnlockerClient(
+                    api_key,
+                    zone,
+                    timeout=settings.brightdata_unlocker_timeout_seconds,
+                )
+                LOGGER.info(
+                    "Web Unlocker client initialized (zone=%s timeout=%ss)",
+                    zone,
+                    settings.brightdata_unlocker_timeout_seconds,
+                )
+    return _unlocker_client
+
+
+async def close_unlocker_client() -> None:
+    """Cleanup the singleton Unlocker client on shutdown."""
+    global _unlocker_client
+    if _unlocker_client is not None:
+        await _unlocker_client.close()
+        _unlocker_client = None
 
 
 # ------------------------------------------------------------------

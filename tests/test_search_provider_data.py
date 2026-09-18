@@ -157,13 +157,13 @@ def test_brightdata_envelope_error_retains_typed_metadata() -> None:
             payload,
             "web",
             5,
-            adapter="brightdata_bing",
+            adapter="brightdata",
             sent_query="query",
         )
 
     error = raised.value
     assert error.metadata is not None
-    assert error.metadata.provider == "brightdata_bing"
+    assert error.metadata.provider == "brightdata"
     assert error.metadata.http_status == 429
     assert error.metadata.response_meta["x_brd_error_code"] == "sr_rate_limit"
     assert error.metadata.retry_after == 17.0

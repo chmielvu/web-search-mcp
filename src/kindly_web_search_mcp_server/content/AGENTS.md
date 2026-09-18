@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-15 | Last verified: 2026-09-15 -->
+<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
 
 # AGENTS.md - Content
 
@@ -13,23 +13,28 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 - **Producers** (`resolver_registry.py`, `resolvers/`, `jina_reader.py`,
   `remote_clients.py`) return `RawDocument` (or raise `AcquisitionError`);
   no sanitizing, classifying, scoring, or artifact construction inside.
-- **Bounded crawl** (`crawl_pipeline.py`): validates public seeds and discovered links (per-seed `SafeFetchError` → typed failure artifact, other seeds continue), traverses breadth-first within typed domain/glob/page/depth limits, canonicalizes fetch targets with `fold_slug=False` (dedup folding is identity-only, never a request URL), and sends only typed browser/crawler parameters to Crawl4AI. Pages Crawl4AI cannot acquire fall back once to the single-URL ladder (`fetch_content_artifact`).
+- **Bounded crawl** (`crawl_pipeline.py`): validates public seeds and discovered links (per-seed `SafeFetchError` → typed failure artifact, other seeds continue), traverses breadth-first within typed domain/glob/page/depth limits, canonicalizes fetch targets with `fold_slug=False` (dedup folding is identity-only, never a request URL), and sends only typed browser/crawler parameters to Crawl4AI. Pages Crawl4AI cannot acquire fall back once to the single-URL ladder (`fetch_content_artifact`) with Crawl4AI skipped.
 - **Shared evaluation** (`markdown_processor.py`): source-range cleanup on
   the original text, rumdl stdin diagnostics (`MD056,MD075,MD070,MD031,MD058`,
   never `--fix`), measured `QualityReport`, index-only mdformat+GFM with a
-  defect-only skip gate. Agent mode never formatter round-trips.
+  defect-only skip gate. Agent mode never formatter round-trips. Challenge
+  and 404-shaped documents set `bot_challenge` / `error_page` on
+  `QualityReport.flags` so selection cannot accept them.
 - **Orchestration** (`fetch_pipeline.py`): resolver registry → Jina (single
-  faithful profile; skipped when the registry already accepted) → Crawl4AI
-  (only after a rejected/failed generic attempt) → browser (Camoufox) → Wayback
-  archive;
+  faithful profile; skipped when a usable candidate already exists, or when the
+  DOM route is ``browser``) → Crawl4AI ``POST /crawl`` (agent-ready fit
+  Markdown with PruningContentFilter 0.3; runs on browser-route pages too)
+  → Camoufox (skipped when preflight already saw challenge evidence) →
+  Bright Data Web Unlocker (always on when ``BRIGHTDATA_UNLOCKER_ZONE`` is
+  set) → Wayback archive;
   every candidate evaluated once, best wins on acceptance, scope,
-  completeness, measured quality, then earlier index.
-
+  completeness, measured quality, then earlier index. Later generic stages
+  are skipped once a usable unblocked candidate exists.
 ## Key Files
 
 | File | Role |
 |---|---|
-| `fetch_pipeline.py` | Single-URL orchestrator: registry → Jina → Crawl4AI → browser/archive; candidate selection only |
+| `fetch_pipeline.py` | Single-URL orchestrator: registry → Jina → Crawl4AI `/crawl` → Camoufox → Unlocker → archive; candidate selection only |
 | `crawl_pipeline.py` | Bounded BFS over Crawl4AI results; validates public links and delegates all page evaluation/finalization |
 | `resolver_registry.py` | Ordered `ResolverSpec` list; every spec owns its `match_*` + `fetch_*_raw` |
 | `constructor.py` | Sole `ContentArtifact` constructor (`finalize_artifact` + `rehydrate_cached_artifact`), atomic index writer to `outputs/` |
@@ -49,8 +54,8 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 ## Rules
 
 - `fetch_pipeline.py` is the main single-URL path. Registry match runs first;
-  on no match, Jina → Crawl4AI → browser/archive fallbacks run (always on when the
-  corresponding client is configured). The
+  on no match, Jina → Crawl4AI ``/crawl`` → Camoufox → Web Unlocker → archive
+  run (always on when the corresponding client is configured). The
   `md_twin` spec sits last in the registry: pages with a clean `page.md`
   sibling short-circuit the cascade entirely; misses cost one bounded GET.
 - Every resolver spec owns its `match_*` + `fetch_*_raw` pair. Producers
@@ -77,22 +82,20 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
   folded key would silently degrade to positional pairing and pair one page
   with another page's result.
 - A page whose Crawl4AI result is a typed failure, blocked, or otherwise not
-  accepted content is retried once through the single-URL ladder
-  (`fetch_content_artifact`: registry → Jina → Crawl4AI Markdown → Camoufox →
-  archive). The Crawl4AI container's untrusted-request policy forbids
-  `js_code`, `magic`, `simulate_user`, `override_navigator`, `cdp_url`,
-  `proxy_config`, `cookies`, and `headers`, and its Chromium cannot pass
-  challenge walls, so hard sites only resolve through this second path;
-  accepted Crawl4AI pages never trigger the fallback.
-- `crawl_pipeline._crawler_params` always sends an explicit
-  `markdown_generator` (DefaultMarkdownGenerator + PruningContentFilter
-  0.3/fixed/min 0), `word_count_threshold=2`, `target_elements=["article"]`,
-  and `excluded_selector` for share/nav divs. Without the explicit filter the
-  Crawl4AI server returns `fit_markdown=None` (fit/raw selection degenerates
-  to raw-only and div boilerplate survives); with the filter, boilerplate is
-  gone and every code fence survives — verified A/B against the live server
-  on 2026-09-15 (see wiki `crawl4ai-pruning-config-tuning` for the tuning
-  matrix; thresholds ≥0.48 with higher word thresholds destroy code fences).
+  accepted content is retried once through the single-URL ladder with
+  ``skip_stages={"crawl4ai_remote"}`` (registry → Jina → Camoufox → Unlocker →
+  archive). The trusted Crawl4AI 0.9.3 instance accepts ``js_code``, ``wait_for``,
+  ``target_elements``, and the pruning markdown generator. Chromium still cannot
+  pass challenge walls on a datacenter IP, so hard sites resolve through
+  Camoufox or Web Unlocker; accepted Crawl4AI pages never trigger the fallback.
+- `crawl_pipeline._crawler_params` and single-URL fetch both send
+  :func:`crawl4ai_markdown_params` (DefaultMarkdownGenerator + PruningContentFilter
+  0.3/fixed/min 0, ``word_count_threshold=2``, ``excluded_selector`` for share/nav
+  divs, ``body_width=0``). ``target_elements=["article"]`` is sent only when DOM
+  evidence says the page has an article (fetch) or the crawl request names a CSS
+  target. Without the explicit filter the Crawl4AI server returns
+  ``fit_markdown=None``. Thresholds ≥0.48 with higher word thresholds destroy
+  code fences — verified A/B against the live server on 2026-09-15.
 - `MarkdownProcessor` runs two repair passes ahead of validation:
   `inferred-fence-languages` (deterministic language tags on language-less
   fences; body never edited) and `deduped-h1-headings` (later H1s duplicating
@@ -107,10 +110,13 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
   (`artifact.quality.flags` + `artifact.error.code`) and from
   `Candidate.failure` (`ContentError.status`) set by acquisition.
 - Index mode persists content-addressed `.md` files under `REPO_ROOT/outputs/`
-  via atomic `tempfile.NamedTemporaryFile` + `os.replace`. Cache version key
+  and `fetch` reports `output_path` when `processing_mode="index"`. The cache key
   includes `policy_version + processing_mode + normalized_url`.
-- `tavily_map.py` is Tavily-only (no fallback).
-- Per-stage timeouts: Jina 60s (ReaderLM latency), Crawl4AI 30s, local 20s, Camoufox 35s.
+- Per-stage timeouts: Jina 60s, Crawl4AI client 120s (bounded by remaining
+  deadline), Camoufox 35s, Web Unlocker 90s. One-fetch wall clock is
+  ``fetch_deadline_seconds()`` (240s when Unlocker is configured). FastMCP
+  ``fetch`` / ``crawl_web`` catalog timeouts are 240s so the wrapper cannot
+  kill Unlocker.
 - Jina Reader circuit breaker: opens after 3 failures in 60s. Single faithful
   profile: `Accept: application/json`, `X-Respond-With: frontmatter`,
   `X-Retain-Links: all`, `X-Retain-Images: all`. Caching stays on by default

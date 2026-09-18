@@ -85,11 +85,10 @@ RUMLDL_ENABLED_RULES: tuple[str, ...] = (
     "MD090",  # horizontal rule immediately before a heading
 )
 
-# Rule identifiers whose affected characters DO degrade the quality
-# score. MD031/MD058 are stylistic and surface in flags/diagnostics
-# but never count toward ``union_affected_chars``. The scraped-junk
-# rules above all count: they mark content an LLM cannot use cleanly.
-STYLE_RULES: frozenset[str] = frozenset({"MD031", "MD058"})
+# Rule identifiers whose affected characters do not degrade the quality
+# score. MD031/MD058/MD090 are stylistic; they stay on the internal
+# diagnostic list for analytics but never count toward ``union_affected_chars``.
+STYLE_RULES: frozenset[str] = frozenset({"MD031", "MD058", "MD090"})
 
 # rumdl rule codes marking scraped junk an LLM cannot use cleanly (inline
 # HTML, emphasis-as-heading, empty links, alt-less images, non-descriptive
@@ -341,6 +340,10 @@ _ERROR_PAGE_BODY_RE = re.compile(
     r"^\s*(?:404|error|page\s+not\s+found)\b",
     re.IGNORECASE | re.MULTILINE,
 )
+_BOT_CHALLENGE_RE = re.compile(
+    r"(?i)(?:just a moment|checking your browser|verify you are (?:a )?human"
+    r"|verify your session|cf-chl-|challenge-platform|attention required)"
+)
 
 
 def _looks_like_error_page(text: str) -> bool:
@@ -352,6 +355,13 @@ def _looks_like_error_page(text: str) -> bool:
         return True
     first_lines = [line.strip() for line in head.splitlines() if line.strip()][:3]
     return len(first_lines) <= 2 and all(_ERROR_PAGE_BODY_RE.match(line) for line in first_lines)
+
+
+def _looks_like_bot_challenge(text: str) -> bool:
+    """True when the document is an anti-bot interstitial rather than page content."""
+    if not text:
+        return False
+    return bool(_BOT_CHALLENGE_RE.search(text[:8000]))
 
 
 # --- Protected-set computation (one freeze) -----------------------------------
@@ -1330,15 +1340,27 @@ class MarkdownProcessor:
 
         validator_copy = _neutralize(cleaned)
 
-        # 8. Error-page gate: a 404-shaped render arriving with HTTP 200
-        # must not be accepted as usable content. The flag routes through
-        # selection's blocking set, so a challenge/404 render loses to
-        # any usable candidate.
+        # 8. Error-page / challenge gate: 404-shaped or anti-bot renders
+        # arriving with HTTP 200 must not be accepted as usable content.
+        # Flags land on QualityReport so selection's blocking set sees them.
+        extra_flags: list[str] = []
         if _looks_like_error_page(cleaned):
+            extra_flags.append("error_page")
             diagnostics.append(
                 Diagnostic(
                     code="error_page",
                     message="Document opens like an error page (404/bot wall), not article content",
+                    severity="error",
+                    source="pipeline",
+                    phase=_PHASE_VALIDATE,
+                ),
+            )
+        if _looks_like_bot_challenge(cleaned):
+            extra_flags.append("bot_challenge")
+            diagnostics.append(
+                Diagnostic(
+                    code="bot_challenge",
+                    message="Document is an anti-bot interstitial, not page content",
                     severity="error",
                     source="pipeline",
                     phase=_PHASE_VALIDATE,
@@ -1442,6 +1464,7 @@ class MarkdownProcessor:
                 score=post_score,
                 structural=post_structural,
                 rumdl_records=rumdl_records,
+                extra_flags=tuple(extra_flags),
             )
 
         else:
@@ -1451,6 +1474,7 @@ class MarkdownProcessor:
                 score=pre_format_score,
                 structural=structural,
                 rumdl_records=rumdl_records,
+                extra_flags=tuple(extra_flags),
             )
         return ProcessedMarkdown(
             markdown=final_text,
@@ -1468,27 +1492,30 @@ def _build_quality_report(
     score: float,
     structural: _StructuralFindings,
     rumdl_records: list[Diagnostic],
+    extra_flags: tuple[str, ...] = (),
 ) -> QualityReport:
     """Build the canonical :class:`QualityReport` for ``text``.
 
     ``accepted`` is True only when substantive text exists, the score
-    clears the 0.85 bar, and no malformed tables or fence errors are
-    present. Empty input sets ``accepted=False`` and prepends
-    ``"empty_content"`` to flags.
+    clears the 0.85 bar, no malformed tables or fence errors are present,
+    and the document is not an error page or bot challenge. Empty input
+    sets ``accepted=False`` and prepends ``"empty_content"`` to flags.
     """
     rule_codes = {record.code for record in rumdl_records}
     structural_flags = list(structural.flag_codes)
-    flags = tuple(dict.fromkeys(structural_flags + sorted(rule_codes)))
+    flags = tuple(dict.fromkeys([*structural_flags, *sorted(rule_codes), *extra_flags]))
     word_count = len(re.findall(r"\S+", text))
     tokens = _PARSER.parse(text)
     heading_count = sum(1 for token in tokens if token.type == "heading_open")
     code_blocks = sum(1 for token in tokens if token.type in {"code_block", "fence"})
     tables = sum(1 for token in tokens if token.type == "table_open")
+    blocked_content = bool({"error_page", "bot_challenge"}.intersection(flags))
     accepted = (
         substantive > 0
         and score >= 0.85
         and structural.malformed_tables == 0
         and structural.fence_errors == 0
+        and not blocked_content
     )
     if substantive == 0 and "empty_content" not in flags:
         flags = ("empty_content", *flags)

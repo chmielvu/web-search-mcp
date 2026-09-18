@@ -53,6 +53,7 @@ _CSUM_TABLE_NAME = "content_summaries"
 # backend probes, table freshness) — see writers/fetch_observability_schema.py
 _CSA_TABLE_NAME = "content_stage_attempts"
 _CFI_TABLE_NAME = "content_fetch_items"
+_CFD_TABLE_NAME = "content_fetch_diagnostics"
 _CSRUG_TABLE_NAME = "content_summary_rungs"
 _CBH_TABLE_NAME = "content_backend_health"
 _ATF_TABLE_NAME = "analytics_table_freshness"
@@ -74,6 +75,7 @@ __all__ = [
     "_ATF_TABLE_NAME",
     "_CBH_TABLE_NAME",
     "_CE_TABLE_NAME",
+    "_CFD_TABLE_NAME",
     "_CFI_TABLE_NAME",
     "_CF_TABLE_NAME",
     "_CO_TABLE_NAME",

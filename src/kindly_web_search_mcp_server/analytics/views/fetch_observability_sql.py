@@ -1,8 +1,9 @@
 """SQL for the fetch-observability views.
 
 Fetch-side health and follow-through: ``vw_fetch_stage_funnel``,
-``vw_fetch_backend_quality``, ``vw_fetch_followthrough``, and
-``vw_analytics_table_freshness``.
+``vw_fetch_backend_quality``, ``vw_fetch_followthrough``,
+``vw_content_fetch_diagnostic_patterns``, ``vw_content_rumdl_findings``,
+and ``vw_analytics_table_freshness``.
 
 Placeholder ``{t}`` in each statement is the target schema/prefix.
 """
@@ -56,6 +57,25 @@ def _build_fetch_observability_view_sql(target: str) -> list[str]:
         FROM content_fetches f
         LEFT JOIN final_results fr
             ON lower(fr.link) = lower(f.normalized_url)
+        """,
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_content_fetch_diagnostic_patterns AS
+        SELECT
+            source,
+            code,
+            severity,
+            phase,
+            count() AS finding_count,
+            count(DISTINCT terminal_event_id) AS affected_operations
+        FROM content_fetch_diagnostics
+        GROUP BY ALL
+        ORDER BY finding_count DESC
+        """,
+        f"""
+        CREATE OR REPLACE VIEW {t}.vw_content_rumdl_findings AS
+        SELECT *
+        FROM content_fetch_diagnostics
+        WHERE source = 'rumdl' OR starts_with(code, 'MD')
         """,
         f"""
         CREATE OR REPLACE VIEW {t}.vw_analytics_table_freshness AS

@@ -10,6 +10,7 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 
 | File | Role |
 |---|---|
+| `writers/fetch_observability_schema.py` | Fetch stage attempts, items, **diagnostics**, rungs, backend health |
 | `ids.py` | Stable result-ID/candidate-ID hash helpers (`_canonical_result_id`, `_candidate_id`) |
 | `events.py` | `PERSISTED_EVENT_PREFIXES` — persisted event-family allowlist (absorbed from top-level `observability/`) |
 | `writers/schema.py` | DDL for fact tables, quality, judge, tool-call, and classifier events |
@@ -50,6 +51,7 @@ All analytics rows join on `run_key`. Pipeline tables:
 12. `tool_calls` — typed request/response/error lifecycle facts correlated by `tool_call_id`
 13. `query_understanding_events` — classifier scores, decision paths, fallbacks, and outcome joins
 14. SQLite graph artifact — generation manifests, Adamic-Adar neighbors, and document-side BiRank/PageRank features
+15. `content_fetch_diagnostics` — one row per fetch diagnostic (rumdl MD* plus pipeline/source notes); `content_fetch_items.diagnostics_json` remains the blob
 - Rerank candidate facts use `final_score_before`/`after`, `bm25_*`,
   `bi_encoder_*`, `cross_encoder_score`, `rankllm_score`,
   `retrieval_rrf_score`, `recency_score`, `diversity_penalty`, and survival flags;

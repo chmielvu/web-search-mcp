@@ -8,6 +8,7 @@ from .table_names import (
     _CBH_TABLE_NAME,
     _CE_TABLE_NAME,
     _CF_TABLE_NAME,
+    _CFD_TABLE_NAME,
     _CFI_TABLE_NAME,
     _CO_TABLE_NAME,
     _CSA_TABLE_NAME,
@@ -707,6 +708,20 @@ _FETCH_ITEM_COLUMNS = [
     "stage_path",
     "diagnostics_json",
 ]
+_FETCH_DIAGNOSTIC_COLUMNS = [
+    "terminal_event_id",
+    "tool_call_id",
+    "item_index",
+    "diagnostic_index",
+    "code",
+    "message",
+    "severity",
+    "source",
+    "start_line",
+    "end_line",
+    "phase",
+    "retryable",
+]
 _SUMMARY_RUNG_COLUMNS = [
     "terminal_event_id",
     "tool_call_id",
@@ -950,6 +965,13 @@ _FETCH_ITEMS_WRITER = TableWriter(
     columns=_FETCH_ITEM_COLUMNS,
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.content_fetch_items",
+)
+_FETCH_DIAGNOSTICS_WRITER = TableWriter(
+    table_name=_CFD_TABLE_NAME,
+    ensure_name="_ensure_content_fetch_diagnostics",
+    columns=_FETCH_DIAGNOSTIC_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.content_fetch_diagnostics",
 )
 _SUMMARY_RUNGS_WRITER = TableWriter(
     table_name=_CSRUG_TABLE_NAME,
