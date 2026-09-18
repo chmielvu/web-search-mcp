@@ -59,9 +59,8 @@ def _schedule_web_results_indexing(run: SearchRun, response: SearchRunResult) ->
                 return
             texts = [render_search_hit_text(result.hit, max_chars=4000) for result in results]
             dense = run.diagnostics.candidate_embeddings
-            query_vec = run.diagnostics.query_embedding
             by_url = {c.get("url", ""): c.get("dense") for c in dense}
-            embeddings = [by_url.get(r.hit.url) or query_vec for r in results]
+            embeddings = [by_url.get(r.hit.url) for r in results]
             if not embeddings or any(e is None for e in embeddings):
                 embeddings = list(
                     await embed_texts(

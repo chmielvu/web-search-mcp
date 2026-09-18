@@ -125,7 +125,7 @@ def fetch_deadline_seconds() -> float:
 # Versioned cache key — policy + mode baked in so older cache entries
 # (no fingerprint, wrong mode) cannot match a fresh request.
 # ------------------------------------------------------------------
-_CACHE_KEY_TEMPLATE: Final[str] = "candidate-v1:{policy}:{mode}:{normalized}"
+_CACHE_KEY_TEMPLATE: Final[str] = "web-fetch:{policy}:{mode}:{normalized}"
 
 
 @dataclass(frozen=True, slots=True)

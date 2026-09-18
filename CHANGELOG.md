@@ -1,4 +1,22 @@
 ## [Unreleased]
+### Changed — Required `research_goal` contract across all search tools (2026-09-18)
+- Aligned `research_goal` as a required parameter across `web_search`, `gemini_search`, `code_search`, and their corresponding CLI commands (`search web`, `search code`, `ai gemini`, `ai grok`).
+
+### Fixed — Search ranking, session tracking, page caching, and provider edge cases (2026-09-18)
+- Restored missing `else:` branch in `search/ranking.py`, capturing query embeddings computed by the background task when the task completes successfully.
+- Removed `request_id` session ID fallback in `middleware/session_tracking.py`, eliminating the infinite block loop in `ExpensiveToolProtectionMiddleware` for stdio transports and restoring session counters.
+- Aligned cache key template between `content/fetch_pipeline.py` and `tools/content.py` to restore page cache hits.
+- Prevented vector index poisoning in `search/service.py` by ensuring missing candidate embeddings trigger fresh embedding generation instead of inheriting the query vector.
+- Enabled `backend="whisper"` in `youtube/cascade.py` and improved error messages when `WHISPER_SPACE_URL` is unset.
+- Expanded Google redirect unwrapping in `search/providers/brightdata.py` to support `m.google.com` and all Google subdomains.
+- Harvested Google SERP `top_stories` in standard web search in `search/providers/brightdata.py`.
+- Wrapped PyMuPDF `fitz.open` in a context manager in `content/resolvers/files.py` to prevent stream and memory leaks.
+- Made system instructions in `search/providers/gemma_serp.py` evaluate the current date dynamically at request time.
+- Accelerated link safety validation in `content/crawl_pipeline.py` using concurrent DNS verification.
+- Added additive column migrations to `_ensure_provider_calls` in `analytics/writers/schema.py`.
+- Guarded against `bool` values in `http_status` extraction in `content/constructor.py`.
+- Handled `PackageNotFoundError` gracefully in `content/markdown_processor.py`.
+
 ### Changed — Ignore patterns for planning, metadata, and agent tooling (2026-09-18)
 - Updated `.gitignore` to comprehensively exclude planning directories and files (`plans/`, `**/plans/`, `future-plans/`, `planning/`, `**/planning/`, `.planning/`, `**/.planning/`, `docs/plans/`, `docs/research/`, `*.plan`, `*.plan.md`), metadata structures (`.meta/`, `**/.meta/`, `/meta/`, `meta.json`, `.solomd/`), GitNexus intelligence cache (`.gitnexus/`, `**/.gitnexus/`), and AI agent/IDE states (`.omp/`, `**/.omp/`, `.ompcache/`, `.cursor/`, `.windsurf/`, `.codeium/`, `.cline/`, `.roo/`, `.roo-cline/`, `.augment/`, `.continue/`, `.devin/`, `.factory/`, `.aider*`).
 

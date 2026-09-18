@@ -10,7 +10,7 @@ from ...tools.code_search import code_search
 async def fetch_code_search_payload(
     query: str,
     *,
-    research_goal: str | None,
+    research_goal: str,
     repositories: list[str] | None,
     language: str | None,
     path: str | None,

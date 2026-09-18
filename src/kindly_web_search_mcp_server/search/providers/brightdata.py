@@ -317,10 +317,10 @@ def _unwrap_google_redirect(url: str | None) -> str:
         return candidate
     host = parts.netloc.lower()
     path = parts.path.lower()
-    # ``google.<tld>`` covers ``google.com``, ``google.co.uk``, etc.; the
-    # ``www.`` prefix is also a Google-owned host on the canonical SERP
-    # wrapper form Bright Data returns today.
-    is_google = host == "google" or host.startswith("google.") or host.startswith("www.google.")
+    # ``google.<tld>`` covers ``google.com``, ``google.co.uk``, etc.; ``www.``,
+    # ``m.`` (mobile), and other Google-owned subdomains wrap redirect URLs.
+    host_labels = host.split(":")[0].split(".")
+    is_google = "google" in host_labels
     if not is_google:
         return candidate
     if path not in {"/goto", "/url"}:
@@ -871,9 +871,9 @@ def parse_brightdata_response(
     hits.extend(_shopping_hits(data, adapter=adapter, limit=num_results))
     hits.extend(_social_fallback_hits(data, adapter=adapter, limit=num_results))
     hits.extend(_video_hits(data, adapter=adapter, limit=num_results))
+    hits.extend(_top_stories_hits(data, adapter=adapter, limit=num_results))
     if search_type == "news":
         hits.extend(_news_hits(data, adapter=adapter, limit=num_results))
-        hits.extend(_top_stories_hits(data, adapter=adapter, limit=num_results))
     organic = data.get("organic", [])
     if isinstance(organic, list):
         hits.extend(_organic_hits(organic, adapter=adapter, limit=num_results))

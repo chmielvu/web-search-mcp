@@ -47,7 +47,7 @@ def fetch_transcript_cascade(
         language: Preferred language code
         translate_to: Target language for translation
         backend: "auto" (cascade), "ytdlp" (yt-dlp only), "cf_whisper" (Cloudflare only),
-                 "whisper" (HF Space only; currently unreachable — see cascade layers), "api" (legacy only)
+                 "whisper" (HF Space only), "api" (legacy only)
 
     Returns:
         Tuple of (segments, backend_used).
@@ -57,7 +57,7 @@ def fetch_transcript_cascade(
         ValueError when backend is not recognized
     """
     if backend not in _VALID_BACKENDS:
-        raise ValueError(f"Unknown backend '{backend}'. Valid: {', '.join(_VALID_BACKENDS)}")
+        raise ValueError(f"Unknown backend {backend!r}. Valid: {', '.join(_VALID_BACKENDS)}")
 
     errors: list[str] = []
 
@@ -105,11 +105,13 @@ def fetch_transcript_cascade(
             raise YouTubeError("CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN must be configured")
 
     # --- Layer 3: Whisper ASR (if WHISPER_SPACE_URL configured) ---
-    if backend in ("auto",) and settings.whisper_space_url.strip():
-        errors, segments = _try_whisper(video_id, errors)
-        if segments is not None:
-            return segments, "whisper"
-
+    if backend in ("auto", "whisper"):
+        if settings.whisper_space_url.strip():
+            errors, segments = _try_whisper(video_id, errors)
+            if segments is not None:
+                return segments, "whisper"
+        elif backend == "whisper":
+            raise YouTubeError("WHISPER_SPACE_URL must be configured to use the whisper backend")
     # --- Layer 4: Legacy youtube-transcript-api ---
     if backend in ("auto", "api"):
         try:

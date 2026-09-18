@@ -371,11 +371,11 @@ def code_cmd(
         str, typer.Option("--query", help="Code, documentation, or repository search query.")
     ],
     research_goal: Annotated[
-        str | None,
+        str,
         typer.Option(
-            "--research-goal", help="Optional task context for query rewriting and reranking."
+            "--research-goal", help="Required task context for query rewriting and reranking."
         ),
-    ] = None,
+    ] = ...,  # ty: ignore[invalid-parameter-default] - Typer's required-option form
     repository: Annotated[
         list[str] | None,
         typer.Option(
@@ -438,12 +438,19 @@ def code_cmd(
     if not query.strip():
         raise CliError(
             kind="usage_error",
-            message="--query must be a non-blank string.",
-            hint="Provide a code, repository, or Hub asset search query.",
+            message="Query must be a non-empty string.",
+            hint="Provide a search query, for example: --query 'FastMCP tool registration'.",
             exit_code=ExitCode.USAGE_ERROR,
-            context={"command": "search code", "query": query},
+            context={"command": "search code"},
         )
-
+    if not research_goal.strip():
+        raise CliError(
+            kind="usage_error",
+            message="Research goal must be a non-empty string.",
+            hint="Provide a research goal, for example: --research-goal 'Implement MCP tool'.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search code"},
+        )
     try:
         payload = run_cli_async(
             fetch_code_search_payload(

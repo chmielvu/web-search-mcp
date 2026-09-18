@@ -19,10 +19,29 @@ def gemini_cmd(
         bool,
         typer.Option("--structured-output/--no-structured-output"),
     ] = False,
-    research_goal: Annotated[str | None, typer.Option("--research-goal")] = None,
+    research_goal: Annotated[
+        str,
+        typer.Option("--research-goal", help="Required search objective."),
+    ] = ...,  # ty: ignore[invalid-parameter-default] # pyright: ignore[reportArgumentType]
 ) -> None:
     from ..services.ai import fetch_gemini_search_payload
 
+    if not query.strip():
+        raise CliError(
+            kind="usage_error",
+            message="Query must be a non-empty string.",
+            hint="Provide a search query, for example: --query 'Latest news'.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "ai gemini"},
+        )
+    if not research_goal.strip():
+        raise CliError(
+            kind="usage_error",
+            message="Research goal must be a non-empty string.",
+            hint="Provide a research goal, for example: --research-goal 'Summarize updates'.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "ai gemini"},
+        )
     try:
         payload = run_cli_async(
             fetch_gemini_search_payload(
@@ -45,7 +64,10 @@ def gemini_cmd(
 @ai_app.command("grok")
 def grok_cmd(
     query: Annotated[str, typer.Option("--query", help="Search query text.")],
-    research_goal: Annotated[str, typer.Option("--research-goal")] = "",
+    research_goal: Annotated[
+        str,
+        typer.Option("--research-goal", help="Required search objective."),
+    ] = ...,  # ty: ignore[invalid-parameter-default] # pyright: ignore[reportArgumentType]
     model: Annotated[str | None, typer.Option("--model")] = None,
     num_results: Annotated[int, typer.Option("--num-results")] = 5,
     allowed_domain: Annotated[list[str] | None, typer.Option("--allowed-domain")] = None,
@@ -54,6 +76,22 @@ def grok_cmd(
 ) -> None:
     from ..services.ai import fetch_grok_search_payload
 
+    if not query.strip():
+        raise CliError(
+            kind="usage_error",
+            message="Query must be a non-empty string.",
+            hint="Provide a search query, for example: --query 'Latest news'.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "ai grok"},
+        )
+    if not research_goal.strip():
+        raise CliError(
+            kind="usage_error",
+            message="Research goal must be a non-empty string.",
+            hint="Provide a research goal, for example: --research-goal 'Summarize updates'.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "ai grok"},
+        )
     try:
         payload = run_cli_async(
             fetch_grok_search_payload(

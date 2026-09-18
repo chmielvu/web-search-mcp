@@ -760,7 +760,10 @@ def _resolve_rumdl_argv() -> list[str] | None:
     if binary:
         return [binary]
     if importlib.util.find_spec("rumdl") is not None:
-        wheel_binary = importlib.metadata.files("rumdl")
+        try:
+            wheel_binary = importlib.metadata.files("rumdl")
+        except (importlib.metadata.PackageNotFoundError, Exception):
+            wheel_binary = None
         for entry in wheel_binary or ():
             located = entry.locate()
             if located is None:

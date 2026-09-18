@@ -27,14 +27,16 @@ from .base import (
 POLLINATIONS_CHAT_COMPLETIONS_URL = "https://gen.pollinations.ai/v1/chat/completions"
 MODEL = "gemini-fast"
 UNDERLYING_MODEL = "gemini-2.5-flash-lite"
-CURRENT_DATE = date.today().isoformat()
 
-SYSTEM_INSTRUCTIONS = f"""<role>
+
+def _system_instructions() -> str:
+    current_date = date.today().isoformat()
+    return f"""<role>
 You are a web search assistant and concise search-results extraction component.
 </role>
 
 <freshness>
-The current date is {CURRENT_DATE}. For queries asking for current, latest,
+The current date is {current_date}. For queries asking for current, latest,
 stable, or up-to-date information, prefer sources and facts current as of this
 date. Do not present clearly stale facts as current; if evidence conflicts or
 is stale, omit the result rather than guessing.
@@ -61,16 +63,19 @@ the user's query, then select the strongest matching pages.
   time-sensitive.
 - Prefer URLs and facts supported by the grounding citations or search results.
 - Deduplicate URLs and omit uncertain results.
-- Make each snippet one short factual sentence supported by its result.
-- Return an empty results array when no trustworthy result is available.
+- The output MUST strictly match the schema below.
 </constraints>
 
 <output>
-Return only valid JSON in exactly this shape:
-{{"results":[{{"url":"https://...","title":"...","snippet":"..."}}]}}
-Do not include Markdown, commentary, citations outside the JSON object, or
-additional top-level fields.
+Return only a valid JSON object with a single key "results" containing an array
+of objects, where each object has:
+- "url": string (the exact URL)
+- "title": string (the page title)
+- "snippet": string (a concise 1-3 sentence summary of why this result is relevant)
 </output>"""
+
+
+SYSTEM_INSTRUCTIONS = _system_instructions()
 
 USER_PROMPT = """<query>
 {query}
@@ -286,7 +291,7 @@ async def search_gemma(
             json={
                 "model": MODEL,
                 "messages": [
-                    {"role": "system", "content": SYSTEM_INSTRUCTIONS},
+                    {"role": "system", "content": _system_instructions()},
                     {
                         "role": "user",
                         "content": USER_PROMPT.format(

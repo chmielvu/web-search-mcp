@@ -30,10 +30,6 @@ def get_session_id(context: MiddlewareContext) -> str:
             if client_id:
                 return str(client_id)
 
-    request_id = getattr(context.message, "request_id", None)
-    if request_id:
-        return str(request_id)
-
     return _FALLBACK_SESSION_ID
 
 

@@ -109,29 +109,29 @@ def convert_pdf_to_markdown(pdf_bytes: bytes, source_url: str) -> str:
     except ImportError:
         import fitz  # legacy alias on older installs
 
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    page_count = len(doc)
-    pages_to_render = min(page_count, _MAX_PDF_PAGES)
+    with fitz.open(stream=pdf_bytes, filetype="pdf") as doc:
+        page_count = len(doc)
+        pages_to_render = min(page_count, _MAX_PDF_PAGES)
 
-    md_lines: list[str] = [
-        "# PDF Document",
-        f"Source: {source_url}",
-        f"_Pages: {pages_to_render}/{page_count}_",
-        "",
-    ]
+        md_lines: list[str] = [
+            "# PDF Document",
+            f"Source: {source_url}",
+            f"_Pages: {pages_to_render}/{page_count}_",
+            "",
+        ]
 
-    for page_idx in range(pages_to_render):
-        page = doc[page_idx]
-        text = str(page.get_text("text")).strip()
-        if text:
-            md_lines.append(f"## Page {page_idx + 1}")
-            md_lines.append(text)
-            md_lines.append("")
+        for page_idx in range(pages_to_render):
+            page = doc[page_idx]
+            text = str(page.get_text("text")).strip()
+            if text:
+                md_lines.append(f"## Page {page_idx + 1}")
+                md_lines.append(text)
+                md_lines.append("")
 
-    if pages_to_render < page_count:
-        md_lines.append(f"_Note: Truncated after {pages_to_render} pages of {page_count}_")
+        if pages_to_render < page_count:
+            md_lines.append(f"_Note: Truncated after {pages_to_render} pages of {page_count}_")
 
-    return "\n".join(md_lines).strip()
+        return "\n".join(md_lines).strip()
 
 
 def convert_ipynb_to_markdown(ipynb_text: str, source_url: str) -> str:

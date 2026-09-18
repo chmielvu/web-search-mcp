@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import logging
 from collections.abc import Iterable, Mapping
@@ -253,7 +254,7 @@ async def _normalise_item_links(
     base_url: str,
 ) -> tuple[dict[str, object], ...]:
     """Normalize public links from one Crawl4AI result and discard unsafe links."""
-    links: list[dict[str, object]] = []
+    raw_candidates: list[tuple[str, str, str | None]] = []
     seen: set[str] = set()
     for raw_value in _iter_link_values(item):
         href, text = raw_value
@@ -264,22 +265,33 @@ async def _normalise_item_links(
         normalized = canonicalize_url(absolute, fold_slug=False)
         if normalized in seen:
             continue
-        try:
-            await validate_public_url(normalized)
-        except SafeFetchError:
-            continue
         seen.add(normalized)
         domain = extract_domain_from_url(normalized)
+        raw_candidates.append((normalized, text, domain))
+        if len(raw_candidates) >= _MAX_LINKS_PER_PAGE:
+            break
+
+    if not raw_candidates:
+        return ()
+
+    validation_results = await asyncio.gather(
+        *(validate_public_url(candidate[0]) for candidate in raw_candidates),
+        return_exceptions=True,
+    )
+
+    base_host = _url_host(base_url)
+    links: list[dict[str, object]] = []
+    for (normalized, text, domain), res in zip(raw_candidates, validation_results, strict=True):
+        if isinstance(res, Exception):
+            continue
         links.append(
             {
                 "url": normalized,
                 "text": text,
                 "domain": domain,
-                "internal": _same_site(_url_host(normalized), _url_host(base_url)),
+                "internal": _same_site(_url_host(normalized), base_host),
             }
         )
-        if len(links) >= _MAX_LINKS_PER_PAGE:
-            break
     return tuple(links)
 
 

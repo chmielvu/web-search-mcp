@@ -351,7 +351,11 @@ def rehydrate_cached_artifact(
             code=str(error_payload.get("code") or "cache_error"),
             message=str(error_payload.get("message") or ""),
             retryable=bool(error_payload.get("retryable", False)),
-            http_status=(int(http_status) if isinstance(http_status, int) else None),
+            http_status=(
+                int(http_status)
+                if isinstance(http_status, int) and not isinstance(http_status, bool)
+                else None
+            ),
             status=error_status,
         )
     links_raw = payload.get("links") or ()

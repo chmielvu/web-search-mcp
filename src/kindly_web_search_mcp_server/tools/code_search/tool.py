@@ -120,6 +120,8 @@ def _validate_request(
     normalized_research_goal = " ".join((research_goal or "").split()).strip()[:500]
     if not normalized_query:
         raise ValueError("query must be a non-blank string.")
+    if not normalized_research_goal:
+        raise ValueError("research_goal must be a non-blank string.")
     normalized_repo_name = repo_name.strip() if repo_name and repo_name.strip() else None
     normalized_library_name = (
         library_name.strip() if library_name and library_name.strip() else None
@@ -182,16 +184,16 @@ async def code_search(
                 "/def search_code\\([a-z_]+: str\\)/ lang:python",
             ],
         ),
-    ] = "",
+    ],
     research_goal: Annotated[
-        str | None,
+        str,
         Field(
             description=(
-                "Optional task context used to guide query rewriting, semantic discovery, "
+                "Required task context used to guide query rewriting, semantic discovery, "
                 "and code-candidate reranking; it is not a literal query term."
             )
         ),
-    ] = None,
+    ],
     repositories: Annotated[
         list[str] | None,
         Field(

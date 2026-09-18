@@ -375,6 +375,7 @@ async def rank_and_finalize(
             is_task_or_future = isinstance(embedding_task, (asyncio.Task, asyncio.Future))
             if is_task_or_future and embedding_task.done() and embedding_task.cancelled():
                 logger.warning("Shared embedding task was cancelled; continuing without it")
+            else:
                 try:
                     vec = await asyncio.shield(embedding_task)
                     dc.query_embedding = list(vec)

@@ -284,6 +284,20 @@ def _ensure_provider_calls(connection: duckdb.DuckDBPyConnection) -> None:
         payload_json          JSON
         """,
     )
+    _ensure_columns(
+        connection,
+        _PC_TABLE_NAME,
+        {
+            "request_query": "VARCHAR",
+            "request_url": "VARCHAR",
+            "http_status": "INTEGER",
+            "result_class": "VARCHAR",
+            "response_meta_json": "JSON",
+            "retry_after_seconds": "DOUBLE",
+            "retryable": "BOOLEAN",
+            "provider_call_id": "VARCHAR",
+        },
+    )
 
 
 def _ensure_tool_calls(connection: duckdb.DuckDBPyConnection) -> None:

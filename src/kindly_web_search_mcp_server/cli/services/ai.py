@@ -10,7 +10,7 @@ async def fetch_gemini_search_payload(
     query: str,
     *,
     structured_output: bool,
-    research_goal: str | None,
+    research_goal: str,
 ) -> dict[str, Any]:
     response = await gemini_search_with_grounding(
         query,

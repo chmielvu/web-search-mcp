@@ -27,18 +27,18 @@ LOGGER = logging.getLogger(__name__)
 
 async def gemini_search(
     query: Annotated[str, Field(description="The search query string.")],
+    research_goal: Annotated[
+        str,
+        Field(
+            description="Required description of what you intend to learn; focuses the grounded answer."
+        ),
+    ],
     structured_output: Annotated[
         bool,
         Field(
             description="When true, also return schema-guided structured_data for extraction tasks."
         ),
     ] = False,
-    research_goal: Annotated[
-        str | None,
-        Field(
-            description="Optional description of what you intend to learn; focuses the grounded answer."
-        ),
-    ] = None,
     ctx: Context = CurrentContext(),
 ) -> GeminiSearchResponse:
     """AI-powered search synthesis: a Gemini model grounded with real-time Google
@@ -86,6 +86,8 @@ async def gemini_search(
     try:
         if not query or not query.strip():
             raise ValueError("query must be a non-blank string.")
+        if not research_goal or not research_goal.strip():
+            raise ValueError("research_goal must be a non-blank string.")
         result = await gemini_search_with_grounding(
             query.strip(), structured_output=structured_output, research_goal=research_goal
         )

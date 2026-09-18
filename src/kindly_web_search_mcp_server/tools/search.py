@@ -32,6 +32,10 @@ LOGGER = logging.getLogger(__name__)
 
 
 async def web_search(
+    research_goal: Annotated[
+        str,
+        Field(description=("Required search objective describing what you need the results for.")),
+    ],
     query: Annotated[
         str,
         Field(
@@ -51,14 +55,6 @@ async def web_search(
             ),
         ),
     ] = None,
-    research_goal: Annotated[
-        str,
-        Field(
-            description=(
-                "What you need the results for. Defaults to the search string when omitted."
-            )
-        ),
-    ] = "",
     rewrite: Annotated[
         bool,
         Field(
@@ -203,6 +199,8 @@ async def web_search(
         return public
 
     try:
+        if not (research_goal and research_goal.strip()):
+            raise ValueError("research_goal must be provided and non-blank.")
         if queries:
             cleaned_queries = tuple(q.strip() for q in queries if q and q.strip())
             if len(cleaned_queries) > 4:
@@ -262,9 +260,7 @@ async def web_search(
         language=(locale_spec.language if locale_spec else None),
         region=(locale_spec.region if locale_spec else None),
     ).validate()
-    effective_research_goal = (
-        research_goal.strip() if (research_goal and research_goal.strip()) else primary_query
-    )
+    effective_research_goal = research_goal.strip()
     request = WebSearchRequest(
         query=primary_query,
         queries=seed_queries,
