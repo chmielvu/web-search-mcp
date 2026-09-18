@@ -335,6 +335,8 @@ class DynamicGuidanceMiddleware(Middleware):
 
         if tool_name == "gemini_search":
             session_id = get_session_id(context)
+            if session_id is None:
+                return result
             call_count = self._gemini_sessions.increment(session_id, tool_name)
             if call_count > 2:
                 return result
@@ -374,6 +376,8 @@ class DynamicGuidanceMiddleware(Middleware):
         if isinstance(result, ToolResult) and isinstance(result.structured_content, dict):
             if tool_name == "fetch":
                 session_id = get_session_id(context)
+                if session_id is None:
+                    return result
                 fetch_round = self._fetch_sessions.increment(session_id, tool_name)
                 msg, next_tools, next_prompts = _guide_fetch(
                     result.structured_content, fetch_round=fetch_round

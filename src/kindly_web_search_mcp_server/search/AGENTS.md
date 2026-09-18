@@ -26,7 +26,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 | `keyword_extract.py` | YAKE support-term extraction (async-off-loop) |
 | `providers/` | 20 files — one per provider adapter + base |
 | `academic/` | 6 academic adapters (arXiv, Semantic Scholar, OpenAlex, CrossRef, PubMed, CORE) + `citation_graph.py` |
-| `quick/` | Quick web search modes: Parallel web, YouTube discovery, and library documentation |
+| `quick/` | Quick web search modes: Parallel web, YouTube discovery + channel/uploads enumeration (`quick_web_search_youtube.py`), and library documentation |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
 - Bright Data Google supports web/news freshness and mobile SERP emulation through provider kwargs. Full JSON harvesting keeps only URL-bearing, citable rows and orders mixed SERP sections by native `global_rank` before applying the requested result bound.
 - Bright Data query-ban and verification errors carry a 15-second retry hint but are not retried inside the interactive request budget.

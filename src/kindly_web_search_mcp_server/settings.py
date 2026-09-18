@@ -387,23 +387,26 @@ class Settings:
     web_fetch_max_body_bytes: int = _env_int("KINDLY_WEB_FETCH_MAX_BODY_BYTES", 5 * 1024 * 1024)
 
     # YouTube Transcript
-    youtube_transcript_proxy_url: str = os.environ.get("YOUTUBE_TRANSCRIPT_PROXY_URL", "")
     youtube_transcript_max_chars: int = _env_int("YOUTUBE_TRANSCRIPT_MAX_CHARS", 50000)
     youtube_transcript_timeout_seconds: float = _env_float(
         "YOUTUBE_TRANSCRIPT_TIMEOUT_SECONDS", 30.0
     )
 
-    # YouTube Transcript Backend (auto|ytdlp|cf_whisper|whisper|api)
+    # YouTube Transcript Backend (auto|apify|brightdata)
     youtube_transcript_backend: str = os.environ.get("YOUTUBE_TRANSCRIPT_BACKEND", "auto")
 
-    # Whisper ASR (HF Space) for videos without captions
-    whisper_space_url: str = os.environ.get("WHISPER_SPACE_URL", "")
-    whisper_space_id: str = os.environ.get("WHISPER_SPACE_ID", "")
-    whisper_space_timeout_seconds: float = _env_float("WHISPER_SPACE_TIMEOUT_SECONDS", 300.0)
-    # Self-hosted cobalt audio fetcher (audio bytes for ASR; bypasses the
-    # local 1 MiB per-stream CDN cap). Empty -> tier skipped.
-    cobalt_base_url: str = os.environ.get("COBALT_BASE_URL", "")
-    cobalt_timeout_seconds: float = _env_float("COBALT_TIMEOUT_SECONDS", 120.0)
+    # Apify YouTube transcript actor (primary transcript tier).
+    apify_youtube_actor: str = os.environ.get(
+        "APIFY_YOUTUBE_ACTOR", "supreme_coder~youtube-transcript-scraper"
+    )
+
+    # Bright Data YouTube Scraper API (fallback transcript tier).
+    brightdata_youtube_dataset_id: str = os.environ.get(
+        "BRIGHTDATA_YOUTUBE_DATASET_ID", "gd_lk56epmy2i5g7lzu0k"
+    )
+    brightdata_scraper_timeout_seconds: float = _env_float(
+        "BRIGHTDATA_SCRAPER_TIMEOUT_SECONDS", 90.0
+    )
 
     # YouTube Search (uses SearXNG with youtube engine)
     youtube_search_engine: str = os.environ.get("YOUTUBE_SEARCH_ENGINE", "youtube")
@@ -414,16 +417,6 @@ class Settings:
     youtube_api_daily_quota: int = _env_int("YOUTUBE_API_DAILY_QUOTA", 10000)
     youtube_api_language: str = os.environ.get("YOUTUBE_API_LANGUAGE", "")
     youtube_api_region: str = os.environ.get("YOUTUBE_API_REGION", "")
-
-    # Cloudflare Workers AI Whisper (ASR for captionless videos, replaces HF Space)
-    cf_whisper_account_id: str = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
-    cf_whisper_api_token: str = os.environ.get("CLOUDFLARE_API_TOKEN", "") or os.environ.get(
-        "CLOUDFLARE_API_KEY", ""
-    )
-    cf_whisper_max_audio_seconds: int = _env_int("CF_WHISPER_MAX_AUDIO_SECONDS", 600)
-    cf_whisper_api_base_url: str = os.environ.get(
-        "CF_WHISPER_API_BASE_URL", "https://api.cloudflare.com/client/v4"
-    )
 
     # Academic Search Providers
     # Semantic Scholar (optional, 100 RPS with key vs 1 RPS shared)
@@ -574,7 +567,7 @@ class Settings:
     # No legacy aliases (per joint plan: no backward compat).
     tool_search_enabled: bool = os.environ.get("TOOL_SEARCH_ENABLED", "false").lower() == "true"
 
-    # Deep research (self-hosted node-DeepResearch engine; SEP-1686 background-capable tool)
+    # Deep research (self-hosted node-DeepResearch engine; SEP-2663 background-capable tool)
     deep_research_url: str = os.environ.get("DEEP_RESEARCH_URL", "http://13.140.176.104:3001")
     deep_research_secret: str = os.environ.get("DEEP_RESEARCH_SECRET", "")
     deep_research_timeout_seconds: float = _env_float("DEEP_RESEARCH_TIMEOUT_SECONDS", 600.0)

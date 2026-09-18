@@ -144,7 +144,7 @@ def classify_error(
         return StructuredToolError(
             error="YouTube transcript API blocked this IP (cloud IPs are blocked)",
             error_type="network",
-            action="Set YOUTUBE_TRANSCRIPT_PROXY_URL or run from a residential IP.",
+            action="Configure APIFY_API_TOKEN and BRIGHTDATA_API_KEY for vendor transcript tiers.",
             provider="youtube",
         )
 
@@ -293,7 +293,7 @@ def _forbidden_action(provider: str | None) -> str:
         return f"{provider} API denied access. Check that your API key is valid and has the required permissions."
 
     if provider == "youtube":
-        return "YouTube blocked this request. Cloud IPs are often blocked. Set YOUTUBE_TRANSCRIPT_PROXY_URL."
+        return "YouTube blocked this request. Configure APIFY_API_TOKEN and BRIGHTDATA_API_KEY."
 
     return "Access forbidden. Check permissions, API keys, or server configuration."
 

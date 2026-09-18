@@ -16,7 +16,7 @@ the fastembed service).
 | `gliner_client.py` (`ml/gliner_client.py`) | Unified-ml GLiNER2 gateway client (VPS `127.0.0.1:8000` via SSH tunnel): `/classify` + `/ner` for query understanding, `/extract` for transcripts/content. Singleton via `get_gliner_client`; `ml` re-exports the contract. |
 | `embeddings.py` (`ml/embeddings.py`) | fastembed-snowflake client (`snowflake/snowflake-arctic-embed-s`, 384-d, VPS `127.0.0.1:8001`, SSH tunnel). `POST /embed` `{texts}` → `{embeddings, model, dimension}`. No circuit breaker. |
 | `duckdb_log_handler.py` / `sqlite_log_handler.py` | Batched process-log sinks with UTC timestamps. |
-| `github.py` | `normalize_github_repository`: canonical `owner/name` identity from bare/URL/scp forms; segments validated (`..` rejected), `#ref` suffix stripped. Frozen-test-pinned; NOT merged into url_canonicalize (different concern). |
+| `youtube_urls.py` | YouTube URL identity: `parse_youtube_url`, `looks_like_channel_target`, `YouTubeTarget`, `YouTubeError`. Pure stdlib; moved from removed `youtube/` package. |
 
 ## Rules
 

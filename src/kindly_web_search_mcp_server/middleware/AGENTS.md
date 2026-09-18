@@ -29,6 +29,9 @@ FastMCP middleware stack: rate limits, query guidance, tool protection.
 uv run pytest tests/test_middleware*.py
 uv run pytest tests/test_agent_steering_middleware.py
 ```
+### Recent Changes (2026-09-18)
+- `get_session_id` returns `None` on the sessionless 2026-07-28 transport. Expensive-tool protection and query-guidance skip per-session counters when identity is absent.
+
 ### Recent Changes (2026-09-17)
 - `_guide_web_search` derives provider count from public hit `providers` when the public envelope no longer includes `providers_used`. Query-shaping guidance is no longer expected on the public MCP payload.
 ### Recent Changes (2026-09-09)

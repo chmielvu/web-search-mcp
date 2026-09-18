@@ -114,6 +114,15 @@ class ExpensiveToolProtectionMiddleware(Middleware):
             return await call_next(context)
 
         session_id = get_session_id(context)
+        if session_id is None:
+            emit_observability_event(
+                logger,
+                "middleware.expensive_tool.allowed",
+                tool_name=tool_name,
+                session_id=None,
+                attempt_count=None,
+            )
+            return await call_next(context)
         attempt_count = self._get_attempt_count(session_id, tool_name)
 
         # Block first attempt if configured

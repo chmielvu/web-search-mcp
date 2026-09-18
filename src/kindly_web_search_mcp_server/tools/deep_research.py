@@ -1,9 +1,10 @@
 """Standalone deep_research MCP tool backed by the self-hosted node-DeepResearch engine.
 
-SEP-1686 background-capable: registered with ``task=TaskConfig(mode="optional")``
-so task-capable clients run it as a background task (poll for results) while
-legacy clients run it synchronously. Mirrors the OMP ``vercel-deep-research``
-extension contract (presets, depth aliases, SSE stream parsing).
+SEP-2663 io.modelcontextprotocol/tasks background-capable via ``TasksExtension``:
+registered with ``task=TaskConfig(mode="optional")`` so task-capable clients run
+it as a background task while legacy clients run it synchronously. Mirrors the
+OMP ``vercel-deep-research`` extension contract (presets, depth aliases, SSE
+stream parsing).
 """
 
 from __future__ import annotations
@@ -15,17 +16,17 @@ from typing import Annotated, Any
 from uuid import uuid4
 
 import httpx
-from fastmcp.dependencies import CurrentContext
+from fastmcp.dependencies import CurrentContext, Progress
 from fastmcp.exceptions import ToolError
 from fastmcp.server.context import Context
 from pydantic import BaseModel, Field
 
-from .analytics.producers import emit_tool_observability_event
-from .models import TokenUsage
-from .settings import settings
-from .tools._helpers import _record_tool_failure, _record_tool_success
-from .tools.catalog import tool_kwargs
-from .utils.http_client import get_http_client
+from ..analytics.producers import emit_tool_observability_event
+from ..models import TokenUsage
+from ..settings import settings
+from ..utils.http_client import get_http_client
+from ._helpers import _record_tool_failure, _record_tool_success
+from .catalog import tool_kwargs
 
 LOGGER = logging.getLogger(__name__)
 
@@ -123,6 +124,7 @@ async def _consume_sse_stream(
     *,
     preset_key: str,
     ctx: Context,
+    progress: Progress,
 ) -> dict[str, Any]:
     """Consume the engine's SSE stream, reporting progress, returning the final payload.
 
@@ -133,10 +135,9 @@ async def _consume_sse_stream(
     final_result: dict[str, Any] | None = None
     event_name = "message"
     data_lines: list[str] = []
-    action_count = 0
 
     async def _flush() -> None:
-        nonlocal final_result, action_count
+        nonlocal final_result
         if not data_lines:
             return
         data_string = "".join(data_lines)
@@ -147,7 +148,6 @@ async def _consume_sse_stream(
             return
 
         if event_name == "action" and isinstance(payload, dict):
-            action_count += 1
             step_type = payload.get("action") or payload.get("type")
             if step_type == "search":
                 raw_queries = payload.get("searchRequests") or payload.get("queries")
@@ -174,12 +174,10 @@ async def _consume_sse_stream(
                 summary = f"Action: {step_type}"
             else:
                 summary = "Executing research step..."
-            await ctx.report_progress(
-                progress=min(action_count, 100),
-                total=100,
-                message=f"[{preset_key.upper()}] {summary}",
-            )
-            await ctx.info(f"[{preset_key.upper()}] {summary}")
+            await progress.set_message(f"[{preset_key.upper()}] {summary}")
+            await progress.increment()
+            if not ctx.is_background_task:
+                await ctx.info(f"[{preset_key.upper()}] {summary}")
         elif event_name == "result" and isinstance(payload, dict):
             final_result = payload
         elif event_name == "error" and isinstance(payload, dict):
@@ -290,6 +288,7 @@ async def deep_research(
         str | None, Field(description="Optional alternate research endpoint URL.")
     ] = None,
     ctx: Context = CurrentContext(),
+    progress: Progress = Progress(),
 ) -> DeepResearchResponse:
     """Autonomous multi-step web research: decomposes the question, searches,
     reads, and synthesizes a cited report.
@@ -366,15 +365,13 @@ async def deep_research(
         language_code=language_code,
     )
 
-    await ctx.report_progress(
-        progress=0,
-        total=100,
-        message=f"Starting Deep Research [{preset_key.upper()}]...",
-    )
-    await ctx.info(
-        f"Starting Deep Research [preset={preset_key.upper()}, workers={team_size}, "
-        f"budget={token_budget:,}] for: {raw_query}"
-    )
+    await progress.set_total(100)
+    await progress.set_message(f"Starting Deep Research [{preset_key.upper()}]...")
+    if not ctx.is_background_task:
+        await ctx.info(
+            f"Starting Deep Research [preset={preset_key.upper()}, workers={team_size}, "
+            f"budget={token_budget:,}] for: {raw_query}"
+        )
 
     headers = {"Content-Type": "application/json"}
     if settings.deep_research_secret:
@@ -402,7 +399,12 @@ async def deep_research(
             if response.status_code != 200:
                 body = (await response.aread()).decode("utf-8", "replace")
                 raise ToolError(f"Deep Research HTTP {response.status_code} error: {body[:500]}")
-            final = await _consume_sse_stream(response, preset_key=preset_key, ctx=ctx)
+            final = await _consume_sse_stream(
+                response,
+                preset_key=preset_key,
+                ctx=ctx,
+                progress=progress,
+            )
     except ToolError:
         _record_tool_failure("deep_research")
         raise
@@ -447,10 +449,11 @@ async def deep_research(
         final=final,
     )
 
-    await ctx.report_progress(progress=100, total=100, message="Deep Research complete")
-    await ctx.info(
-        f"Deep Research complete: {len(references)} references, {len(visited_urls)} URLs visited"
-    )
+    await progress.set_message("Deep Research complete")
+    if not ctx.is_background_task:
+        await ctx.info(
+            f"Deep Research complete: {len(references)} references, {len(visited_urls)} URLs visited"
+        )
 
     emit_tool_observability_event(
         LOGGER,
@@ -493,7 +496,8 @@ def register_deep_research(mcp: Any) -> None:
     """Register the deep_research tool on the given FastMCP server.
 
     ``task=TaskConfig(mode="optional")`` (emitted by the tool catalog) marks
-    the tool as background-capable (SEP-1686): task-capable clients run it as
+    the tool as background-capable via the SEP-2663
+    ``io.modelcontextprotocol/tasks`` extension: task-capable clients run it as
     a background task and poll for results; legacy clients run it synchronously.
     """
     mcp.tool(**tool_kwargs("deep_research"))(deep_research)

@@ -22,6 +22,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `status.py` | Server status and provider health tools |
 | `workflow.py` | Multi-tool workflow helpers |
 | `_helpers.py` | Lifespan management, domain filters, timeout resolution |
+| `deep_research.py` | `deep_research` MCP tool and background-task registration |
 
 ## Key Files (Metadata Layer)
 
@@ -75,11 +76,11 @@ uv run pytest tests/test_tool_profiles.py
   name the actual budget.
 
 ### Recent Changes (2026-09-18)
+- `deep_research` lives in this package and registers through `TaskConfig(mode="optional")` plus FastMCP 4 `Progress`. Legacy-era clients still run it synchronously.
 - `fetch` public results omit rumdl lint, empty optionals, complete-body
   `window`, and envelope telemetry (`total_chars_returned`, `wave_size`,
   `waves_completed`, `duration_ms`). Recovery diagnostics stay:
   `summary_failed`, `jina_warning`, `index_output_failed`.
-
 
 ### Recent Changes (2026-09-12)
 - `youtube_transcript` projects summary payloads to semantic fields only;

@@ -255,7 +255,7 @@ async def _deepwiki(question: str, repo_name: str, timeout_seconds: float) -> st
     """Ask DeepWiki's ``ask_question`` tool over Streamable HTTP."""
     try:
         async with asyncio.timeout(timeout_seconds):
-            async with streamable_http_client(_DEEPWIKI_URL) as (read_stream, write_stream, _):
+            async with streamable_http_client(_DEEPWIKI_URL) as (read_stream, write_stream):
                 async with ClientSession(read_stream, write_stream) as session:
                     await session.initialize()
                     result = await session.call_tool(

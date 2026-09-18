@@ -45,7 +45,9 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
 | `http_utils.py` | Transport, two deliberate layers: borrowed-context (`request_with_redirect_validation`, `fetch_json`, `fetch_text`, `raise_for_status`, `bytes_with_cap`; raises `AcquisitionError`) and standalone SSRF-guarded `safe_fetch_url` (curl_cffi→httpx, raises `SafeFetchError`) |
 | `html_tools.py` | HTML tooling: `soup_from_html`, `url_hostname`, `html_to_markdown` (markdownify only), `extract_metadata`, `extract_links` |
 | `documents.py` | Shared builders for neutral contracts: thread reducers (`build_thread_document`, `thread_messages_from_dict/flat`), `build_package_document`, `build_repository_document` |
-| `github_api.py` | GitHub GraphQL + REST helpers (`github_graphql`, `graphql_paginate_comments`, `rest_get`, `fetch_readme_markdown`, `repo_values`, `thread_values`, `resolve_github_token`) |
+| `remote_clients.py` | Remote HTTP clients: Crawl4AI, Camoufox, Bright Data Web Unlocker, Apify run-sync |
+| `brightdata_scraper.py` | Reusable Bright Data Web Scraper API client (`POST /datasets/v3/scrape`, sync ≤20 URLs, `ScraperClientError`, `get_brightdata_scraper_client`) |
+| `youtube_transcripts.py` | YouTube transcript acquisition: vendor parsers + single validation/normalization + `fetch_transcript_cascade`/`fetch_transcript_with_cache` (Apify primary → Bright Data fallback) + segment rendering; `ScraperTranscriptError` |
 | `renderers.py` | Shared neutral-model renderers: `RawDocument` → Markdown exactly once |
 | `link_discovery.py` | URL discovery: page links, sitemap extraction, Tavily site mapping (`discover_links`, `map_site`) |
 | `machine_readable.py` | Machine-readable format detection + renderers: JSON/JSONL/YAML/TOML, feeds, CSV/TSV, RTF, subtitles, SVG, MHTML, columnar |

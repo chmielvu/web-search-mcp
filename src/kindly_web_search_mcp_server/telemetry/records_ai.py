@@ -41,7 +41,7 @@ def record_youtube_transcript(
     language: str,
     is_translated: bool,
     duration_seconds: int | None = None,
-    backend_used: str = "api",
+    backend_used: str = "apify",
 ) -> None:
     """Record YouTube transcript specifics."""
     transcript_counter = get_youtube_metrics()

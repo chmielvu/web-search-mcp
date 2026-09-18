@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
+from fastmcp.utilities.tasks import TaskConfig
 from mcp.types import ToolAnnotations
 
 DEFAULT_PROFILE_TOOLS = frozenset(
@@ -90,9 +91,9 @@ def _entry(
         experimental=experimental,
         annotations=ToolAnnotations(
             title=title,
-            readOnlyHint=read_only,
-            idempotentHint=idempotent,
-            openWorldHint=open_world,
+            read_only_hint=read_only,
+            idempotent_hint=idempotent,
+            open_world_hint=open_world,
         ),
         version=version,
         timeout=_tool_timeout(name),
@@ -166,6 +167,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         expensive=True,
         idempotent=False,
         task=True,
+        task_poll_interval_seconds=30.0,
     ),
 }
 
@@ -189,8 +191,6 @@ def tool_kwargs(tool_name: str) -> dict[str, Any]:
     if entry.timeout is not None:
         kwargs["timeout"] = entry.timeout
     if entry.task:
-        from fastmcp.server.tasks import TaskConfig
-
         kwargs["task"] = TaskConfig(
             mode="optional",
             poll_interval=timedelta(seconds=entry.task_poll_interval_seconds),

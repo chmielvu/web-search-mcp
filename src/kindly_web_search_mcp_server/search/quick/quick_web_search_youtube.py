@@ -1,10 +1,8 @@
-"""YouTube discovery cascade for quick web search (API → SearXNG → HTML).
+"""YouTube Data API v3 access: video discovery and channel/uploads enumeration.
 
-Ported from ``prototypes/quick_web_search_v2.py`` and wired to
-:mod:`~kindly_web_search_mcp_server.settings` instead of raw environment
-reads. This module replaces the retired ``youtube/search.py`` cascade; the
-transcript stack (``youtube/transcript.py``, ``cascade.py``, ``channel_api.py``)
-is untouched.
+Discovery cascade (API → SearXNG → HTML) plus channel enumeration through
+``channels.list``/``playlistItems.list`` with the shared in-memory quota
+tracker. Transcript acquisition lives in ``content/youtube_transcripts.py``.
 """
 
 from __future__ import annotations
@@ -13,13 +11,16 @@ import html
 import json
 import logging
 import re
+import threading
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 from typing import Any
 from urllib.parse import urlparse
 
 import httpx
 from pydantic import BaseModel, Field
 
+from ...models import YouTubeChannelVideo
 from ...settings import settings
 
 LOGGER = logging.getLogger(__name__)
@@ -396,3 +397,247 @@ async def fetch_youtube_outcome(
         warnings=warnings,
         usage=usage,
     )
+
+
+# ---------------------------------------------------------------------------
+# YouTube Data API v3 channel/uploads enumeration + quota (moved from youtube/)
+# ---------------------------------------------------------------------------
+
+_CHANNELS_URL = "https://www.googleapis.com/youtube/v3/channels"
+_PLAYLIST_ITEMS_URL = "https://www.googleapis.com/youtube/v3/playlistItems"
+_CHANNEL_API_CALL_COST = 1
+
+# Quota warning thresholds
+_QUOTA_WARN_THRESHOLD = 0.80  # 80%
+_QUOTA_HALT_THRESHOLD = 1.00  # 100%
+
+
+class YouTubeApiError(RuntimeError):
+    """Custom error for YouTube Data API v3 failures."""
+
+
+class YouTubeApiQuotaTracker:
+    """In-memory daily quota tracker for YouTube Data API v3.
+
+    Thread-safe. Resets when the UTC date changes.
+    Default daily quota: 10,000 units (Google's default).
+    """
+
+    def __init__(self, daily_quota: int = 10_000) -> None:
+        self._daily_quota = daily_quota
+        self._lock = threading.Lock()
+        self._today: str = ""
+        self._used: int = 0
+        self._call_count: int = 0
+        self._failures: int = 0
+
+    def _maybe_rollover(self) -> None:
+        """Reset counters if the UTC date has changed."""
+        today = datetime.now(UTC).strftime("%Y-%m-%d")
+        if today != self._today:
+            if self._today:
+                LOGGER.info(
+                    "YouTube API quota rollover: %s → %s (used %d/%d units)",
+                    self._today,
+                    today,
+                    self._used,
+                    self._daily_quota,
+                )
+            self._today = today
+            self._used = 0
+            self._call_count = 0
+            self._failures = 0
+
+    def can_afford(self, units: int) -> bool:
+        """Check whether the requested units fit within the daily quota."""
+        with self._lock:
+            self._maybe_rollover()
+            return (self._used + units) <= self._daily_quota
+
+    def record_call(self, success: bool, units: int) -> None:
+        """Record a quota-consuming API call."""
+        with self._lock:
+            self._maybe_rollover()
+            self._used += units
+            self._call_count += 1
+            if not success:
+                self._failures += 1
+
+            usage_ratio = self._used / self._daily_quota if self._daily_quota else 0
+
+            if usage_ratio >= _QUOTA_HALT_THRESHOLD:
+                LOGGER.warning(
+                    "YouTube API daily quota EXHAUSTED: %d/%d units used (%d calls, %d failures)",
+                    self._used,
+                    self._daily_quota,
+                    self._call_count,
+                    self._failures,
+                )
+            elif usage_ratio >= _QUOTA_WARN_THRESHOLD:
+                LOGGER.warning(
+                    "YouTube API daily quota at %.0f%%: %d/%d units used",
+                    usage_ratio * 100,
+                    self._used,
+                    self._daily_quota,
+                )
+
+    def snapshot(self) -> dict[str, Any]:
+        """Return current quota state for diagnostics."""
+        with self._lock:
+            self._maybe_rollover()
+            return {
+                "date": self._today,
+                "daily_quota": self._daily_quota,
+                "used": self._used,
+                "remaining": max(0, self._daily_quota - self._used),
+                "usage_pct": round(self._used / self._daily_quota * 100, 1)
+                if self._daily_quota
+                else 0,
+                "call_count": self._call_count,
+                "failures": self._failures,
+            }
+
+
+# Module-level singleton
+_quota_tracker: YouTubeApiQuotaTracker | None = None
+_tracker_lock = threading.Lock()
+
+
+def get_youtube_api_quota_tracker() -> YouTubeApiQuotaTracker:
+    """Return the singleton quota tracker."""
+    global _quota_tracker
+    if _quota_tracker is None:
+        with _tracker_lock:
+            if _quota_tracker is None:
+                _quota_tracker = YouTubeApiQuotaTracker(
+                    daily_quota=settings.youtube_api_daily_quota,
+                )
+    return _quota_tracker
+
+
+def _channel_selector(value: str) -> tuple[str, str]:
+    """Return Data API parameter name and value for a channel identifier."""
+    raw = value.strip()
+    if not raw:
+        raise YouTubeApiError("Channel identifier cannot be empty")
+    if raw.startswith("UC") and len(raw) >= 20:
+        return "id", raw
+    if "/@" in raw:
+        raw = raw.split("/@", 1)[1].split("/", 1)[0]
+    elif raw.startswith("http"):
+        path = urlparse(raw).path.strip("/")
+        raw = path.split("/@", 1)[-1] if "/@" in path else path.split("/")[-1]
+    return "forHandle", raw.lstrip("@")
+
+
+async def list_channel_videos(
+    channel: str,
+    *,
+    max_results: int = 100,
+    page_token: str | None = None,
+    http_client: httpx.AsyncClient | None = None,
+) -> tuple[str, list[YouTubeChannelVideo], str | None]:
+    """Enumerate a channel through its uploads playlist.
+
+    ``channels.list`` resolves the uploads playlist and ``playlistItems.list``
+    pages it; both calls cost 1 quota unit each and share the tracker above.
+    """
+    if max_results < 1:
+        return "", [], page_token
+    max_results = min(max_results, 5000)
+    api_key = settings.youtube_api_key.strip()
+    if not api_key:
+        raise YouTubeApiError("GOOGLE_API_KEY is required for channel enumeration")
+
+    selector, selector_value = _channel_selector(channel)
+    tracker = get_youtube_api_quota_tracker()
+    timeout = settings.youtube_api_timeout_seconds
+
+    async def _request(
+        client: httpx.AsyncClient, url: str, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        if not tracker.can_afford(_CHANNEL_API_CALL_COST):
+            raise YouTubeApiError("YouTube API quota exhausted before channel enumeration")
+        try:
+            response = await client.get(url, params=params, timeout=timeout)
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise YouTubeApiError("YouTube API returned a non-object response")
+            tracker.record_call(success=True, units=_CHANNEL_API_CALL_COST)
+            return payload
+        except Exception:
+            tracker.record_call(success=False, units=_CHANNEL_API_CALL_COST)
+            raise
+
+    async def _run(
+        client: httpx.AsyncClient,
+    ) -> tuple[str, list[YouTubeChannelVideo], str | None]:
+        channel_payload = await _request(
+            client,
+            _CHANNELS_URL,
+            {"part": "snippet,contentDetails", selector: selector_value, "key": api_key},
+        )
+        items = channel_payload.get("items") or []
+        if not items or not isinstance(items[0], dict):
+            raise YouTubeApiError(f"Channel not found: {channel}")
+        channel_item = items[0]
+        channel_id = str(channel_item.get("id") or "")
+        snippet = channel_item.get("snippet") or {}
+        details = channel_item.get("contentDetails") or {}
+        related = details.get("relatedPlaylists") or {}
+        uploads_playlist = related.get("uploads")
+        if not channel_id or not uploads_playlist:
+            raise YouTubeApiError(f"Channel has no uploads playlist: {channel_id or channel}")
+
+        videos: list[YouTubeChannelVideo] = []
+        current_token = page_token
+        while len(videos) < max_results:
+            page_size = min(50, max_results - len(videos))
+            params: dict[str, Any] = {
+                "part": "snippet,contentDetails",
+                "playlistId": uploads_playlist,
+                "maxResults": page_size,
+                "key": api_key,
+            }
+            if current_token:
+                params["pageToken"] = current_token
+            page = await _request(client, _PLAYLIST_ITEMS_URL, params)
+            for item in page.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                item_snippet = item.get("snippet") or {}
+                content = item.get("contentDetails") or {}
+                resource = item_snippet.get("resourceId") or content.get("resourceId") or {}
+                video_id = resource.get("videoId") if isinstance(resource, dict) else None
+                if not isinstance(video_id, str) or not video_id:
+                    continue
+                videos.append(
+                    YouTubeChannelVideo(
+                        video_id=video_id,
+                        video_url=f"https://www.youtube.com/watch?v={video_id}",
+                        title=str(item_snippet.get("title") or ""),
+                        description=str(item_snippet.get("description") or ""),
+                        channel_id=channel_id,
+                        channel_title=str(
+                            item_snippet.get("channelTitle") or snippet.get("title") or ""
+                        )
+                        or None,
+                        published_at=item_snippet.get("publishedAt"),
+                        position=item_snippet.get("position"),
+                    )
+                )
+                if len(videos) >= max_results:
+                    break
+            next_token = page.get("nextPageToken")
+            if len(videos) >= max_results:
+                return channel_id, videos, str(next_token) if next_token else None
+            if not next_token:
+                return channel_id, videos, None
+            current_token = str(next_token)
+        return channel_id, videos, current_token
+
+    if http_client is not None:
+        return await _run(http_client)
+    async with httpx.AsyncClient(headers={"Accept": "application/json"}) as client:
+        return await _run(client)

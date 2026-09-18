@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from .content.models import MarkdownStructure
-from .utils.entity import EntityRelation, EntitySpan  # always available (pure python)
+from .utils.entity import EntitySpan  # always available (pure python)
 
 
 class TokenUsage(BaseModel):
@@ -585,19 +585,6 @@ class YouTubeTranscriptQuality(BaseModel):
     truncated: bool = False
 
 
-class YouTubeTranscriptAnalysis(BaseModel):
-    """Always-on GLiNER2 analysis attached to a YouTube transcript."""
-
-    status: Literal["success", "partial", "error"] = "error"
-    entities: list[EntitySpan] = Field(default_factory=list)
-    relations: list[EntityRelation] = Field(default_factory=list)
-    structured_data: dict[str, Any] | None = None
-    model_version: str | None = None
-    chunk_count: int = 0
-    latency_ms: float | None = None
-    warnings: list[str] = Field(default_factory=list)
-
-
 class YouTubeTranscriptResponse(BaseModel):
     """Response from youtube_transcript tool."""
 
@@ -612,7 +599,6 @@ class YouTubeTranscriptResponse(BaseModel):
     backend_used: str | None = None
     output_format: Literal["text", "timestamped", "json", "markdown"] | None = None
     summary: dict[str, Any] | None = None
-    analysis: YouTubeTranscriptAnalysis | None = None
     quality: YouTubeTranscriptQuality | None = None
     error: str | None = None
 

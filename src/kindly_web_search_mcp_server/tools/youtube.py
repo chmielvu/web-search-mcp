@@ -11,27 +11,56 @@ from fastmcp.server.context import Context
 from pydantic import Field
 
 from ..analytics.producers import emit_tool_observability_event
-from ..errors import raise_tool_error
-from ..models import (
-    YouTubeChannelTranscriptionItem,
-    YouTubeChannelTranscriptionResponse,
-    YouTubeTranscriptResponse,
-)
-from ..telemetry import record_youtube_transcript
-from ..utils.text_clean import clean_text_for_llm
-from ..youtube import (
-    YouTubeError,
+from ..content.youtube_transcripts import (
+    ScraperTranscriptError,
     calculate_total_duration,
     fetch_transcript_with_cache,
     format_transcript_text,
     format_transcript_timestamped,
-    list_channel_videos,
-    looks_like_channel_target,
-    parse_youtube_url,
+    render_youtube_transcript_markdown,
 )
-from ..youtube.api_quota import get_youtube_api_quota_tracker
+from ..errors import raise_tool_error
+from ..models import (
+    YouTubeChannelTranscriptionItem,
+    YouTubeChannelTranscriptionResponse,
+    YouTubeTranscriptQuality,
+    YouTubeTranscriptResponse,
+)
+from ..search.quick.quick_web_search_youtube import (
+    YouTubeApiError,
+    get_youtube_api_quota_tracker,
+    list_channel_videos,
+)
+from ..telemetry import record_youtube_transcript
+from ..utils.text_clean import clean_text_for_llm
+from ..utils.youtube_urls import YouTubeError, looks_like_channel_target, parse_youtube_url
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _truncate_segments(
+    segments: list[dict[str, Any]],
+    max_chars: int,
+) -> tuple[list[dict[str, Any]], bool]:
+    """Truncate at segment boundaries so JSON and rendered output agree.
+
+    ``max_chars <= 0`` means unlimited: the full segment list is returned
+    untruncated (mirrors the fetch pipeline's 0 = unlimited convention).
+    """
+    if max_chars <= 0:
+        return segments, False
+    selected: list[dict[str, Any]] = []
+    used = 0
+    for segment in segments:
+        text = str(segment.get("text", "")).strip()
+        addition = len(text) + (1 if selected else 0)
+        if selected and used + addition > max_chars:
+            return selected, True
+        if not selected and len(text) > max_chars:
+            return [{**segment, "text": text[:max_chars].rstrip() + "…"}], True
+        selected.append(segment)
+        used += addition
+    return selected, False
 
 
 async def youtube_transcript(
@@ -50,7 +79,9 @@ async def youtube_transcript(
     ] = "text",
     backend: Annotated[
         str | None,
-        Field(description="Override the transcript backend; default comes from settings."),
+        Field(
+            description="Override the transcript backend (auto|apify|brightdata); default comes from settings."
+        ),
     ] = None,
     include_summary: Annotated[
         bool, Field(description="Add a source-grounded Gemini summary of the transcript.")
@@ -66,14 +97,13 @@ async def youtube_transcript(
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> YouTubeTranscriptResponse | YouTubeChannelTranscriptionResponse:
-    """Extract a YouTube transcript, with optional analysis and summary.
+    """Extract a YouTube transcript, with optional summary.
 
     Accepts a video URL/ID or a channel handle/ID/URL. The target is
     auto-detected and determines the response shape.
 
     WHEN TO USE:
     - Getting the full text of a video found via quick_web_search mode='youtube'.
-    - Analyzing entities and relations mentioned in a video.
     - Transcribing a channel's recent uploads in bulk.
 
     WHEN NOT TO USE:
@@ -82,7 +112,6 @@ async def youtube_transcript(
     RETURNS (video mode):
     - transcript_text, transcript_segments, language, is_translated,
       duration_seconds, output_format, and quality diagnostics.
-    - analysis: extracted entities and relations when available.
     - summary: a source-grounded summary when include_summary=true.
 
     RETURNS (channel mode):
@@ -115,9 +144,6 @@ async def youtube_transcript(
     format = output_format
     from ..content.ai_summary import public_summary, summarize
     from ..settings import settings
-    from ..youtube.analysis import analyze_transcript
-    from ..youtube.quality import normalize_transcript_segments, truncate_segments
-    from ..youtube.transcript import render_youtube_transcript_markdown
 
     timeout_seconds = settings.youtube_transcript_timeout_seconds
     max_chars = settings.youtube_transcript_max_chars
@@ -144,8 +170,7 @@ async def youtube_transcript(
 
         await ctx.report_progress(progress=10, total=100, message="Fetching transcript...")
         segments, backend_used = await asyncio.wait_for(
-            asyncio.to_thread(
-                fetch_transcript_with_cache,
+            fetch_transcript_with_cache(
                 video_id,
                 language=language,
                 translate_to=translate_to,
@@ -153,15 +178,18 @@ async def youtube_transcript(
             ),
             timeout=timeout_seconds,
         )
-        segments, quality = normalize_transcript_segments(segments)
-        output_segments, truncated = truncate_segments(segments, max_chars)
-        quality = quality.model_copy(update={"truncated": truncated})
+        output_segments, truncated = _truncate_segments(segments, max_chars)
+        segment_count = len(output_segments)
+        joined_text = " ".join(seg.get("text", "") for seg in output_segments)
+        quality = YouTubeTranscriptQuality(
+            segment_count=segment_count,
+            word_count=len(joined_text.split()),
+            character_count=sum(len(seg.get("text", "")) for seg in output_segments)
+            + max(0, segment_count - 1),
+            truncated=truncated,
+        )
 
         full_text = format_transcript_text(segments)
-        await ctx.report_progress(
-            progress=40, total=100, message="Running GLiNER2 transcript extraction..."
-        )
-        analysis = await analyze_transcript(full_text)
 
         summary_payload: dict[str, Any] | None = None
         if include_summary:
@@ -186,16 +214,7 @@ async def youtube_transcript(
                 }
         summary = public_summary(summary_payload)
 
-        metadata: dict[str, object] = {}
-        if format == "markdown" or (language is None and not translate_to):
-            try:
-                from ..youtube.yt_dlp_backend import ytdlp_extract_metadata
-
-                metadata = await asyncio.to_thread(ytdlp_extract_metadata, video_id)
-            except Exception:
-                metadata = {}
-
-        actual_language = translate_to or language or str(metadata.get("language") or "") or "und"
+        actual_language = translate_to or language or "und"
         is_translated = bool(translate_to)
         if format == "json":
             transcript_text = ""
@@ -205,7 +224,7 @@ async def youtube_transcript(
             timestamped = format_transcript_timestamped(output_segments)
             transcript_text = render_youtube_transcript_markdown(
                 video_id=video_id,
-                title=str(metadata.get("title") or "") or None,
+                title=None,
                 transcript_text=timestamped,
                 language=actual_language,
                 is_translated=is_translated,
@@ -219,24 +238,6 @@ async def youtube_transcript(
                 if isinstance(key_points, list) and key_points:
                     transcript_text += "\n### Key points\n\n"
                     transcript_text += "".join(f"- {point}\n" for point in key_points)
-            transcript_text += "\n## GLiNER2 Analysis\n\n"
-            transcript_text += f"**Status:** `{analysis.status}`\n\n"
-            if analysis.entities:
-                transcript_text += "### Entities\n\n"
-                transcript_text += "| Text | Label | Confidence |\n|---|---|---:|\n"
-                transcript_text += "".join(
-                    f"| {entity.text.replace('|', '\\\\|')} | {entity.label} | "
-                    f"{entity.confidence if entity.confidence is not None else ''} |\n"
-                    for entity in analysis.entities
-                )
-            if analysis.structured_data:
-                import json
-
-                transcript_text += "\n### Structured data\n\n```json\n"
-                transcript_text += json.dumps(
-                    analysis.structured_data, ensure_ascii=False, indent=2
-                )
-                transcript_text += "\n```\n"
         else:
             transcript_text = format_transcript_text(output_segments)
 
@@ -255,7 +256,7 @@ async def youtube_transcript(
         response = YouTubeTranscriptResponse(
             video_id=video_id,
             video_url=canonical_url,
-            title=str(metadata.get("title") or "") or None,
+            title=None,
             transcript_text=transcript_text,
             language=actual_language,
             is_translated=is_translated,
@@ -264,7 +265,6 @@ async def youtube_transcript(
             backend_used=backend_used,
             output_format=format,
             summary=summary,
-            analysis=analysis,
             quality=quality,
             error=None,
         ).model_dump(exclude_none=True)
@@ -281,7 +281,6 @@ async def youtube_transcript(
             backend=backend_used,
             transcript_text=transcript_text,
             transcript_segments=output_segments if format == "json" else None,
-            analysis_status=analysis.status,
             summary_included=include_summary,
             output_count=len(output_segments),
             duration_ms=(time.monotonic() - started) * 1000,
@@ -334,6 +333,26 @@ async def youtube_transcript(
             duration_ms=(time.monotonic() - started) * 1000,
         )
         raise_tool_error(e, provider="youtube")
+    except (ScraperTranscriptError, YouTubeApiError) as e:
+        record_youtube_transcript(
+            format=format,
+            language=language or "en",
+            is_translated=bool(translate_to),
+            duration_seconds=None,
+            backend_used=effective_backend,
+        )
+        emit_tool_observability_event(
+            LOGGER,
+            "youtube_transcript",
+            "error",
+            tool_call_id=tool_call_id,
+            video_id_or_url=video_id_or_url,
+            backend=effective_backend,
+            error_type="backend",
+            error_message=str(e),
+            duration_ms=(time.monotonic() - started) * 1000,
+        )
+        raise_tool_error(e, provider="youtube")
 
     except Exception as e:
         record_youtube_transcript(
@@ -373,8 +392,7 @@ async def _transcribe_channel(
 ) -> YouTubeChannelTranscriptionResponse:
     """Transcribe channel uploads with cache-first partial-failure reporting.
 
-    Called from ``youtube_transcript`` when the target resolves to a channel;
-    GLiNER2 analysis is always performed per video by ``youtube_transcript``.
+    Called from ``youtube_transcript`` when the target resolves to a channel.
     """
     max_videos = max(1, min(max_videos, 5000))
     channel_id, videos, next_page_token = await list_channel_videos(

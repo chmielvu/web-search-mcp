@@ -12,7 +12,7 @@ Human-readable reference layer for the repo.
 |---|---|
 | `DuckDB_schema.md` | Canonical DuckDB schema for analytics/search quality |
 | `logdb_schema.md` | Process-log schema reference |
-| `crawl4ai-research.md` | Notes for remote Crawl4AI crawling and sitemap |
+| `youtube-scraper-research.md` | YouTube transcript vendor research (Apify primary, Bright Data fallback; rejected paths) |
 
 ## Rules
 

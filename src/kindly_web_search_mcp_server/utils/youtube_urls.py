@@ -12,9 +12,21 @@ Supported formats:
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from urllib.parse import parse_qs, urlparse
 
-from .models import YouTubeError, YouTubeTarget
+
+class YouTubeError(RuntimeError):
+    """Custom error for YouTube parsing/transcript failures."""
+
+    pass
+
+
+@dataclass(frozen=True)
+class YouTubeTarget:
+    video_id: str
+    canonical_url: str  # e.g. https://www.youtube.com/watch?v=VIDEO_ID
+
 
 # URL path patterns
 _YOUTUBE_WATCH_RE = re.compile(r"^/watch$")
@@ -23,7 +35,6 @@ _YOUTUBE_SHORTS_RE = re.compile(r"^/shorts/([^/?]+)$")
 _YOUTUBE_LIVE_RE = re.compile(r"^/live/([^/?]+)$")
 
 _VALID_HOSTS = ("youtube.com", "www.youtube.com", "m.youtube.com", "youtu.be")
-
 
 _BARE_CHANNEL_ID_RE = re.compile(r"^UC[\w-]{18,30}$")
 _HANDLE_RE = re.compile(r"^@[\w.-]+$")
@@ -73,7 +84,7 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
             f"Invalid YouTube video ID: {stripped!r} - expected 11 characters, got {len(stripped)}."
         )
 
-    parsed = urlparse(url)
+    parsed = urlparse(stripped)
     host = (parsed.hostname or "").lower()
 
     if host not in _VALID_HOSTS:
@@ -122,9 +133,3 @@ def parse_youtube_url(url: str) -> YouTubeTarget:
         raise YouTubeError(f"Invalid video ID extracted from URL: {url}")
     canonical_url = f"https://www.youtube.com/watch?v={video_id}"
     return YouTubeTarget(video_id=video_id, canonical_url=canonical_url)
-
-
-def extract_video_id(url_or_id: str) -> str:
-    """Extract video ID from a URL or bare ID string."""
-    target = parse_youtube_url(url_or_id)
-    return target.video_id

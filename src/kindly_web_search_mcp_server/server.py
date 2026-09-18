@@ -19,44 +19,29 @@ os.environ.setdefault("FASTMCP_SHOW_SERVER_BANNER", "false")
 os.environ.setdefault("FASTMCP_LOG_LEVEL", "WARNING")
 
 
-def _docket_backend_reachable(url: str, timeout: float = 0.75) -> bool:
-    """TCP-probe the configured Docket backend host/port.
+def _resolve_tasks_backend_url() -> str:
+    """Resolve the task backend without mutating process-wide environment state.
 
-    FastMCP's Docket client reconnects with backoff; against an unreachable
-    Redis that retry loop previously stalled the stdio handshake past client
-    timeouts (2026-08-21 incident). A sub-second connect probe lets startup
-    degrade to the in-memory backend instead of blocking.
+    Unreachable Redis backends fall back to the in-memory backend so a stdio
+    handshake does not wait through Docket reconnect backoff.
     """
+    url = os.environ.get("FASTMCP_DOCKET_URL", "").strip() or "memory://"
+    if not url.startswith(("redis://", "rediss://")):
+        return url
+
     import socket
     from urllib.parse import urlsplit
 
     try:
         parts = urlsplit(url)
-        if parts.scheme not in ("redis", "rediss"):
-            return True
         host = parts.hostname or "127.0.0.1"
         port = parts.port or 6379
-        with socket.create_connection((host, port), timeout=timeout):
-            return True
+        with socket.create_connection((host, port), timeout=0.75):
+            return url
     except OSError:
-        return False
+        LOGGER.warning("Docket backend %s unreachable; using memory:// for this run.", url)
+        return "memory://"
 
-
-def _resolve_docket_backend() -> None:
-    """Downgrade FASTMCP_DOCKET_URL to memory:// when the backend is unreachable."""
-    url = os.environ.get("FASTMCP_DOCKET_URL", "").strip()
-    if url and not _docket_backend_reachable(url):
-        os.environ["FASTMCP_DOCKET_URL"] = "memory://"
-        import sys
-
-        print(
-            f"[web-search-mcp] Docket backend {url} unreachable; "
-            "using memory:// background tasks for this run.",
-            file=sys.stderr,
-        )
-
-
-_resolve_docket_backend()
 
 # Telemetry initialization redirects process stdout while importing third-party
 # modules. It may run in a daemon thread for HTTP transports, but stdio must
@@ -67,7 +52,6 @@ import logging
 from .analytics.app import analytics_app
 from .analytics.producers import emit_observability_event
 from .composio_tools import register_composio_tools
-from .deep_research import register_deep_research
 from .search.quick.quick_web_search import register_quick_web_search
 from .settings import settings
 from .tools._helpers import (
@@ -79,6 +63,7 @@ from .tools.academic import academic_search
 from .tools.ai_search import gemini_search, grok_search
 from .tools.catalog import tool_kwargs
 from .tools.content import crawl_web, fetch
+from .tools.deep_research import register_deep_research
 from .tools.profiles import apply_tool_profile
 from .tools.prompts import (
     query_refinement_prompt,
@@ -160,8 +145,8 @@ import argparse
 import sys
 from typing import Any, Literal
 
-import fastmcp
 from fastmcp import FastMCP
+from fastmcp_tasks import TasksExtension
 
 mcp = FastMCP(
     "web-search",
@@ -212,6 +197,9 @@ mcp = FastMCP(
         "For the tool routing reference card, read docs://workflow."
     ),
 )
+# Production Redis deployments must share FASTMCP_TASKS_ENCRYPTION_KEY across
+# every server and worker; drain the queue before key rollout or rotation.
+mcp.add_extension(TasksExtension(url=_resolve_tasks_backend_url()))
 # Add stdout guard middleware FIRST so it wraps every other middleware and
 # the tool call itself. MCP's stdio transport captures sys.stdout.buffer
 # once at startup and treats it as a newline-delimited JSON-RPC channel;
@@ -268,33 +256,15 @@ from fastmcp.server.middleware.logging import StructuredLoggingMiddleware
 from fastmcp.server.middleware.response_limiting import ResponseLimitingMiddleware
 from fastmcp.server.middleware.timing import TimingMiddleware
 
-# FastMCP 3.4.2's caching middleware passes ``context=`` to a wrapper whose
-# parameter is named ``ctx``. That breaks every tools/call on a cache miss.
-# FastMCP 3.4.3 fixed the upstream mismatch; skip only the incompatible
-# optimization when a stale runtime is used so the MCP server remains usable.
-_fastmcp_version_code = 0
-with contextlib.suppress(AttributeError, IndexError, ValueError):
-    _fastmcp_parts = fastmcp.__version__.split(".")
-    _fastmcp_version_code = (
-        int(_fastmcp_parts[0]) * 10_000 + int(_fastmcp_parts[1]) * 100 + int(_fastmcp_parts[2])
+# Keep list_tools caching disabled: converting FunctionTool to plain Tool drops
+# task_config and breaks task advertisement on the wire.
+mcp.add_middleware(
+    ResponseCachingMiddleware(
+        read_resource_settings={"ttl": 300},  # 5-minute TTL for resource reads
+        call_tool_settings={"enabled": False},  # repo has its own query/page caches
+        list_tools_settings={"enabled": False},
     )
-
-if _fastmcp_version_code >= 30403:
-    mcp.add_middleware(
-        ResponseCachingMiddleware(
-            read_resource_settings={"ttl": 300},  # 5-minute TTL for resource reads
-            call_tool_settings={"enabled": False},  # repo has its own query/page caches
-            # list_tools caching is disabled: on_list_tools converts FunctionTool
-            # to plain Tool, dropping task_config and breaking SEP-1686 task
-            # advertisement (execution.taskSupport) on the wire.
-            list_tools_settings={"enabled": False},
-        )
-    )
-else:
-    LOGGER.warning(
-        "ResponseCachingMiddleware disabled for incompatible FastMCP %s; upgrade to >=3.4.3",
-        getattr(fastmcp, "__version__", "unknown"),
-    )
+)
 mcp.add_middleware(TimingMiddleware())
 mcp.add_middleware(StructuredLoggingMiddleware(include_payloads=False))
 mcp.add_middleware(
@@ -401,7 +371,7 @@ mcp.prompt(
 )(research_methodology_prompt)
 
 
-Transport = Literal["stdio", "sse", "streamable-http"]
+Transport = Literal["stdio", "sse", "http"]
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -423,7 +393,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     transport_group = parser.add_mutually_exclusive_group()
     transport_group.add_argument(
         "--transport",
-        choices=("stdio", "sse", "streamable-http"),
+        choices=("stdio", "sse", "http", "streamable-http"),
         help="Transport to use (default: stdio).",
     )
     transport_group.add_argument(
@@ -445,7 +415,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
         "--streamable-http",
         dest="transport",
         action="store_const",
-        const="streamable-http",
+        const="http",
         help="Run using Streamable HTTP transport.",
     )
 
@@ -469,7 +439,9 @@ def _build_arg_parser() -> argparse.ArgumentParser:
 
 
 def _resolve_transport(raw: str | None) -> Transport:
-    if raw in ("stdio", "sse", "streamable-http"):
+    if raw == "streamable-http":
+        return "http"
+    if raw in ("stdio", "sse", "http"):
         return raw
     return "stdio"
 
@@ -531,11 +503,11 @@ def main(argv: list[str] | None = None) -> None:
         )
         raise SystemExit(2)
 
-    if transport in ("sse", "streamable-http"):
+    if transport in ("sse", "http"):
         host, port = _resolve_host_port(args.host, args.port)
-        for key, value in (("host", host), ("port", port)):
-            if hasattr(mcp, "settings") and hasattr(mcp.settings, key):  # type: ignore[attr-defined]
-                setattr(mcp.settings, key, value)  # type: ignore[attr-defined]
+        run_kwargs_host, run_kwargs_port = host, port
+    else:
+        run_kwargs_host = run_kwargs_port = None
 
     # Start telemetry early so its expensive optional imports overlap with
     # other startup work. Stdio must wait before FastMCP captures stdout:
@@ -543,7 +515,10 @@ def main(argv: list[str] | None = None) -> None:
     _ensure_telemetry(wait_for_completion=transport == "stdio")
     _warm_heavy_imports()
     run_kwargs: dict[str, Any] = {"transport": transport, "show_banner": False}
-    if transport in ("sse", "streamable-http") and args.mount_path is not None:
+    if run_kwargs_host is not None and run_kwargs_port is not None:
+        run_kwargs["host"] = run_kwargs_host
+        run_kwargs["port"] = run_kwargs_port
+    if transport == "sse" and args.mount_path is not None:
         run_kwargs["mount_path"] = args.mount_path
     try:
         mcp.run(**run_kwargs)

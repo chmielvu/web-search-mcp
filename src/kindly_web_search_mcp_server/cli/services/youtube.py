@@ -36,6 +36,8 @@ async def fetch_youtube_transcript_payload(
         summary_focus=summary_focus,
         ctx=cast("Context", _CliContext()),
     )
+    if isinstance(response, dict):
+        return response
     return response.model_dump(exclude_none=True)
 
 
@@ -65,4 +67,6 @@ async def fetch_youtube_channel_transcription_payload(
         page_token=page_token,
         ctx=cast("Context", _CliContext()),
     )
+    if isinstance(response, dict):
+        return response
     return response.model_dump(exclude_none=True)
