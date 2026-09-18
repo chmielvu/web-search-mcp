@@ -151,6 +151,12 @@ async def rank_and_finalize(
     tracer = get_tracer()
     rank_started = time.monotonic()
     dc = run.diagnostics
+    # Each wave re-ranks the full accumulated outcome set. The ranking-owned
+    # mutable state must start clean so an empty or failing later ranking
+    # cannot reuse stale final-output state from an earlier wave.
+    dc.overflow_ranked = []
+    dc.candidate_embeddings = []
+    run.rerank_metadata.clear()
     with tracer.start_as_current_span("search.rank") as span:
         key_for = memoize_canonicalize(canonicalize_url)
         warnings = _stable_warnings(outcomes)
@@ -419,9 +425,12 @@ async def rank_and_finalize(
             "branch_count": len(outcomes),
             "provider_count": len(providers_used_set),
         }
-        if merged:
-            dc.rerank_stage_summaries.extend([s.model_dump() for s in reranked.stage_summaries])
-        dc.phase_timings["search.rank"] = (time.monotonic() - rank_started) * 1000.0
+        dc.rerank_stage_summaries = (
+            [s.model_dump() for s in reranked.stage_summaries] if merged else []
+        )
+        dc.phase_timings["search.rank"] = (
+            dc.phase_timings.get("search.rank", 0.0) + (time.monotonic() - rank_started) * 1000.0
+        )
         span.set_attribute("search.merged_count", len(merged))
         span.set_attribute("search.final_count", returned)
         return SearchRunResult(

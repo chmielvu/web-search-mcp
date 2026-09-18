@@ -10,7 +10,7 @@ Pydantic models do. Pydantic remains only at the MCP wire boundary in
 from dataclasses import dataclass
 from typing import Literal
 
-from ..models import FilterStats, ProviderWarning
+from ..models import FilterStats, ProviderWarning, SearchStopReason
 
 AnswerKind = Literal["featured_snippet", "paa", "knowledge", "llm", "forum"]
 SourceKind = Literal["forum", "video", "social", "official", "news", "docs", "other"]
@@ -110,6 +110,22 @@ class ScoredHit:
 
 
 @dataclass(frozen=True, slots=True)
+class AdaptiveRound:
+    """One adaptive retrieval wave and the decision that followed it."""
+
+    index: int
+    branch_start: int
+    branch_count: int
+    queries: tuple[str, ...]
+    candidate_count: int
+    new_url_count: int
+    domain_count: int
+    provider_failure_count: int
+    decision: Literal["search", "finish"]
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
 class SearchRunResult:
     """Internal run result; replaces the legacy Pydantic web search response."""
 
@@ -120,3 +136,6 @@ class SearchRunResult:
     warnings: tuple[ProviderWarning, ...] = ()
     intent: str | None = None
     filter_stats: FilterStats | None = None
+    rounds: int = 0
+    stop_reason: SearchStopReason | None = None
+    synthesis: str | None = None

@@ -13,7 +13,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from ..models import ProviderWarning
 from .options import SearchOptions
-from .types import EngineCall, SearchHit, SearchRunResult
+from .types import AdaptiveRound, EngineCall, SearchHit, SearchRunResult
 from .understanding.models import QueryUnderstandingResult
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
@@ -32,6 +32,7 @@ class BranchRole(StrEnum):
     SERP2 = "serp2"
     SEMANTIC_TAVILY = "semantic_tavily"
     SEMANTIC_EXA = "semantic_exa"
+    FOLLOWUP = "followup"
 
 
 class QueryBranch(ContractModel):
@@ -134,6 +135,7 @@ class DiagnosticsCollector:
     provider_expansions: list[dict[str, Any]] = field(default_factory=list)
     query_integrities: list[dict[str, Any]] = field(default_factory=list)
     overflow_ranked: list[tuple[str, SearchHit]] = field(default_factory=list)
+    adaptive_rounds: list[AdaptiveRound] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

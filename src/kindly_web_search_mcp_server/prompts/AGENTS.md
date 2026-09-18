@@ -14,6 +14,7 @@ Prompt templates, builders, and registry for all subsystems.
 | `builders.py` | Prompt-building helpers |
 | `query_understanding.py` | Query understanding prompts |
 | `query_rewrite.py` | Owner of rewrite templates, named-slot schema (`RewrittenQueries`), `REWRITE_PROMPT_VERSION`, and per-intent `REWRITE_INTENT_ANGLES` / `select_rewrite_prompt` |
+| `adaptive_search.py` | Owner of adaptive wave templates, strict response schemas (`TargetedQuery`, `FollowupBatch`, `ContinuationDecision`, `SynthesisDraft`), and `ADAPTIVE_SEARCH_PROMPT_VERSION`; consumed by `search.adaptive` |
 | `rerank.py` | Reranking prompts |
 | `rerank_llm.py` / `rerank_llm.yaml` | LLM rerank prompts and config |
 | `entity_extraction.py` | Entity extraction prompts |

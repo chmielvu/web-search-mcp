@@ -27,7 +27,10 @@ DEFAULT_PROFILE_TOOLS = frozenset(
 _TOOL_TIMEOUTS: dict[str, float | None] = {
     "generate_sitemap": 90.0,
     "grok_search": 60.0,
-    "web_search": 120.0,
+    # web_search: None — the bounded three-wave adaptive run must not be
+    # killed by a one-pass tool-wide timeout; provider/reranker/LLM call
+    # timeouts and caller cancellation stay operative.
+    "web_search": None,
     "fetch": 240.0,
     "crawl_web": 240.0,
     "academic_search": 45.0,
@@ -108,7 +111,7 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         "web_search",
         "Web Search",
         {"regular", "full"},
-        version="3.0",
+        version="4.0",
         task=True,
     ),
     "fetch": _entry("fetch", "Fetch", {"regular", "full"}),

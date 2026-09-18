@@ -59,8 +59,9 @@ async def web_search(
         bool,
         Field(
             description=(
-                "Rewrite the query for broader recall (default true). "
-                "Set false for exact literals, error strings, or quoted identifiers."
+                "Rewrite the query for broader recall in the first wave (default true). "
+                "Set false for exact literals, error strings, or quoted identifiers. "
+                "Does not disable adaptive search; follow-up waves always run."
             )
         ),
     ] = True,
@@ -137,7 +138,20 @@ async def web_search(
     ] = None,
     ctx: Context = CurrentContext(),
 ) -> WebSearchPublicResponse:
-    """Ranked web results from multiple search engines.
+    """Ranked web results from multiple engines, with bounded adaptive retrieval.
+
+    A fresh search runs the broad first fanout unchanged, then an LLM picks 1-2
+    targeted follow-up queries, then another LLM decides between finishing and
+    one final targeted wave. The response carries globally ranked `results`
+    (citation_id, title, url, snippet, domain, published_date, freshness,
+    consensus, providers), a snippet-grounded `synthesis` with inline [cN]
+    citations, and `search` execution metadata (rounds 1-3, stop_reason).
+
+    Snippets are teasers — call fetch on at most 5 URLs. Empty `results` means
+    no hits; read `warnings` for why. `warnings` with results means some
+    providers or filters degraded; keep the ranked hits. `cursor` pages leftover
+    links from this run (title/url only, no synthesis, no new searching). `next`
+    is a fetch call of the top URLs (max 5).
 
     Use when you need source URLs, publication dates, or agreement across engines.
     Do not use for a one-shot factual answer (gemini_search), first-pass
@@ -146,13 +160,6 @@ async def web_search(
 
     Provide `query` or `queries`. `queries` wins when both are set. Omit `cursor`
     for a new search.
-
-    Returns ranked `results` (citation_id, title, url, snippet, domain,
-    published_date, freshness, consensus, providers). Snippets are teasers —
-    call fetch on at most 5 URLs. Empty `results` means no hits; read `warnings`
-    for why. `warnings` with results means some providers or filters degraded;
-    keep the ranked hits. `cursor` pages leftover links from this run (title/url
-    only). `next` is a fetch call of the top URLs (max 5).
 
     Errors: invalid cursor → search again without cursor; invalid dates → use
     YYYY-MM-DD; missing query → supply query or queries.

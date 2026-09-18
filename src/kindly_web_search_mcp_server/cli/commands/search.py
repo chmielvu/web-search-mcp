@@ -206,7 +206,14 @@ def web_cmd(
             help="Search query text (can be specified up to 4 times for multi-query search).",
         ),
     ] = [],
-    rewrite: Annotated[bool, typer.Option("--rewrite/--no-rewrite")] = True,
+    rewrite: Annotated[
+        bool,
+        typer.Option(
+            "--rewrite/--no-rewrite",
+            help="Rewrite the query for broader recall in the first wave (default true). "
+            "Does not disable adaptive follow-up waves.",
+        ),
+    ] = True,
     research_goal: Annotated[
         str,
         typer.Option("--research-goal", help="Required search objective."),
@@ -259,7 +266,7 @@ def web_cmd(
         typer.Option("--cursor", help="Leftover continuation cursor from this run."),
     ] = None,
 ) -> None:
-    """Run the full multi-provider web search pipeline."""
+    """Run the bounded adaptive multi-provider web search pipeline."""
     from ..services.search_web import fetch_web_search_payload
 
     if not (cursor and cursor.strip()) and not any(item.strip() for item in query):

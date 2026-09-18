@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..analytics.ids import _candidate_id, _canonical_result_id
@@ -143,6 +143,13 @@ async def persist_search_outcome(run):
                     "session_id": outcome.session_id,
                     "phase_timings": dc.phase_timings,
                     "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
+                    "adaptive_rounds": [asdict(record) for record in dc.adaptive_rounds],
+                    "adaptive_search": (
+                        {"rounds": r.rounds, "stop_reason": r.stop_reason}
+                        if r is not None and r.rounds >= 1 and r.stop_reason is not None
+                        else None
+                    ),
+                    "synthesis": r.synthesis if r is not None else None,
                     "provider_expansions": list(dc.provider_expansions),
                     "query_integrities": list(dc.query_integrities),
                     "seed_queries": list(outcome.plan.seed_queries[:4])
@@ -429,15 +436,11 @@ async def persist_search_outcome(run):
                 if candidate.hit.url
             ]
             qt_rows = []
-            branch_index_by_role = {
-                branch_outcome.branch.role.value: index
-                for index, branch_outcome in enumerate(outcome.outcomes)
-            }
             for row in dc.query_transform_rows:
-                branch_index = branch_index_by_role.get(row["branch_role"])
+                branch_index = row.get("branch_index")
                 if branch_index is None:
                     LOGGER.warning(
-                        "Skipping query transform with unknown branch role: %s",
+                        "Skipping query transform with missing branch index: %s",
                         row["branch_role"],
                     )
                     continue

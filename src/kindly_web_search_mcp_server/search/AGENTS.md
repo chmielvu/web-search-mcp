@@ -15,8 +15,9 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 | `types.py` | Frozen internal provider/run dataclasses: `SearchHit`, `EngineCall`, `ScoredHit`, `SearchRunResult` |
 | `evidence.py` | Shared testimony rendering/serialization for ranking, rerank, indexing, and analytics |
 | `planning.py` | Normalize, understand intent, 5-variant rewrite, select providers, emit branches |
+| `adaptive.py` | Bounded result-conditioned wave controller (`run_adaptive_search`): broad wave 1, LLM-proposed follow-up waves, stop reasons, final synthesis |
 | `graph_expansion.py` | Rewrite-only, bounded related-query injection from a SQLite graph artifact; preserves the normalized original seed and six-branch topology |
-| `retrieval.py` | Structured branch/provider fanout with budget management |
+| `retrieval.py` | Structured branch/provider fanout with budget management; cumulative per-wave outcomes appended to the live run with global branch indices |
 | `ranking.py` | Blocklist, weighted RRF merge, BM25/rerank, final response |
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
@@ -38,6 +39,8 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 Query rewrite generates 5 variants: one free query, two SERP queries, one semantic Tavily query, and one semantic Exa query. The six ordered `BranchRole` values are `original`, `free`, `serp1`, `serp2`, `semantic_tavily`, and `semantic_exa`.
 `reranking_instructions` passes caller guidance to cross-encoder & LLM rerankers.
 - Planning emits exactly 6 ordered branches with the provider assignments defined in `search/planning.py`.
+- Adaptive execution (`search/adaptive.py::run_adaptive_search`): the six-branch broad wave is retrieved unchanged, then an LLM proposes 1-2 `BranchRole.FOLLOWUP` queries from the ranked evidence (worker chain, structured `FollowupBatch`), wave two is dispatched to the first-encounter union of wave-one providers with `embedding_task=None` (Qdrant embeds the targeted text itself), a second LLM decides finish/one-final-wave, and the run always ends with one summarization-chain synthesis whose `[cN]` citations are validated against the final slate. Stop reasons: `sufficient_evidence`, `max_rounds`, `no_new_queries`, `no_results`, `retrieval_failure`, `decision_failed`; ceiling is `MAX_SEARCH_WAVES = 3`. `retrieve_branches` takes an explicit `branches` argument, appends outcomes to `run.outcomes`, and records `branch_index` (global, `branch_start + local`) in query-transform/provider rows; `persist_search_outcome` joins query transforms by that explicit index, never by role.
+- After every wave `rank_and_finalize` re-ranks the FULL accumulated outcome tuple (it clears its ranking-owned `overflow_ranked`/`candidate_embeddings`/`rerank_metadata` state and accumulates `phase_timings`), so the last wave's cumulative ranking is the final global ranking. Final indexing and terminal persistence happen once, outside the wave loop.
 - Provider assignment: only `branch.provider_names` are dispatched.
 - Specialized provider queries are dialect-shaped at the retrieve boundary; `provider_calls` stores both planner `branch_query` and adapter `request_query` plus endpoint/status/result-class diagnostics.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
@@ -45,7 +48,7 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
 - Pagination is global; providers receive retrieval depth, never result offset.
 - `execute_web_search` submits exactly one immutable `SearchOutcome`; background tasks never receive the live `SearchRun`.
 - Specialized adapters (Telegram, Hacker News, Reddit, Brave News) publish structured request metadata through the provider execution context; retrieval persists it without exposing credentials. Public-code providers were removed from web_search.
-- Merge uses weighted RRF. Same-provider lists from multiple branches collapse to one list (best rank kept) before fusion. Weights: `settings.rrf_provider_weights` + `rrf_bm25_weight`. `provider_consensus_rrf_score` is deleted.
+- Merge uses weighted RRF over per-`(adapter, branch.query)` ranked lists exactly as providers returned them. Identical `(provider, query)` pairs are suppressed; a provider queried from N distinct query texts contributes N lists whose weights sum to the provider's configured weight. Weights: `settings.rrf_provider_weights` + `rrf_bm25_weight`. `provider_consensus_rrf_score` is deleted.
 - Each `run_provider` invocation starts with fresh request metadata; provider-specific seed fields are initialized inside the request callback so prior-call endpoint/status/error fields cannot leak. Adapters return a typed `EngineCall` envelope carrying `hits: tuple[SearchHit, ...]`, `expansion: tuple[str, ...]`, `integrity: QueryIntegrity | None`, and `failure: EngineFailure | None`.
 - Bright Data Google SERP requests use Full JSON exclusively (`data_format=parsed_light` is deleted) and send `"data_options": {"return_mismatch": true}` in the API request body per primary documentation, allowing query truncation and cloaking to arrive as data for pipeline validation.
 - `rank_and_finalize` wraps RRF and reranked hits into `ScoredHit` items, stamping agent evidence via `attach_agent_evidence`: `citation_id` ("c1", "c2"...), `evidence_final`, `evidence_semantic`, `evidence_lexical`, `evidence_consensus`, `freshness_signal` (`fresh`, `dated`, `unknown`), and `fetch_hint_query` (target URL for the fetch tool). Multi-engine consensus is strictly isolated to `evidence_consensus`. The run result is emitted as a frozen `SearchRunResult` whose `hits` field is a tuple.

@@ -13,6 +13,7 @@ from typing import Any
 
 from ..models import (
     ProviderWarning,
+    WebSearchExecution,
     WebSearchHit,
     WebSearchOverflowHit,
     WebSearchPublicResponse,
@@ -151,6 +152,8 @@ def to_public_web_search(
     hits: list[ScoredHit],
     overflow_items: list[tuple[str, SearchHit]],
     warnings: list[ProviderWarning] | None,
+    synthesis: str | None,
+    search: WebSearchExecution,
 ) -> WebSearchPublicResponse:
     public_hits: list[WebSearchHit | WebSearchOverflowHit] = []
     for index, result in enumerate(hits, start=1):
@@ -177,6 +180,8 @@ def to_public_web_search(
     return WebSearchPublicResponse(
         query=query,
         results=public_hits,
+        synthesis=synthesis,
+        search=search,
         warnings=warnings if warnings else None,
         next=fetch_next(
             [hit.url for hit in public_hits],
@@ -193,11 +198,15 @@ def to_public_web_search_from_run(run: SearchRun) -> WebSearchPublicResponse:
     response = run.response
     if response is None:
         raise ValueError("Search run has no response")
+    if response.rounds < 1 or response.stop_reason is None:
+        raise ValueError("Search run result is missing adaptive execution metadata")
     return to_public_web_search(
         query=response.query,
         hits=list(response.hits),
         overflow_items=list(run.diagnostics.overflow_ranked),
         warnings=list(response.warnings) if response.warnings else None,
+        synthesis=response.synthesis,
+        search=WebSearchExecution(rounds=response.rounds, stop_reason=response.stop_reason),
     )
 
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -196,7 +197,10 @@ class LLMRouter:
         messages: list[dict[str, str]],
         temperature: float = 0.0,
         timeout_seconds: float | None = None,
-        response_model: type[Any] | None = None,
+        # A pydantic model class is converted by the OpenAI-compatible
+        # adapters; a plain mapping is a JSON schema passed through verbatim,
+        # which is the shape the Google genai adapter expects.
+        response_model: type[Any] | Mapping[str, Any] | None = None,
         reasoning_effort: str | None = None,
         langfuse: LLMTraceContext | None = None,
         run_key: str | None = None,

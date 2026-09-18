@@ -210,9 +210,47 @@ class WebSearchOverflowHit(_PublicWebSearchModel):
     url: str
 
 
+SearchStopReason = Literal[
+    "sufficient_evidence",
+    "max_rounds",
+    "no_new_queries",
+    "no_results",
+    "retrieval_failure",
+    "decision_failed",
+]
+
+
+class WebSearchExecution(_PublicWebSearchModel):
+    """How the adaptive search operation executed this run."""
+
+    rounds: int = Field(
+        ge=1,
+        le=3,
+        description="Retrieval waves executed (broad first wave plus targeted follow-up waves).",
+    )
+    stop_reason: SearchStopReason = Field(
+        description=(
+            "Why retrieval stopped: sufficient_evidence (the deciding LLM found the goal covered "
+            "or further search unproductive), max_rounds (wave ceiling), no_new_queries, "
+            "no_results, retrieval_failure, or decision_failed."
+        ),
+    )
+
+
 class WebSearchPublicResponse(_PublicWebSearchModel):
     query: str
     results: list[WebSearchHit | WebSearchOverflowHit] = Field(default_factory=list)
+    synthesis: str | None = Field(
+        default=None,
+        description=(
+            "Evidence-grounded synthesis of the returned results with inline [cN] citations; "
+            "present only on fresh searches, never on cursor pages."
+        ),
+    )
+    search: WebSearchExecution | None = Field(
+        default=None,
+        description="Adaptive execution metadata for this fresh search; absent on cursor pages.",
+    )
     warnings: list[ProviderWarning] | None = None
     next: list[WebSearchNext] | None = None
     remaining: int | None = None

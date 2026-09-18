@@ -7,6 +7,7 @@ into a frozen ``SearchDiagnostics`` payload.
 
 from __future__ import annotations
 
+from dataclasses import asdict
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -108,6 +109,7 @@ class SearchDiagnostics(_DiagBase):
     rerank_stages: tuple[DiagnosticsRerankStage, ...] = ()
     embeddings: DiagnosticsEmbeddings = Field(default_factory=DiagnosticsEmbeddings)
     phase_timings: tuple[tuple[str, float], ...] = ()
+    adaptive_rounds: tuple[dict[str, Any], ...] = ()
     selected_providers: tuple[str, ...] = ()
     skipped_providers: tuple[str, ...] = ()
 
@@ -232,7 +234,8 @@ def _branches_from_run(run: SearchRun, dc: DiagnosticsCollector) -> tuple[Diagno
     if plan is None:
         return ()
     output: list[DiagnosticsBranch] = []
-    for index, (branch, outcome) in enumerate(zip(plan.branches, run.outcomes, strict=False)):
+    for index, outcome in enumerate(run.outcomes):
+        branch = outcome.branch
         output.append(
             DiagnosticsBranch(
                 branch_index=index,
@@ -355,6 +358,7 @@ def build_diagnostics(run: SearchRun, total_latency_ms: float) -> SearchDiagnost
         rerank_stages=_rerank_stages(dc),
         embeddings=_embeddings(dc),
         phase_timings=timings,
+        adaptive_rounds=tuple(asdict(record) for record in dc.adaptive_rounds),
         selected_providers=selected,
         skipped_providers=tuple(sorted(skipped)),
     )

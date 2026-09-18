@@ -15,7 +15,7 @@ from ..telemetry.spans import get_tracer
 from ..utils.query_pipeline import build_query_features, shape_for_branch
 from ..utils.task_scope import cancel_and_drain_tasks
 from ..utils.url_canonicalize import canonicalize_url
-from .contracts import BranchOutcome, QueryBranch, SearchRun
+from .contracts import BranchOutcome, BranchRole, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
 from .evidence import testimony_payload
 from .provider_registry import get_provider_adapter, get_provider_definition
@@ -88,6 +88,7 @@ async def _call_provider(
     provider_name: str,
     embedding_task: Awaitable[Sequence[float]] | None,
     *,
+    branch_index: int,
     retrieve_deadline: float,
 ) -> tuple[str, EngineCall | BaseException, ProviderRequestMetadata, str]:
     definition = get_provider_definition(provider_name)
@@ -121,7 +122,12 @@ async def _call_provider(
         understanding=understanding,
         support_terms=branch.support_terms or (),
     )
-    aug = shape_for_branch(branch.role.value, query, features, exact=not run.request.rewrite)
+    aug = shape_for_branch(
+        branch.role.value,
+        query,
+        features,
+        exact=not run.request.rewrite or branch.role == BranchRole.FOLLOWUP,
+    )
     query_for_call = aug.query
     provider_arguments = dict(
         run.plan.provider_arguments.get(provider_name, {}) if run.plan else {}
@@ -131,6 +137,7 @@ async def _call_provider(
     run.diagnostics.query_transform_rows.append(
         {
             "run_key": run.run_key,
+            "branch_index": branch_index,
             "branch_role": branch.role.value,
             "provider": provider_name,
             "original_query": query,
@@ -435,11 +442,13 @@ def _assemble_branch_outcome(
 
 async def retrieve_branches(
     run: SearchRun,
+    branches: tuple[QueryBranch, ...],
     *,
     embedding_task: asyncio.Task[Sequence[float]] | None,
 ) -> tuple[BranchOutcome, ...]:
     if run.plan is None:
         raise RuntimeError("Search must be planned before retrieval")
+    branch_start = len(run.outcomes)
     tracer = get_tracer()
     retrieve_started = time.monotonic()
     retrieve_budget_seconds = settings.search_retrieve_budget_seconds
@@ -447,17 +456,16 @@ async def retrieve_branches(
 
     with tracer.start_as_current_span("search.retrieve") as span:
         span.set_attribute("search.run_key", run.run_key)
-        span.set_attribute("search.branch_count", len(run.plan.branches))
+        span.set_attribute("search.branch_count", len(branches))
+        span.set_attribute("search.branch_start", branch_start)
         span.set_attribute("search.retrieve_budget_seconds", retrieve_budget_seconds)
 
         branch_assigned: list[tuple[str, ...]] = []
         branch_attempted: list[list[str]] = []
         branch_warnings: list[dict[str, ProviderWarning]] = []
         branch_calls: list[list[dict[str, Any]]] = []
-        branch_engine_calls: list[list[EngineCall]] = [[] for _ in range(len(run.plan.branches))]
-        branch_provider_result_rows: list[list[dict[str, Any]]] = [
-            [] for _ in range(len(run.plan.branches))
-        ]
+        branch_engine_calls: list[list[EngineCall]] = [[] for _ in range(len(branches))]
+        branch_provider_result_rows: list[list[dict[str, Any]]] = [[] for _ in range(len(branches))]
 
         tasks: list[
             asyncio.Task[
@@ -472,7 +480,7 @@ async def retrieve_branches(
         ] = []
         slot_by_task: dict[asyncio.Task[Any], tuple[int, str]] = {}
         started_at: dict[tuple[int, str], float] = {}
-        for branch_index, branch in enumerate(run.plan.branches):
+        for local_index, branch in enumerate(branches):
             assigned_names = branch.provider_names
             branch_assigned.append(assigned_names)
             attempted: list[str] = []
@@ -485,7 +493,7 @@ async def retrieve_branches(
                 async def _invoke(
                     b: QueryBranch = branch,
                     n: str = name,
-                    i: int = branch_index,
+                    i: int = local_index,
                 ) -> tuple[
                     str,
                     EngineCall | BaseException,
@@ -500,6 +508,7 @@ async def retrieve_branches(
                         b,
                         n,
                         embedding_task,
+                        branch_index=branch_start + i,
                         retrieve_deadline=retrieve_deadline,
                     )
                     return (
@@ -512,7 +521,7 @@ async def retrieve_branches(
 
                 task = asyncio.create_task(_invoke(), name=f"search.provider.{name}")
                 tasks.append(task)
-                slot_by_task[task] = (branch_index, name)
+                slot_by_task[task] = (local_index, name)
                 attempted.append(name)
 
         done: set[asyncio.Task[Any]] = set()
@@ -530,15 +539,16 @@ async def retrieve_branches(
                 await cancel_and_drain_tasks(pending)
 
             for task in tasks:
-                branch_index, provider_name = slot_by_task[task]
-                branch = run.plan.branches[branch_index]
-                warnings_by_name = branch_warnings[branch_index]
-                calls = branch_calls[branch_index]
+                local_index, provider_name = slot_by_task[task]
+                branch_index = branch_start + local_index
+                branch = branches[local_index]
+                warnings_by_name = branch_warnings[local_index]
+                calls = branch_calls[local_index]
 
                 if task in pending:
                     elapsed_ms = (
                         time.monotonic()
-                        - started_at.get((branch_index, provider_name), retrieve_started)
+                        - started_at.get((local_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
@@ -548,8 +558,8 @@ async def retrieve_branches(
                         latency_ms=elapsed_ms,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        branch_engine_calls=branch_engine_calls[branch_index],
-                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        branch_engine_calls=branch_engine_calls[local_index],
+                        provider_result_rows=branch_provider_result_rows[local_index],
                         run_key=run.run_key,
                         status_override="incomplete",
                         request_query=branch.query,
@@ -572,7 +582,7 @@ async def retrieve_branches(
                 except asyncio.CancelledError as exc:
                     elapsed_ms = (
                         time.monotonic()
-                        - started_at.get((branch_index, provider_name), retrieve_started)
+                        - started_at.get((local_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
@@ -582,8 +592,8 @@ async def retrieve_branches(
                         latency_ms=elapsed_ms,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        branch_engine_calls=branch_engine_calls[branch_index],
-                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        branch_engine_calls=branch_engine_calls[local_index],
+                        provider_result_rows=branch_provider_result_rows[local_index],
                         run_key=run.run_key,
                         request_query=request_query,
                         metadata=metadata,
@@ -592,7 +602,7 @@ async def retrieve_branches(
                 except Exception as exc:
                     elapsed_ms = (
                         time.monotonic()
-                        - started_at.get((branch_index, provider_name), retrieve_started)
+                        - started_at.get((local_index, provider_name), retrieve_started)
                     ) * 1000.0
                     _record_provider_result(
                         branch=branch,
@@ -602,8 +612,8 @@ async def retrieve_branches(
                         latency_ms=elapsed_ms,
                         warnings_by_name=warnings_by_name,
                         provider_calls=calls,
-                        branch_engine_calls=branch_engine_calls[branch_index],
-                        provider_result_rows=branch_provider_result_rows[branch_index],
+                        branch_engine_calls=branch_engine_calls[local_index],
+                        provider_result_rows=branch_provider_result_rows[local_index],
                         run_key=run.run_key,
                         request_query=request_query,
                         metadata=metadata,
@@ -617,8 +627,8 @@ async def retrieve_branches(
                     latency_ms=latency_ms,
                     warnings_by_name=warnings_by_name,
                     provider_calls=calls,
-                    branch_engine_calls=branch_engine_calls[branch_index],
-                    provider_result_rows=branch_provider_result_rows[branch_index],
+                    branch_engine_calls=branch_engine_calls[local_index],
+                    provider_result_rows=branch_provider_result_rows[local_index],
                     run_key=run.run_key,
                     request_query=request_query,
                     metadata=metadata,
@@ -628,55 +638,59 @@ async def retrieve_branches(
             raise
 
         outcomes_list: list[BranchOutcome] = []
-        for branch_index, branch in enumerate(run.plan.branches):
+        for local_index, branch in enumerate(branches):
             outcomes_list.append(
                 _assemble_branch_outcome(
                     branch,
-                    assigned_names=branch_assigned[branch_index],
-                    attempted=tuple(branch_attempted[branch_index]),
-                    calls=tuple(branch_engine_calls[branch_index]),
-                    warnings_by_name=branch_warnings[branch_index],
-                    provider_calls=branch_calls[branch_index],
+                    assigned_names=branch_assigned[local_index],
+                    attempted=tuple(branch_attempted[local_index]),
+                    calls=tuple(branch_engine_calls[local_index]),
+                    warnings_by_name=branch_warnings[local_index],
+                    provider_calls=branch_calls[local_index],
                     elapsed_seconds=time.monotonic() - retrieve_started,
                 )
             )
 
         outcomes = tuple(outcomes_list)
-        run.outcomes = outcomes
+        run.outcomes = (*run.outcomes, *outcomes)
         branch_rows_diag: list[dict[str, Any]] = []
-        for index, outcome in enumerate(outcomes):
+        for local_index, outcome in enumerate(outcomes):
             preview = branch_outcome_preview(outcome)
-            preview["branch_index"] = index
+            preview["branch_index"] = branch_start + local_index
             calls_with_index = []
             for call in outcome.provider_calls:
                 row = dict(call)
-                row["branch_index"] = index
+                row["branch_index"] = branch_start + local_index
                 calls_with_index.append(row)
             preview["provider_calls"] = calls_with_index
             branch_rows_diag.append(preview)
-        run.diagnostics.branch_results = branch_rows_diag
+        run.diagnostics.branch_results.extend(branch_rows_diag)
         # Collect provider_result rows for funnel uplift analytics
         all_provider_result_rows: list[dict[str, Any]] = []
         for branch_rows_list in branch_provider_result_rows:
             all_provider_result_rows.extend(branch_rows_list)
-        run.diagnostics.provider_result_rows = all_provider_result_rows
-        run.diagnostics.query_integrities = [
+        run.diagnostics.provider_result_rows.extend(all_provider_result_rows)
+        run.diagnostics.query_integrities.extend(
             {
-                "branch_index": branch_index,
+                "branch_index": branch_start + local_index,
                 "branch_role": outcome.branch.role.value,
                 "provider": call.adapter,
                 **payload,
             }
-            for branch_index, outcome in enumerate(outcomes)
+            for local_index, outcome in enumerate(outcomes)
             for call in outcome.calls
             if (payload := _query_integrity_payload(call)) is not None
-        ]
+        )
         elapsed_ms = (time.monotonic() - retrieve_started) * 1000.0
-        run.diagnostics.phase_timings["search.retrieve"] = elapsed_ms
+        run.diagnostics.phase_timings["search.retrieve"] = (
+            run.diagnostics.phase_timings.get("search.retrieve", 0.0) + elapsed_ms
+        )
         if run.diagnostics.enrichment is None:
             run.diagnostics.enrichment = {}
         run.diagnostics.enrichment["retrieve_budget_seconds"] = retrieve_budget_seconds
-        run.diagnostics.enrichment["retrieve_budget_exceeded"] = retrieve_budget_exceeded
+        run.diagnostics.enrichment["retrieve_budget_exceeded"] = (
+            run.diagnostics.enrichment.get("retrieve_budget_exceeded") or retrieve_budget_exceeded
+        )
         span.set_attribute("search.provider_outcome_count", len(outcomes))
         span.set_attribute("search.retrieve_budget_exceeded", retrieve_budget_exceeded)
         return outcomes

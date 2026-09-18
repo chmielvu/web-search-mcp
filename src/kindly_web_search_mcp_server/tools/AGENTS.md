@@ -35,7 +35,7 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 
 | Tool | Returns | Notes |
 |---|---|---|
-| `web_search` | Ranked multi-engine web hits | No public `status`; empty `results` vs `warnings`; `cursor` pages leftover title/url links; `next` is fetch of ≤5 URLs. Catalog v3.0. Deprecated `gl` aliases to `region`. |
+| `web_search` | Ranked multi-engine web hits with bounded adaptive retrieval | No public `status`; empty `results` vs `warnings`; `cursor` pages leftover title/url links (no synthesis, no new searching); `next` is fetch of ≤5 URLs; fresh searches add `synthesis` (snippet-grounded, `[cN]`) and `search` execution metadata (`rounds`, `stop_reason`). Catalog v4.0, no tool-wide timeout (three-wave runs must not be killed by one). Deprecated `gl` aliases to `region`. |
 | `fetch` | LLM-ready Markdown or typed content for one or many URLs |
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
@@ -74,6 +74,9 @@ uv run pytest tests/test_tool_profiles.py
 - `fetch` / `crawl_web` FastMCP catalog timeouts are 240s so Web Unlocker
   can finish after Jina/Crawl4AI/Camoufox. Timeout errors are retryable and
   name the actual budget.
+
+### Recent Changes (2026-09-18, adaptive web_search)
+- `web_search` is the bounded adaptive operation: broad first fanout unchanged, LLM-proposed targeted second wave, LLM finish/third-wave decision, globally ranked union plus one `[cN]`-validated snippet-grounded synthesis. Catalog version 4.0; `_TOOL_TIMEOUTS["web_search"]` is `None` so a three-wave run is not killed by the one-pass tool-wide timeout (provider/reranker/LLM call timeouts and caller cancellation stay operative). `rewrite` only disables the first wave's planner rewrite; adaptive waves always run.
 
 ### Recent Changes (2026-09-18)
 - `deep_research` lives in this package and registers through `TaskConfig(mode="optional")` plus FastMCP 4 `Progress`. Legacy-era clients still run it synchronously.

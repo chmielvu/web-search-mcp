@@ -10,12 +10,11 @@ from collections.abc import Sequence
 import httpx
 
 from ..ml import embed_query, embed_texts
+from .adaptive import run_adaptive_search
 from .contracts import SearchRun, WebSearchRequest
 from .evidence import render_search_hit_text
 from .outcomes import submit_search_outcome
 from .planning import plan_search
-from .ranking import rank_and_finalize
-from .retrieval import retrieve_branches
 from .types import SearchRunResult
 
 LOGGER = logging.getLogger(__name__)
@@ -32,8 +31,7 @@ async def run_search_core(run: SearchRun) -> SearchRunResult:
             embed_query(plan.relevance_query), name=f"search.embedding.{run.run_key}"
         )
     try:
-        outcomes = await retrieve_branches(run, embedding_task=embedding_task)
-        response = await rank_and_finalize(run, outcomes, embedding_task=embedding_task)
+        response = await run_adaptive_search(run, embedding_task=embedding_task)
         run.diagnostics.total_latency_ms = (time.monotonic() - core_started) * 1000.0
         _schedule_web_results_indexing(run, response)
         return response
