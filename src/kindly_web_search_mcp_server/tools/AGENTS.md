@@ -14,8 +14,6 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `profiles.py` | Tool profile application (`regular`, `research`, `media`, `full`), visibility gating |
 | `content.py` | `fetch` MCP tool |
 | `academic.py` | `academic_search` MCP tool |
-| `code_search/` | Agent-oriented public-code search with automatic backend channel selection |
-| `code_search/filters.py` | Provider-neutral validation of repository, path, filename, extension, and language scopes |
 | `ai_search.py` | `gemini_search`, `grok_search` |
 | `youtube.py` | `youtube_transcript` (video URL/ID **or** channel handle/ID/URL, auto-detected; channel mode adds `max_videos`/`page_token`). Video discovery lives in `quick_web_search` mode='youtube' |
 | `sitemap.py` | `generate_sitemap` |
@@ -41,8 +39,6 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 | `gemini_search` | Grounded answers with citations | Uses Gemini + Google Search |
 | `youtube_transcript` | Video or channel transcripts | Auto-detects video vs channel target; channel mode reports per-video partial failures (`max_videos`, `page_token`); the former `youtube_channel_transcription` tool is merged into it |
 | `generate_sitemap` | Structured site URL map | Tavily Map only |
-| `code_search` | Typed code hits, repository candidates, and diagnostics | Modes `code`, `discovery`, `issues`, `huggingface`; backend selects lexical, symbol, regex, semantic, and repository channels; bounded cloud cross-encoder reranking is always attempted fail-open; `next` hints (≤3) route conversations to `fetch` and code hits to `code_fetch`. Library documentation lives in `quick_web_search` mode='docs' |
-| `code_fetch` | Search hits, file reads (single or 1–5 via `paths` → `files[]`), tree, map, symbol graph | Prefer search over full-file reads; an explicit file-like `path` (for example, `*.md` or `*.py`) uses direct hydration; GitHub file fetches from `fetch` redirect here via middleware guidance |
 
 - `fetch` accepts `ai_summary: bool = false`; when enabled the synthesized answer replaces public `content`, while the full summary object remains internal for analytics.
 
@@ -53,24 +49,6 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 - Tool orchestration belongs in tool functions, not service adapters.
 - `emit_tool_observability_event` assigns one stable `tool_call_id` per invocation and writes bounded typed lifecycle rows to analytics `tool_calls`; request/response/error events must reuse that ID.
 - Tool telemetry payloads exclude credential-like fields and classify response rows as `success`, `empty`, `partial`, or `error` from explicit status/error/result counts.
-- `code_search/` keeps its typed `CodeSearchHit`/`CodeSearchResultType` boundary separate from the web search pipeline; provider adapters must not mutate the existing search providers.
-- `code_search` supports explicit modes: `code`, `discovery`, exclusive `huggingface` semantic Hub asset search, and exclusive `issues` (GitHub Issues + Discussions via authenticated GraphQL `search(type: ISSUE/DISCUSSION)`, ported from the retired web-search GitHub adapter; requires GITHUB_TOKEN/GH_TOKEN, skips code hydration/reranking, and records compiled conversation queries in query metadata). Hugging Face mode uses the public librarian-bots API, preserves asset metadata and semantic-score semantics, and does not run GitHub/code providers.
-- Natural, concept-heavy code queries are enriched privately by the existing GLiNER2 `/classify` + `/ner` service and `worker_llm` chain. An optional `research_goal` is passed separately to query rewriting and reranking, never compiled into provider syntax; exact identifiers, regexes, and repository-scoped queries skip LLM rewriting; all model output is validated as engine-neutral terms before deterministic provider compilation.
-- Sourcegraph receives native `content:`, `sym:`, `repo:`, `file:`, and `lang:` syntax. GitHub, grep.app, and Exa must enforce the same explicit repository/path/language scopes; `filters.py` applies the provider-neutral post-filter before ranking.
-- grep.app uses its stateless JSON-RPC `tools/call` SSE contract directly, with the literal `searchGitHub` arguments and bounded retry behavior used by established grep.app clients; REST remains a diagnostic fallback.
-- Results retain provider/query provenance, match spans, symbols, exact hydrated revisions, compact source windows, evidence roles, and repository proof paths so agents can continue investigating.
-- Tree-sitter is the canonical source classifier for complete hydrated files in Python, JavaScript/TypeScript, Go, Rust, Bash/shell, Java, HTML, and SQL. AST evidence is stored in private `source_metadata`; snippet-only or uncached-grammar results remain explicit unknown/native evidence.
-- Tree-sitter grammar assets are never downloaded on the search hot path. Prefetch the approved set during deployment with `uv run python scripts/prefetch_tree_sitter.py` (or the environment's direct Python executable); missing cached grammars fail open.
-- Hosted GLiNER2 package/repository entities are confidence-gated hints only. Context7/DeepWiki resolution verifies the hint; unresolved entities never invent repository URLs.
-- Every `CodeSearchHit` exposes `result_kind` and `location` precision/availability metadata; adapters preserve branch refs separately from immutable revisions, never infer line coordinates from semantic highlights, and Exa Context remains aggregated semantic evidence without line precision.
-- Aggregate outcome semantics treat `no_hit` and `skipped` diagnostics as clean absence; only `partial` and `error` diagnostics downgrade the public result state.
-- Provider-specific library identifiers may remain in `source_metadata`, while top-level repository fields use canonical `owner/repo` formatting.
-- GitHub uses only legacy REST code-search operators actually supported by `/search/code`; repository discovery uses GraphQL repository search and returns topics, SPDX license, homepage, default-branch name, and head OID. Preserve the distinct blob SHA and indexed commit OID and verify them during hydration.
-- Routing boundary (taught in tool docstrings, `docs://workflow`, and server instructions): known file URL, contents only → `fetch`; an explicit file-like `path` for one repository file → `code_fetch` fast lane; repository intelligence → `code_fetch` query/symbol; cross-repo discovery → `code_search`.
-- `CodeSearchHit.snippet` carries provider-supplied evidence text (Hub card summaries, issue/discussion metadata) and projects into `source_window` when no window exists; never serialize issue rows as `path_only` without it.
-- `LocationMetadata.revision` must never be a movable ref: `/blob/HEAD/` fallback URLs parse to `revision=None` (branch stays in `ref` when known).
-- Invalid `regexp=true` queries stop before providers: `outcome=no_hit` with a `regex_drop` diagnostic and `regex_invalid` hint; the inline `/token/` malformed case keeps warning-only behavior.
-- Cloud reranking is always-on and fail-open: `code_search` sends the bounded selected candidate pool through the existing cloud cross-encoder fallback chain when configured, using private `code`, `documentation`, or `hybrid` instructions selected from the internal query plan; general `web_search` reranking is unchanged. Local `sentence-transformers` models are not used, and failures preserve deterministic retrieval order. The former `rerank` parameter has been removed.
 
 ## Testing
 
@@ -78,25 +56,6 @@ MCP tool metadata, profiles, catalog, and visibility helpers.
 uv run pytest tests/test_tool_descriptions.py tests/test_server.py
 uv run pytest tests/test_tool_profiles.py
 ```
-
-Focused code-search coverage:
-
-```bash
-uv run pytest tests/test_code_search.py
-```
-
-## Recent Changes (2026-07-22 sprint 2)
-- `code_fetch` — uncached single-file reads (`path`, no query/symbol) hydrate via
-  `hydrate_sources` and skip the tarball snapshot; directories and hydrate misses
-  fall through.
-- `code_fetch` — explicit file-like `path` values (including `.md`, `.py`, and known extensionless files) are the single-file fast-lane signal; redundant file filters do not force snapshot materialization, while query/symbol/tree-pagination requests retain repository semantics.
-- `code_fetch` — repository-scoped queries now fall back from strict FTS AND matching
-  to per-term candidates, restore valid persisted snapshots across manager lifetimes,
-  and return hits/tree/content/map payloads instead of dropping query data. Search
-  continuations target the repository snapshot rather than emitting path-only loops.
-- `content.py` — removed orphan imports `from ..models import PageMetadata` (class deleted from `models.py`) and `from ..utils.stopwatch import Stopwatch` (module + class deleted). The 3 `timer = Stopwatch()` declarations + 6 `timer.elapsed_ms()` callsites replaced with `duration_ms=0` since `record_mcp_tool_call` requires the kwarg. No measurement infrastructure exists; restore Stopwatch + start/stop instrumentation in a future sprint if `record_mcp_tool_call` duration telemetry is needed.
-
-- `code_search/` — Exa now uses the documented Context endpoint; provider-neutral scope filtering, positive one-based location normalization, result-kind-aware ranking, and transient-failure partial outcomes protect the typed search contract. Context request IDs, echoed queries, usage/cost metadata, and documented error tags/status classes remain available for diagnosis; the synthesized response is one bounded semantic hit without fabricated line precision.
 
 ## Grok Search Contract
 

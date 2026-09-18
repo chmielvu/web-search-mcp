@@ -1,4 +1,9 @@
 ## [Unreleased]
+### Removed — `code_search` + `code_fetch` extracted to seed repo (2026-09-18)
+- Moved the full `tools/code_search/` package (discovery + `exploration.code_fetch` + `snapshot/`) to `../code_search/` with a `SEED.md` handoff (source commit `8016fa6`). The seed is staged as-is and not yet standalone.
+- Removed MCP surface (`server.py` registrations/instructions/limiter, `tools/catalog.py` entries/timeouts, `tools/profiles.py` disable entry, `tools/_helpers.py` singleflights), CLI surface (`search code`, `search fetch`, `cli/services/search_code.py`, `cli/services/code_fetch.py`, `reference_data.py`, `output.py` suggestions), `middleware/query_guidance.py:_guide_code_fetch`, `analytics/producers/code_search.py` + events emit branch, `cache/code_search.py`, and settings/paths constants. Analytics history tables stay untouched by request.
+- Breaking: `code_search` / `code_fetch` tool names and `search code` / `search fetch` CLI commands no longer exist in this repo.
+- Removed the now-orphaned `tree-sitter-language-pack` dependency (`exa-py` stays: `search/providers/exa.py` uses it); `uv.lock` regenerated.
 ### Changed — Required `research_goal` contract across all search tools (2026-09-18)
 - Aligned `research_goal` as a required parameter across `web_search`, `gemini_search`, `code_search`, and their corresponding CLI commands (`search web`, `search code`, `ai gemini`, `ai grok`).
 

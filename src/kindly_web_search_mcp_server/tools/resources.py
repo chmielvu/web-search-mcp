@@ -106,20 +106,10 @@ def get_analytics_report_resource(report_name: str, days: int = 7) -> ResourceRe
 
 
 def get_cache_stats_resource(cache_name: str | None = None) -> ResourceResult:
-    """Entry counts for the server's local caches (query, page, transcript, code_search)."""
+    """Entry counts for the server's local caches (query, page, transcript)."""
     from ..cache import get_page_cache, get_query_cache, get_transcript_cache
-    from ..cache.code_search import get_code_search_cache
 
-    requested = (
-        {cache_name}
-        if cache_name
-        else {
-            "query",
-            "page",
-            "transcript",
-            "code_search",
-        }
-    )
+    requested = {cache_name} if cache_name else {"query", "page", "transcript"}
     stats: dict[str, int] = {}
     if "query" in requested:
         stats["query"] = get_query_cache().entry_count()
@@ -127,8 +117,6 @@ def get_cache_stats_resource(cache_name: str | None = None) -> ResourceResult:
         stats["page"] = get_page_cache().entry_count()
     if "transcript" in requested:
         stats["transcript"] = get_transcript_cache().entry_count()
-    if "code_search" in requested:
-        stats["code_search"] = get_code_search_cache().search_entry_count()
     return ResourceResult(
         contents=[
             ResourceContent(
@@ -141,7 +129,7 @@ def get_cache_stats_resource(cache_name: str | None = None) -> ResourceResult:
 
 
 def get_all_cache_stats_resource() -> ResourceResult:
-    """Entry counts for all local caches (query, page, transcript, code_search)."""
+    """Entry counts for all local caches (query, page, transcript)."""
     return get_cache_stats_resource(cache_name=None)
 
 

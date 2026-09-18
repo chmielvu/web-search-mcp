@@ -66,21 +66,7 @@ def _suggested_next(data: Any) -> list[str]:
         query = continuation.get("query")
         if not isinstance(query, dict):
             continue
-        if tool == "code_fetch" and isinstance(query.get("repository"), str):
-            args = [
-                "uv",
-                "run",
-                "web-search-cli",
-                "search",
-                "fetch",
-                "--repository",
-                query["repository"],
-            ]
-            for key in ("query", "path", "symbol"):
-                if query.get(key):
-                    args.extend([f"--{key}", str(query[key])])
-            suggestions.append(shlex.join(args))
-        elif tool == "fetch" and isinstance(query.get("url"), str):
+        if tool == "fetch" and isinstance(query.get("url"), str):
             args = [
                 "uv",
                 "run",

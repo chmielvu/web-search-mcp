@@ -79,14 +79,12 @@ mcp-server --transport stdio|sse|streamable-http --host 127.0.0.1 --port 8000
 | `grok_search` | AI-synthesized answers via Grok/xAI |
 | `academic_search` | Search across academic databases (arXiv, PubMed, Semantic Scholar, OpenAlex, CrossRef) |
 | `generate_sitemap` | Map a site's URL hierarchy and page structure |
-| `code_search` | Search public source code, implementation examples, technical documentation, and GitHub repositories with automatic backend selection |
 | `quick_web_search` | Fast first-pass discovery across web, YouTube, or library docs |
 | `deep_research` | Multi-step autonomous research with a cited report |
 | `youtube_transcript` | Full transcript for a YouTube video |
-| `code_fetch` | Fetch a repository file or tree snapshot from a public code host |
 | `composio_similarlinks` | Find pages similar to a given link via Composio |
 
-`code_fetch`, `composio_similarlinks`, and `youtube_transcript` are registered but hidden from MCP client tool listings by default (see `tools/profiles.py`); the CLI calls them directly.
+`composio_similarlinks` and `youtube_transcript` are registered but hidden from MCP client tool listings by default (see `tools/profiles.py`); the CLI calls them directly.
 
 The server also exposes read-only MCP resources (`status://`, `docs://workflow`, `settings://public`, `analytics://`, `cache://stats`) and prompts (`research_methodology`, `query_refinement`, `web_search_workflow`).
 

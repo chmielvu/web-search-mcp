@@ -480,12 +480,10 @@ def register_quick_web_search(mcp: Any) -> None:
         WHEN NOT TO USE:
         - Deep cross-provider RRF ranking (use web_search).
         - Grounded answer synthesis (use gemini_search).
-        - Source-code implementations (use code_search; for library
-          documentation use mode="docs" here, not code_search).
+        - Source-code implementations live outside this server; use mode="docs" here for library documentation.
         - Video transcripts (use youtube_transcript; find the video with
           mode="youtube" first).
         - Full page text (use fetch on citation URLs).
-
         RETURNS:
         - citations[]: each with title, url, snippet, publish_date, and excerpts[].
         - total_citations: count.

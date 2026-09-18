@@ -242,7 +242,6 @@ async def grok_search(
     WHEN NOT TO USE:
     - Simple web questions — this is an expensive tool; prefer web_search or
       gemini_search first.
-    - Local codebase searches (use code_search).
 
     RETURNS:
     - answer: the AI-synthesized answer.

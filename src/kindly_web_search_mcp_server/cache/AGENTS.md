@@ -15,7 +15,6 @@ In-memory LRU query cache + SQLite page/transcript caches.
 | `page_cache.py` / `page_sqlite.py` | SQLite (WAL)-backed page content cache |
 | `transcript_cache.py` / `transcript_sqlite.py` | SQLite (WAL)-backed YouTube transcript cache with FTS5 |
 | `observability.py` | Cache event helpers |
-| `code_search.py` | Exact search cache plus immutable GitHub hydration cache. |
 
 ## Rules
 

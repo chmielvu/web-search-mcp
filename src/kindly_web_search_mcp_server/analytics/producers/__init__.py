@@ -10,7 +10,6 @@ modules split by concern:
 
 - :mod:`.events` — emitters and the tool-call sink
 - :mod:`.quick_search` — quick_web_search / gemini_search persistence
-- :mod:`.code_search` — code_search persistence
 - :mod:`.content` — fetch / content persistence
 
 The public emitters are re-exported here so callers import one stable path:

@@ -16,7 +16,6 @@ def get_workflow_doc() -> str:
 | Read one or many known URLs | web-search:fetch | url, urls, offset, cursor, ai_summary, focus_query, include_links (known URL contents, including GitHub file URLs) |
 | Bounded site crawl or browser rendering | web-search:crawl_web | request={urls, max_depth (0..2), max_pages (1..100), include_external, targets, interaction, response_format} |
 | Read a GitHub file | web-search:fetch | url (raw.githubusercontent.com or github.com blob URL), offset |
-| Cross-repo code discovery | code_search | query, repositories, language, path, filename, regexp, mode, deep |
 | Extract captions | youtube_transcript | video_id_or_url, language, translate_to, output_format, backend |
 | Site map | generate_sitemap | url, instructions, max_depth, max_breadth, limit, select_paths, exclude_paths, allow_external |
 
@@ -30,7 +29,7 @@ def get_workflow_doc() -> str:
 - web-search:crawl_web: traversal is bounded by max_depth/max_pages; summary omits Markdown and links, detailed includes them, and both formats return deterministic output_path values.
 
 ## Code Tool Boundary
-- Known file URL, contents only → web-search:fetch (including GitHub file URLs). Cross-repo discovery → web-search:code_search, then follow `next` (repository hits route to web-search:fetch).
+- Known file URL, contents only → web-search:fetch (including GitHub file URLs).
 
 ## AI Summaries
 - ai_summary=false: return raw page content only (default)

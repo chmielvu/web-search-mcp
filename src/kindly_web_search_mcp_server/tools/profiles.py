@@ -13,9 +13,7 @@ ALLOWED_TOOL_PROFILES = frozenset(get_args(ToolProfile))
 
 # Tools registered but hidden from MCP clients (tools/list) via an explicit
 # disable() after profile selection (FastMCP: last Visibility transform wins).
-# Implementations stay importable — CLI services call the functions directly
-# and bypass MCP visibility — so this only removes the client-facing surface.
-DISABLED_TOOLS = frozenset({"code_fetch", "composio_similarlinks", "youtube_transcript"})
+DISABLED_TOOLS = frozenset({"composio_similarlinks", "youtube_transcript"})
 
 
 class VisibilityServer(Protocol):

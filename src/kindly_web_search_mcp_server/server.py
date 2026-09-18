@@ -78,8 +78,6 @@ from .tools._helpers import (
 from .tools.academic import academic_search
 from .tools.ai_search import gemini_search, grok_search
 from .tools.catalog import tool_kwargs
-from .tools.code_search import code_search
-from .tools.code_search.exploration import code_fetch
 from .tools.content import crawl_web, fetch
 from .tools.profiles import apply_tool_profile
 from .tools.prompts import (
@@ -208,9 +206,7 @@ mcp = FastMCP(
         "scholarly questions. Use quick_web_search mode='youtube' to find videos,\n"
         "then youtube_transcript for captions. Use quick_web_search mode='docs'\n"
         "for library documentation questions.\n"
-        "Codebase work: use code_search for public discovery, then fetch hit\n"
-        "URLs for full context. For one known GitHub file, use fetch directly\n"
-        "on the file URL.\n"
+        "For one known GitHub file, use fetch directly on the file URL.\n"
         "\n"
         "For deeper guidance, request the research_methodology prompt.\n"
         "For the tool routing reference card, read docs://workflow."
@@ -313,7 +309,6 @@ mcp.add_middleware(
             "youtube_transcript",
             "generate_sitemap",
             "academic_search",
-            "code_fetch",
             "quick_web_search",
             "composio_similarlinks",
             "deep_research",
@@ -340,8 +335,6 @@ mcp.tool(**tool_kwargs("grok_search"))(grok_search)
 mcp.tool(**tool_kwargs("youtube_transcript"))(youtube_transcript)
 mcp.tool(**tool_kwargs("generate_sitemap"))(generate_sitemap)
 mcp.tool(**tool_kwargs("academic_search"))(academic_search)
-mcp.tool(**tool_kwargs("code_search"))(code_search)
-mcp.tool(**tool_kwargs("code_fetch"))(code_fetch)
 
 
 # Register resources

@@ -37,10 +37,7 @@ def web_search_workflow_prompt(
     else:
         lines.append("- DEEP: web_search -> fetch with urls -> cross-check with academic_search.")
     if focus == "code":
-        lines.append(
-            "- CODE: use code_search for public source and fetch to read "
-            "file URLs; keep web_search for narrative pages."
-        )
+        lines.append("- CODE: use web_search for narrative pages and fetch to read file URLs.")
     elif focus == "academic":
         lines.append(
             "- ACADEMIC: academic_search first (field/venue/year filters); cross-check 2+ papers."

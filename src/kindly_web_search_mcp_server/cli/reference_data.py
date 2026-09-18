@@ -54,18 +54,6 @@ TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
         "required": ["query"],
     },
     {
-        "tool": "code_search",
-        "command": "search code",
-        "profiles": ["default", "research", "experimental", "full"],
-        "required": ["query"],
-    },
-    {
-        "tool": "code_fetch",
-        "command": "search fetch",
-        "profiles": ["default", "research", "experimental", "full"],
-        "required": ["repository"],
-    },
-    {
         "tool": "quick_web_search",
         "command": "search quick",
         "profiles": ["research", "experimental", "full"],
@@ -110,7 +98,6 @@ COMMANDS: tuple[str, ...] = (
     "search web",
     "search quick",
     "search academic",
-    "search code",
     "content fetch",
     "links similar",
     "ai gemini",

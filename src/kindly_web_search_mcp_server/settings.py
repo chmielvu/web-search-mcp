@@ -25,7 +25,6 @@ else:
 from .utils.paths import (
     DEFAULT_ANALYTICS_DB,
     DEFAULT_BLOCKLIST_DB,
-    DEFAULT_CODE_FETCH_SNAPSHOT_DB,
     DEFAULT_PAGE_CACHE_DB,
     DEFAULT_PROCESS_LOGS_DB,
     DEFAULT_QUERY_UNDERSTANDING_JSONL,
@@ -334,19 +333,6 @@ class Settings:
     blocklist_sqlite_path: str = os.environ.get(
         "BLOCKLIST_SQLITE_PATH",
         DEFAULT_BLOCKLIST_DB,
-    )
-
-    # Code-search cache tiers. Search results are short-lived; immutable
-    # GitHub blob content can safely live much longer.
-    code_search_cache_ttl_seconds: int = _env_int("CODE_SEARCH_CACHE_TTL_SECONDS", 1800)
-    code_search_cache_max_entries: int = _env_int("CODE_SEARCH_CACHE_MAX_ENTRIES", 256)
-    code_search_hydration_cache_ttl_seconds: int = _env_int(
-        "CODE_SEARCH_HYDRATION_CACHE_TTL_SECONDS", 2592000
-    )
-    code_fetch_snapshot_ttl_seconds: int = _env_int("CODE_FETCH_SNAPSHOT_TTL_SECONDS", 300)
-    code_fetch_snapshot_sqlite_path: str = os.environ.get(
-        "CODE_FETCH_SNAPSHOT_SQLITE_PATH",
-        DEFAULT_CODE_FETCH_SNAPSHOT_DB,
     )
 
     # Telegram search provider (Telethon MTProto)

@@ -46,11 +46,8 @@ def web_search_empty_guidance(
     social = intent_s == "social_media"
 
     if coding:
-        msg = (
-            "Zero results for coding intent. Retry with code_search using a short "
-            "symbol/repo term, or gemini_search for a grounded overview."
-        )
-        tools = ["code_search", "gemini_search"]
+        msg = "Zero results for coding intent. Retry with a short symbol/repo term, or gemini_search for a grounded overview."
+        tools = ["gemini_search"]
     elif social:
         msg = (
             "Zero results. Social/discussion queries often work better with fewer operators "
@@ -89,12 +86,7 @@ def web_search_specialized_gap_guidance(
 
     tools: list[str] = []
     if looks_coding and not has_specialized:
-        msg = (
-            "No specialized code hosts in top results. "
-            "Call fetch on the best URLs, narrow the query with an explicit owner/repo, "
-            "or use the dedicated code_search tool for public source code."
-        )
+        msg = "No specialized code hosts in top results. Call fetch on the best URLs or narrow the query with an explicit owner/repo."
         tools.append("fetch")
-        tools.append("code_search")
         return msg, tools
     return "", tools

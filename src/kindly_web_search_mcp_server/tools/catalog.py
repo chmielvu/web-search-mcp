@@ -9,8 +9,6 @@ from mcp.types import ToolAnnotations
 DEFAULT_PROFILE_TOOLS = frozenset(
     {
         "quick_web_search",
-        "code_search",
-        "code_fetch",
         "web_search",
         "fetch",
         "crawl_web",
@@ -32,8 +30,6 @@ _TOOL_TIMEOUTS: dict[str, float | None] = {
     "fetch": 240.0,
     "crawl_web": 240.0,
     "academic_search": 45.0,
-    "code_search": 120.0,
-    "code_fetch": 180.0,
     "deep_research": None,  # background-capable; no foreground timeout
 }
 
@@ -145,16 +141,6 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
         idempotent=False,
     ),
     "academic_search": _entry("academic_search", "Academic Search", {"regular", "full"}),
-    "code_search": _entry(
-        "code_search",
-        "Code Search & Repository Discovery",
-        {"regular", "full"},
-        task=True,
-    ),
-    # Hidden from MCP clients via tools.profiles.DISABLED_TOOLS (visibility
-    # disable after profile selection); kept registered so CLI/service imports
-    # and catalog metadata stay stable.
-    "code_fetch": _entry("code_fetch", "Code Fetch", {"regular", "full"}),
     "composio_similarlinks": _entry(
         "composio_similarlinks", "Composio Similarlinks", {"regular", "full"}
     ),

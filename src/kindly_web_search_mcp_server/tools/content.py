@@ -685,15 +685,12 @@ async def fetch(
 
     WHEN TO USE:
     - Reading the full text of URLs discovered by web_search, quick_web_search,
-      gemini_search, code_search, or any other tool.
+      gemini_search, or any other tool.
     - One-off URL content retrieval: articles, docs, GitHub
       issue/discussion/PR pages, and non-GitHub sources.
     - Bulk reading: pass a URL list in urls.
     - GitHub file contents: pass the raw.githubusercontent.com or github.com
       blob file URL directly.
-
-    WHEN NOT TO USE:
-    - Cross-repo discovery (use code_search).
 
     RETURNS:
     - results[]: url, status, and content. ``error`` only on failure (code,
@@ -1064,7 +1061,6 @@ async def crawl_web(
 
     WHEN NOT TO USE:
     - Fetching one ordinary URL (use ``fetch``).
-    - Repository or code discovery (use ``code_search``).
 
     REQUEST:
     - ``urls`` contains one to twenty absolute HTTP(S) seeds.

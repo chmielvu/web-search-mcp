@@ -282,7 +282,6 @@ def _insert_tool_call_analytics(
         logger.debug("DuckDB tool-call sink failed for %s: %s", tool_name, exc)
 
     if phase in ("response", "error"):
-        from .code_search import _persist_code_search_analytics
         from .content import _persist_content_analytics
         from .quick_search import (
             _persist_gemini_search_analytics,
@@ -318,18 +317,6 @@ def _insert_tool_call_analytics(
                 terminal_event_id=event_id,
                 tool_call_id=tool_call_id,
                 tool_name=tool_name,
-                fields=fields,
-                payload=payload,
-                trace_context=trace_context,
-                status=status,
-                error_message=error_message,
-                payload_json=payload_with_context,
-                logger=logger,
-            )
-        elif tool_name == "code_search":
-            _persist_code_search_analytics(
-                terminal_event_id=event_id,
-                tool_call_id=tool_call_id,
                 fields=fields,
                 payload=payload,
                 trace_context=trace_context,

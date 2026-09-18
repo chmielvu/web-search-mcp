@@ -308,7 +308,6 @@ async def deep_research(
     - Finding obscure bug fixes across developer documentation and forums.
 
     WHEN NOT TO USE:
-    - Local codebase searches (use code_search).
     - Simple single-fact questions that basic web_search can answer.
 
     RETURNS:
