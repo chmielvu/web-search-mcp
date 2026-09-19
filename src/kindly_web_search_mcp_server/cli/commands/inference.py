@@ -7,6 +7,8 @@ from typing import Annotated, Any
 import typer
 
 from ...inference import describe_catalog, validate_catalog
+from ..errors import CliError
+from ..exit_codes import ExitCode
 from ..output import emit_json
 
 inference_app = typer.Typer(no_args_is_help=True)
@@ -47,8 +49,13 @@ def chain_cmd(
     try:
         chain = get_chain(name)
     except KeyError as exc:
-        typer.echo(f"Error: {exc}", err=True)
-        raise typer.Exit(code=1) from exc
+        raise CliError(
+            kind="not_found",
+            message=str(exc),
+            hint="Run `web-search-cli inference describe` to list valid chains.",
+            exit_code=ExitCode.NOT_FOUND,
+            context={"command": "inference chain", "name": name},
+        ) from exc
 
     steps: list[dict[str, Any]] = []
     details: dict[str, Any] = {

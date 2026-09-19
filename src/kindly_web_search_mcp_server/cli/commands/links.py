@@ -9,8 +9,51 @@ from ..exit_codes import ExitCode
 from ..outcome import raise_for_payload_error
 from ..output import emit_json
 from ..runtime import run_cli_async
+from ..validation import InputValidationError, validate_http_url, validate_text_input
 
 links_app = typer.Typer(no_args_is_help=True)
+
+
+def _validated_url(value: str, *, command: str) -> str:
+    try:
+        return validate_http_url(value, field="--url")
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint="Pass an http(s) URL without credentials or control characters.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": "--url"},
+        ) from exc
+
+
+def _validated_text(value: str | None, *, field: str, command: str) -> str | None:
+    if value is None:
+        return None
+    try:
+        return validate_text_input(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a plain {field} without control characters or credentials.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
+
+
+def _validated_domains(
+    values: list[str] | None,
+    *,
+    field: str,
+    command: str,
+) -> list[str] | None:
+    if values is None:
+        return None
+    return [
+        _validated_text(value, field=f"{field} #{index}", command=command) or ""
+        for index, value in enumerate(values, 1)
+    ]
 
 
 @links_app.command("discover")
@@ -31,6 +74,13 @@ def discover_cmd(
     ] = None,
 ) -> None:
     from ..services.link_tools import fetch_discover_links_payload
+
+    url = _validated_url(url, command="links discover")
+    strip_selectors = _validated_text(
+        strip_selectors,
+        field="--strip-selectors",
+        command="links discover",
+    )
 
     try:
         payload = run_cli_async(
@@ -76,6 +126,20 @@ def similar_cmd(
     exclude_domain: Annotated[list[str] | None, typer.Option("--exclude-domain")] = None,
 ) -> None:
     from ..services.link_tools import fetch_similar_links_payload
+
+    url = _validated_url(url, command="links similar")
+    search_type = _validated_text(search_type, field="--search-type", command="links similar") or ""
+    category = _validated_text(category, field="--category", command="links similar")
+    include_domain = _validated_domains(
+        include_domain,
+        field="--include-domain",
+        command="links similar",
+    )
+    exclude_domain = _validated_domains(
+        exclude_domain,
+        field="--exclude-domain",
+        command="links similar",
+    )
 
     try:
         payload = run_cli_async(

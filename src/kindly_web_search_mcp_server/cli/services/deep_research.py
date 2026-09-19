@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any, cast
 
 from fastmcp.dependencies import Progress
@@ -27,6 +28,14 @@ class _CliProgress:
         return None
 
 
+class DeepResearchTimeoutError(TimeoutError):
+    """Raised when the deep-research backend exceeds the CLI-imposed timeout."""
+
+    def __init__(self, timeout: float) -> None:
+        super().__init__(f"Deep research timed out after {timeout} seconds.")
+        self.timeout = timeout
+
+
 async def fetch_deep_research_payload(
     query: str,
     *,
@@ -36,8 +45,9 @@ async def fetch_deep_research_payload(
     token_budget_override: int | None = None,
     team_size_override: int | None = None,
     endpoint_override: str | None = None,
+    timeout: float | None = None,
 ) -> dict[str, Any]:
-    response = await deep_research(
+    coro = deep_research(
         query=query,
         depth=depth,
         with_images=with_images,
@@ -48,4 +58,11 @@ async def fetch_deep_research_payload(
         ctx=cast(Context, _CliContext()),
         progress=cast(Progress, _CliProgress()),
     )
+    if timeout is None:
+        response = await coro
+    else:
+        try:
+            response = await asyncio.wait_for(coro, timeout=timeout)
+        except TimeoutError as exc:
+            raise DeepResearchTimeoutError(timeout) from exc
     return response.model_dump(exclude_none=True)

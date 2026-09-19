@@ -78,10 +78,20 @@ def global_options(
         str | None,
         typer.Option("--fields", help="Comma-separated field projection to reduce payload"),
     ] = None,
-    yes: Annotated[
+    human: Annotated[
         bool,
         typer.Option(
-            "--yes", "-y", help="Skip confirmation prompt (required in non-interactive mode)"
+            "--human",
+            envvar="WEB_SEARCH_CLI_HUMAN",
+            help="Render indented human-readable JSON with command metadata",
+        ),
+    ] = False,
+    agent: Annotated[
+        bool,
+        typer.Option(
+            "--agent",
+            envvar="WEB_SEARCH_CLI_AGENT",
+            help="Force the agent JSON envelope (default)",
         ),
     ] = False,
     dry_run: Annotated[
@@ -109,7 +119,8 @@ def global_options(
         non_interactive=non_interactive,
         raw=raw,
         fields=fields,
-        yes=yes,
+        human=human,
+        agent=agent,
         dry_run=dry_run,
     )
     ctx.obj = runtime.as_dict()
@@ -160,7 +171,14 @@ def _print_special_flags(args: list[str]) -> bool:
         is_quiet = _contains_flag(args, "--quiet", "-q")
         profile = _option_value(args, "--profile", default="full") or "full"
         fields = _option_value(args, "--fields", default=None)
-        set_runtime(quiet=is_quiet, profile=profile, fields=fields)
+        set_runtime(
+            quiet=is_quiet,
+            profile=profile,
+            fields=fields,
+            human=_contains_flag(args, "--human"),
+            agent=_contains_flag(args, "--agent"),
+            dry_run=_contains_flag(args, "--dry-run"),
+        )
         payload = build_full_help_payload(app, args)
         if is_quiet:
             payload.pop("rules", None)

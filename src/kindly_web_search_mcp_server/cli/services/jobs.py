@@ -201,8 +201,35 @@ def submit_research_collect_job(
             "query": query,
             "research_goal": research_goal,
             "output_dir": output_dir,
+            "top_results": top_results,
             "rewrite": rewrite,
             "ai_summary": ai_summary,
+        },
+        idempotency_key=idempotency_key,
+    )
+
+
+def submit_research_deep_job(
+    query: str,
+    depth: str,
+    with_images: bool,
+    language_code: str | None,
+    token_budget_override: int | None,
+    team_size_override: int | None,
+    endpoint_override: str | None,
+    *,
+    idempotency_key: str | None = None,
+) -> dict[str, Any]:
+    return submit_job(
+        "research.deep",
+        {
+            "query": query,
+            "depth": depth,
+            "with_images": with_images,
+            "language_code": language_code,
+            "token_budget_override": token_budget_override,
+            "team_size_override": team_size_override,
+            "endpoint_override": endpoint_override,
         },
         idempotency_key=idempotency_key,
     )

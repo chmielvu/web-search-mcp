@@ -20,7 +20,8 @@ class CliRuntime:
     non_interactive: bool = True
     raw: bool = False
     fields: str | None = None
-    yes: bool = False
+    human: bool = False
+    agent: bool = False
     dry_run: bool = False
     last_duration_ms: float = 0.0
 
@@ -34,7 +35,8 @@ class CliRuntime:
             "non_interactive": self.non_interactive,
             "raw": self.raw,
             "fields": self.fields,
-            "yes": self.yes,
+            "human": self.human,
+            "agent": self.agent,
             "dry_run": self.dry_run,
         }
 
@@ -52,9 +54,12 @@ def set_runtime(
     non_interactive: bool = True,
     raw: bool = False,
     fields: str | None = None,
-    yes: bool = False,
+    human: bool = False,
+    agent: bool = False,
     dry_run: bool = False,
 ) -> CliRuntime:
+    # --human wins over --agent if both are passed.
+    effective_agent = agent and not human
     runtime = CliRuntime(
         profile=profile,
         quiet=quiet,
@@ -64,7 +69,8 @@ def set_runtime(
         non_interactive=non_interactive,
         raw=raw,
         fields=fields,
-        yes=yes,
+        human=human,
+        agent=effective_agent,
         dry_run=dry_run,
     )
     global _RUNTIME

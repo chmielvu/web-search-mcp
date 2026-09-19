@@ -7,8 +7,37 @@ import typer
 from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
+from ..validation import InputValidationError, validate_safe_path, validate_text_input
 
 analytics_app = typer.Typer(no_args_is_help=True)
+
+
+def _validated_text(value: str, *, field: str, command: str) -> str:
+    try:
+        return validate_text_input(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a plain {field} without control characters or credentials.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
+
+
+def _validated_path(value: str | None, *, field: str, command: str) -> str | None:
+    if value is None:
+        return None
+    try:
+        return validate_safe_path(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a non-secret {field} without traversal or shell syntax.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
 
 
 @analytics_app.command("query")
@@ -19,6 +48,9 @@ def query_cmd(
     db_path: Annotated[str | None, typer.Option("--db-path")] = None,
 ) -> None:
     from ...analytics.queries import run_analytics_query
+
+    question = _validated_text(question, field="--question", command="analytics query")
+    db_path = _validated_path(db_path, field="--db-path", command="analytics query")
 
     try:
         payload = run_analytics_query(
@@ -64,6 +96,10 @@ def report_cmd(
     db_path: Annotated[str | None, typer.Option("--db-path")] = None,
 ) -> None:
     from ...analytics.formatting import json_safe_rows
+
+    report_name = _validated_text(report_name, field="--report-name", command="analytics report")
+    db_path = _validated_path(db_path, field="--db-path", command="analytics report")
+
     from ...analytics.reports import available_reports, run_report
 
     try:

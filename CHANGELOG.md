@@ -1,4 +1,27 @@
 ## [Unreleased]
+### Changed — Agent-native CLI control surface (2026-09-19)
+- Removed the unused global `--yes` flag and added explicit `--human` and
+  `--agent` output modes while retaining JSON as the default.
+- Restored `crawl_web` parity through `content crawl` and added
+  `research deep --no-wait` with idempotent local job handling.
+- Fixed `search web --language` forwarding and synchronized reference metadata
+  with the registered command and tool surfaces.
+- Added root agent identity/rules/skills artifacts and pre-network validation
+  for control characters, credential-shaped input, unsafe paths, and URL
+  values.
+### Added — Crawl resolver preflight for explicit URL shapes (2026-09-19)
+- `crawl_pipeline.py` now pure-matches each frontier batch URL against the ordered resolver `REGISTRY` before Crawl4AI: the first eligible explicit claim (documents, raw text, platform threads/repos, packages, academic/metadata; root-form `llms_txt` and `wayback` excluded) is acquired through the shared `FetchContext` and `evaluate_candidate`, and only an accepted, `scope="full"`, `complete=True` candidate with no error status bypasses Crawl4AI. URLs with no explicit claim get one universal `.md` twin probe as the last preflight step before Crawl4AI; twin misses keep the existing Crawl4AI → single-URL-ladder path unchanged. Requests with explicit browser controls (`css_selector`, `wait_for`, JS, `scan_full_page`) bypass preflight.
+- Verified live: `raw.githubusercontent.com/.../README.rst` finalized via `raw_text_fetch` (9,066 chars), `docs.pydantic.dev/.../models` via `md_twin` (66,177 chars), and `example.com/` in the same batch via `crawl4ai_remote`; twin misses and browser-control requests keep the existing path.
+- Fixed `markdown_processor.py` fence-collision detection: the scanner no longer mistakes the next language-tagged code block for a malformed closing fence, so multi-block vendor Markdown (including `.md` twins) is no longer rejected with 48 spurious `MD070`/`fence-collision` errors.
+### Added — Adaptive web-search analytics tables and views (2026-09-19)
+- Added runtime-only `adaptive_search_runs`, `adaptive_search_rounds`, and `adaptive_search_proposals` facts plus five analyst views covering adaptive runs, rounds, follow-up yield, output follow-through, and the end-to-end rollup.
+- Existing analytics history is not backfilled; the new tables remain empty until future adaptive searches persist runtime rows.
+### Changed — Crawl and Deep Research FastMCP tasks
+- `crawl_web` now registers as an optional SEP-2663 background task with a 30-second poll interval, uses FastMCP `Progress`, and reports each finalized traversal artifact while preserving synchronous behavior for legacy clients.
+- `deep_research` now reports open-ended SSE action progress without a misleading fixed percentage total and publishes failure-stage progress messages before raising task errors.
+### Removed — code-search analytics schema and writers (2026-09-19)
+- Archived the current analytics DuckDB to `duckdb_data/analytics/exports/2026-09-19/full_parquet/` using DuckDB Parquet export before removing the retired code-search catalog.
+- Removed the eight code-search table constructors/writers, seven dashboard views, report/query routes, and stale quick-search documentation references; dropped the eight code-search tables and seven views from `duckdb_data/analytics/search_events.duckdb`.
 ### Changed — Gitignore: `docs/` and `feedback/` untracked as local-only (2026-09-19)
 - `docs/` (98 tracked analysis/report artefacts) and `feedback/` (3 local bug-queue JSON files) removed from tracking via `git rm -r --cached`; both directories are now ignored (`.gitignore`) so future local reports and feedback entries are never re-committed.
 - `.gitnexus/` needed no action: already ignored (`.gitignore`) with zero tracked files.

@@ -114,6 +114,11 @@ def emit_json(
     profile_val = (
         data.get("profile", runtime.profile) if isinstance(data, dict) else runtime.profile
     )
+    if runtime.human:
+        human_payload: dict[str, Any] = {"data": final_data, "meta": {"command": command}}
+        sys.stdout.write(json.dumps(human_payload, ensure_ascii=False, indent=2) + "\n")
+        return
+
     payload = {
         "schema_version": SCHEMA_VERSION,
         "data": final_data,
@@ -127,7 +132,8 @@ def emit_json(
             "non_interactive": runtime.non_interactive,
             "raw": runtime.raw,
             "fields": runtime.fields,
-            "yes": runtime.yes,
+            "human": runtime.human,
+            "agent": runtime.agent,
             "dry_run": runtime.dry_run,
             "duration_ms": round(
                 duration_ms if duration_ms is not None else runtime.last_duration_ms,
@@ -150,6 +156,11 @@ def emit_json(
 def emit_error(payload: dict[str, Any]) -> None:
     runtime = get_runtime()
     from .metadata import feedback_guidance, rules_full, skill_catalog
+
+    if runtime.human:
+        err_payload = dict(payload)
+        sys.stderr.write(json.dumps(err_payload, ensure_ascii=False, indent=2) + "\n")
+        return
 
     err_payload = dict(payload)
     if not runtime.quiet:

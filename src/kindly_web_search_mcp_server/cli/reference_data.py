@@ -16,17 +16,33 @@ class ToolCoverageEntry(TypedDict, total=False):
     purpose: str
 
 
+_ALL_PROFILES: list[str] = [
+    "default",
+    "research",
+    "media",
+    "diagnostic",
+    "experimental",
+    "full",
+]
+
+# NOTE: ``profiles`` below is the CLI reference grouping consumed by
+# ``reference tools --profile``. It is intentionally distinct from the MCP
+# ``tool_profile`` setting (``regular`` | ``full`` in tools/profiles.py):
+# it answers "which CLI audience needs this command", not "which MCP
+# clients see this tool". Keep every one of the six values present on at
+# least one entry so no ``--profile`` value ever returns zero rows.
+
 TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
     {
         "tool": "web_search",
         "command": "search web",
-        "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"],
+        "profiles": list(_ALL_PROFILES),
         "required": ["query", "research_goal"],
     },
     {
         "tool": "fetch",
         "command": "content fetch",
-        "profiles": ["default", "research", "media", "diagnostic", "experimental", "full"],
+        "profiles": list(_ALL_PROFILES),
         "required": ["url_or_urls_or_cursor"],
     },
     {
@@ -38,7 +54,7 @@ TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
     {
         "tool": "gemini_search",
         "command": "ai gemini",
-        "profiles": ["research", "experimental", "full"],
+        "profiles": ["default", "research", "experimental", "full"],
         "required": ["query"],
     },
     {
@@ -56,7 +72,7 @@ TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
     {
         "tool": "quick_web_search",
         "command": "search quick",
-        "profiles": ["research", "experimental", "full"],
+        "profiles": ["default", "research", "experimental", "full"],
         "required": ["search_query", "objective"],
     },
     {
@@ -64,6 +80,18 @@ TOOL_COVERAGE: tuple[ToolCoverageEntry, ...] = (
         "command": "links similar",
         "profiles": ["research", "experimental", "full"],
         "required": ["url"],
+    },
+    {
+        "tool": "crawl_web",
+        "command": "content crawl",
+        "profiles": list(_ALL_PROFILES),
+        "required": ["urls"],
+    },
+    {
+        "tool": "deep_research",
+        "command": "research deep",
+        "profiles": ["default", "research", "experimental", "full"],
+        "required": ["query"],
     },
     {
         "tool": "youtube_transcript",
@@ -95,18 +123,40 @@ COMMANDS: tuple[str, ...] = (
     "schema",
     "doctor",
     "getskill",
-    "search web",
+    "skills",
+    "server",
+    "links discover",
+    "links similar",
     "search quick",
+    "search web",
+    "search inspect",
+    "search postmortem",
     "search academic",
     "content fetch",
-    "links similar",
+    "content crawl",
     "ai gemini",
     "ai grok",
-    "youtube search",
     "youtube transcript",
+    "youtube channel",
     "analytics query",
     "analytics report",
     "sitemap generate",
+    "research deep",
+    "research collect",
+    "jobs list",
+    "jobs get",
+    "jobs wait",
+    "jobs cancel",
+    "jobs resume",
+    "results search",
+    "inference describe",
+    "inference validate",
+    "inference chain",
+    "feedback create",
+    "feedback list",
+    "feedback show",
+    "feedback close",
+    "feedback transition",
     "reference tools",
     "reference external-tools",
     "server start",

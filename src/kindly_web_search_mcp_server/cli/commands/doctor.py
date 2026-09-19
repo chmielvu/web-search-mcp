@@ -10,6 +10,7 @@ import typer
 from ...analytics.views import ensure_views
 from ...analytics.writers import _db_path
 from ...settings import settings
+from ...tools.status import get_features_status, get_providers_status
 from ..output import emit_json
 from ..skill_paths import DEV_SKILL_PATH, REPO_ROOT, USER_SKILL_PATH
 
@@ -113,4 +114,11 @@ def register(app: typer.Typer) -> None:
             _check_sqlite_file(Path(settings.transcript_cache_sqlite_path)),
             _check_analytics_schema(),
         ]
-        emit_json({"checks": checks}, command="doctor")
+        emit_json(
+            {
+                "checks": checks,
+                "providers": get_providers_status(),
+                "features": get_features_status(),
+            },
+            command="doctor",
+        )

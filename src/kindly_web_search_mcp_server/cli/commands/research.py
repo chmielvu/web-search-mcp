@@ -9,8 +9,37 @@ from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..runtime import run_cli_async
 from ..services.files import write_text_atomic
+from ..validation import InputValidationError, validate_safe_path, validate_text_input
 
 research_app = typer.Typer(no_args_is_help=True)
+
+
+def _validated_text(value: str, *, field: str, command: str) -> str:
+    """Reject control characters and credential-shaped values before execution."""
+    try:
+        return validate_text_input(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a plain {field} without control characters or credentials.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
+
+
+def _validated_path(value: str, *, field: str, command: str) -> str:
+    """Reject unsafe output and bundle paths."""
+    try:
+        return validate_safe_path(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a non-secret {field} without traversal or shell syntax.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
 
 
 @research_app.command("deep")
@@ -30,9 +59,40 @@ def deep_cmd(
             "--output", help="Atomically write the generated Markdown report to this path."
         ),
     ] = None,
+    no_wait: Annotated[
+        bool, typer.Option("--no-wait", help="Submit a local job and return immediately.")
+    ] = False,
+    idempotency_key: Annotated[str | None, typer.Option("--idempotency-key")] = None,
+    timeout: Annotated[
+        float | None,
+        typer.Option(
+            "--timeout",
+            help="Bound the foreground deep-research run (positive seconds).",
+        ),
+    ] = None,
 ) -> None:
     """Run the existing autonomous deep-research backend."""
     from ..services.deep_research import fetch_deep_research_payload
+
+    query = _validated_text(query, field="--query", command="research deep")
+    depth = _validated_text(depth, field="--depth", command="research deep")
+    language_code = (
+        _validated_text(language_code, field="--language-code", command="research deep")
+        if language_code is not None
+        else None
+    )
+    endpoint_override = (
+        _validated_text(endpoint_override, field="--endpoint", command="research deep")
+        if endpoint_override is not None
+        else None
+    )
+    idempotency_key = (
+        _validated_text(idempotency_key, field="--idempotency-key", command="research deep")
+        if idempotency_key is not None
+        else None
+    )
+    if output is not None:
+        output = _validated_path(output, field="--output", command="research deep")
 
     if not query.strip():
         raise CliError(
@@ -42,6 +102,51 @@ def deep_cmd(
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "research deep"},
         )
+    if timeout is not None and timeout <= 0:
+        raise CliError(
+            kind="usage_error",
+            message="--timeout must be a positive number of seconds.",
+            hint="Pass --timeout with a value greater than 0, or omit it to run unbounded.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "research deep", "timeout": timeout},
+        )
+    if no_wait and timeout is not None:
+        raise CliError(
+            kind="usage_error",
+            message="--timeout is not supported with --no-wait.",
+            hint=(
+                "Drop --timeout for backgrounded jobs: the worker contract does not"
+                " expose a per-job timeout. Use `web-search-cli jobs wait <id>` with"
+                " --timeout-seconds for bounded polling instead."
+            ),
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "research deep"},
+        )
+
+    if no_wait:
+        from ..services.jobs import submit_research_deep_job
+
+        try:
+            payload = submit_research_deep_job(
+                query,
+                depth,
+                with_images,
+                language_code,
+                token_budget_override,
+                team_size_override,
+                endpoint_override,
+                idempotency_key=idempotency_key,
+            )
+        except ValueError as exc:
+            raise CliError(
+                kind="usage_error",
+                message=str(exc),
+                hint="Use depth quick, standard, or deep and valid numeric overrides.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "research deep"},
+            ) from exc
+        emit_json(payload, command="research deep")
+        return
 
     try:
         payload = run_cli_async(
@@ -53,6 +158,7 @@ def deep_cmd(
                 token_budget_override=token_budget_override,
                 team_size_override=team_size_override,
                 endpoint_override=endpoint_override,
+                timeout=timeout,
             )
         )
     except ValueError as exc:
@@ -62,6 +168,14 @@ def deep_cmd(
             hint="Use depth quick, standard, or deep and valid numeric overrides.",
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "research deep"},
+        ) from exc
+    except TimeoutError as exc:
+        raise CliError(
+            kind="network_error",
+            message=str(exc),
+            hint="Increase --timeout, retry, or check DEEP_RESEARCH_URL reachability.",
+            exit_code=ExitCode.NETWORK_ERROR,
+            context={"command": "research deep", "exception_type": type(exc).__name__},
         ) from exc
     except Exception as exc:
         raise CliError(
@@ -103,6 +217,23 @@ def collect_cmd(
     idempotency_key: Annotated[str | None, typer.Option("--idempotency-key")] = None,
 ) -> None:
     """Collect search results and source pages into a deterministic bundle."""
+    query = _validated_text(query, field="--query", command="research collect")
+    research_goal = _validated_text(
+        research_goal,
+        field="--research-goal",
+        command="research collect",
+    )
+    output_dir = _validated_path(
+        output_dir,
+        field="--output-dir",
+        command="research collect",
+    )
+    if idempotency_key is not None:
+        idempotency_key = _validated_text(
+            idempotency_key,
+            field="--idempotency-key",
+            command="research collect",
+        )
     if not query.strip() or not research_goal.strip() or top_results < 1:
         raise CliError(
             kind="usage_error",

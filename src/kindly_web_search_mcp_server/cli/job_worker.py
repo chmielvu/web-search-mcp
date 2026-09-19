@@ -6,6 +6,7 @@ import os
 import sys
 from typing import Any
 
+from .services.deep_research import fetch_deep_research_payload
 from .services.jobs import finish_job, get_job, is_cancel_requested, mark_running
 from .services.research_collect import collect_research_bundle
 
@@ -49,6 +50,27 @@ async def _collect_with_cancel(job_id: str, spec: dict[str, Any]) -> dict[str, A
             await watcher
 
 
+async def _deep_with_cancel(job_id: str, spec: dict[str, Any]) -> dict[str, Any]:
+    """Run the deep-research backend, interrupting it on cancellation.
+
+    The backend returns a structured payload built from a remote response; if a
+    cancel lands mid-flight we abandon the task so no partial payload is
+    reported as the final result.
+    """
+    task = asyncio.create_task(fetch_deep_research_payload(**spec))
+    watcher = asyncio.create_task(_watch_for_cancel(job_id, task))
+    try:
+        return await task
+    except asyncio.CancelledError:
+        if not await asyncio.to_thread(is_cancel_requested, job_id):
+            raise
+        raise JobCancelledError from None
+    finally:
+        watcher.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await watcher
+
+
 def run(job_id: str) -> int:
     job = get_job(job_id)
     if not mark_running(job_id, os.getpid()):
@@ -58,12 +80,14 @@ def run(job_id: str) -> int:
         return 0
 
     spec = job.get("spec")
-    if not isinstance(spec, dict) or job.get("kind") != "research.collect":
+    kind = job.get("kind")
+    if not isinstance(spec, dict) or kind not in {"research.collect", "research.deep"}:
         finish_job(job_id, "failed", error="Unsupported job specification.")
         return 1
 
+    runner = _collect_with_cancel if kind == "research.collect" else _deep_with_cancel
     try:
-        result = asyncio.run(_collect_with_cancel(job_id, spec))
+        result = asyncio.run(runner(job_id, spec))
     except JobCancelledError:
         finish_job(job_id, "cancelled", error="Cancellation requested.")
         return 0

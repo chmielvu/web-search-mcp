@@ -76,10 +76,16 @@ Every code comment must stand alone for a reader without access to the authoring
 
 
 ### Typer CLI (`uv run web-search-cli <command>`)
-- **Core Commands**: `doctor`, `schema`, `reference tools`, `skills`, `getskill`, `feedback`
-- **Search & Fetch Operations**: `search web`, `search quick`, `search academic`, `search code`, `content <url>`, `links <url>`, `ai <query>`, `youtube search/transcript`, `sitemap generate`
-- **Analytics & Labs**: `analytics query`, `analytics report <name>`, `experiments list|create|enable`
-- **Global Flags**: `--brief`, `--quiet` (`-q`, suppresses rules/skills), `--raw` (bare stdout), `--fields` (field projection), `--log-format=json`, `--dry-run`
+- **Core commands**: `doctor`, `schema`, `reference`, `skills`, `getskill`,
+  `feedback`, `jobs`, `results`, `inference`, and `server`.
+- **Search and retrieval**: `search quick|web|academic`, `content fetch|crawl`,
+  `links discover|similar`, `ai gemini|grok`, `youtube transcript|channel`,
+  `sitemap generate`, and `research deep|collect`.
+- **Analytics**: `analytics query|report`; all CLI groups are listed by
+  `web-search-cli schema`.
+- **Global flags**: `--brief`, `--help`, `--version`, `--human`, `--agent`,
+  `--quiet` (`-q`), `--raw`, `--fields`, `--log-level`, `--log-format`,
+  `--debug`, `--profile`, `--dry-run`, and `--non-interactive`.
 
 ## Analytics & DuckDB Databases
 
@@ -136,7 +142,7 @@ earch_branches`, `provider_calls`, `final_results`, `llm_call_log`, `llm_judgmen
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (8528 symbols, 15006 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (8531 symbols, 15006 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 

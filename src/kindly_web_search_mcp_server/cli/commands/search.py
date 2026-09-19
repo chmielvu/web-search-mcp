@@ -8,8 +8,84 @@ from ..errors import CliError
 from ..exit_codes import ExitCode
 from ..output import emit_json
 from ..runtime import run_cli_async
+from ..validation import (
+    InputValidationError,
+    validate_http_url,
+    validate_safe_path,
+    validate_text_input,
+)
 
 search_app = typer.Typer(no_args_is_help=True)
+
+
+def _validate_query_list(
+    queries: list[str] | None,
+    *,
+    command: str,
+    field: str = "--query",
+) -> list[str] | None:
+    """Validate every entry of a repeated text option."""
+    cleaned: list[str] = []
+    for index, item in enumerate(queries or [], start=1):
+        if not item or not item.strip():
+            continue
+        try:
+            cleaned.append(validate_text_input(item, field=f"{field} #{index}"))
+        except InputValidationError as exc:
+            raise CliError(
+                kind="validation_error",
+                message=str(exc),
+                hint=(
+                    f"Strip control characters and never paste API keys into {field}. "
+                    "Pass credentials via environment variables."
+                ),
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": command, "field": f"{field} #{index}"},
+            ) from exc
+    return cleaned or None
+
+
+def _validate_text_field(
+    value: str | None,
+    *,
+    field: str,
+    command: str,
+    hint: str,
+) -> str | None:
+    """Validate a single optional text field and surface a structured error."""
+    if value is None:
+        return None
+    try:
+        return validate_text_input(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=hint,
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
+
+
+def _validate_path_field(
+    value: str | None,
+    *,
+    field: str,
+    command: str,
+) -> str | None:
+    """Validate a filesystem path option before opening the database."""
+    if value is None:
+        return None
+    try:
+        return validate_safe_path(value, field=field)
+    except InputValidationError as exc:
+        raise CliError(
+            kind="validation_error",
+            message=str(exc),
+            hint=f"Pass a non-secret {field} without traversal or shell metacharacters.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": command, "field": field},
+        ) from exc
 
 
 @search_app.command("quick")
@@ -85,6 +161,16 @@ def quick_cmd(
                 context={"command": "search quick"},
             )
         try:
+            term = validate_text_input(term, field="--query")
+        except InputValidationError as exc:
+            raise CliError(
+                kind="validation_error",
+                message=str(exc),
+                hint="Strip control characters and never paste API keys into --query.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "search quick", "field": "--query"},
+            ) from exc
+        try:
             payload = run_cli_async(
                 fetch_quick_youtube_payload(
                     term,
@@ -122,6 +208,18 @@ def quick_cmd(
                 context={"command": "search quick"},
             )
         try:
+            repo_url = validate_http_url(repo_url, field="--repo-url")
+            question = validate_text_input(question, field="--question")
+        except InputValidationError as exc:
+            raise CliError(
+                kind="validation_error",
+                message=str(exc),
+                hint="Strip control characters and never paste API keys into "
+                "--repo-url or --question.",
+                exit_code=ExitCode.USAGE_ERROR,
+                context={"command": "search quick", "field": "--repo-url/--question"},
+            ) from exc
+        try:
             payload = run_cli_async(
                 fetch_quick_docs_payload(
                     repo_url,
@@ -143,8 +241,18 @@ def quick_cmd(
         emit_json(payload, command="search quick")
         return
 
-    queries = (search_query or []) + (query or [])
-    goal = objective or research_goal or ""
+    raw_queries = (search_query or []) + (query or [])
+    queries = _validate_query_list(raw_queries, command="search quick")
+    goal = (
+        _validate_text_field(
+            objective or research_goal,
+            field="--objective/--research-goal",
+            command="search quick",
+            hint="Strip control characters and never paste API keys into "
+            "--objective or --research-goal.",
+        )
+        or ""
+    )
     if not queries:
         raise CliError(
             kind="usage_error",
@@ -161,6 +269,40 @@ def quick_cmd(
             exit_code=ExitCode.USAGE_ERROR,
             context={"command": "search quick"},
         )
+    include_domain = _validate_query_list(
+        include_domain,
+        command="search quick",
+        field="--include-domain",
+    )
+    exclude_domain = _validate_query_list(
+        exclude_domain,
+        command="search quick",
+        field="--exclude-domain",
+    )
+    after_date = _validate_text_field(
+        after_date,
+        field="--after-date",
+        command="search quick",
+        hint="Use an ISO date (YYYY-MM-DD) without control characters.",
+    )
+    client_model = _validate_text_field(
+        client_model,
+        field="--client-model",
+        command="search quick",
+        hint="Pass a model identifier without control characters or credentials.",
+    )
+    session_id = _validate_text_field(
+        session_id,
+        field="--session-id",
+        command="search quick",
+        hint="Pass a session identifier without control characters or credentials.",
+    )
+    location = _validate_text_field(
+        location,
+        field="--location",
+        command="search quick",
+        hint="Pass a location without control characters or credentials.",
+    )
     advanced: dict[str, Any] = {}
     for name, value in (
         ("max_results", max_results),
@@ -168,8 +310,8 @@ def quick_cmd(
         ("max_chars_per_result", max_chars_per_result),
         ("client_model", client_model),
         ("session_id", session_id),
-        ("include_domains", include_domain),
-        ("exclude_domains", exclude_domain),
+        ("include_domains", include_domain or None),
+        ("exclude_domains", exclude_domain or None),
         ("after_date", after_date),
         ("location", location),
         ("max_age_seconds", max_age_seconds),
@@ -217,7 +359,7 @@ def web_cmd(
     research_goal: Annotated[
         str,
         typer.Option("--research-goal", help="Required search objective."),
-    ] = ...,  # ty: ignore[invalid-parameter-default] - Typer's required-option form
+    ] = ...,  # ty: ignore[invalid-parameter-default] - Typer's required-option form  # pyright: ignore[reportArgumentType]
     reranking_instructions: Annotated[
         str | None,
         typer.Option(
@@ -269,6 +411,72 @@ def web_cmd(
     """Run the bounded adaptive multi-provider web search pipeline."""
     from ..services.search_web import fetch_web_search_payload
 
+    query = _validate_query_list(query, command="search web") or []
+    research_goal = (
+        _validate_text_field(
+            research_goal,
+            field="--research-goal",
+            command="search web",
+            hint="Pass a non-blank research goal without control characters or credentials.",
+        )
+        or ""
+    )
+    reranking_instructions = _validate_text_field(
+        reranking_instructions,
+        field="--reranking-instructions",
+        command="search web",
+        hint="Pass reranking instructions without control characters or credentials.",
+    )
+    date_range = _validate_text_field(
+        date_range,
+        field="--date-range",
+        command="search web",
+        hint="Use day, week, month, or year without control characters.",
+    )
+    after_date = _validate_text_field(
+        after_date,
+        field="--after-date",
+        command="search web",
+        hint="Use an ISO date (YYYY-MM-DD) without control characters.",
+    )
+    before_date = _validate_text_field(
+        before_date,
+        field="--before-date",
+        command="search web",
+        hint="Use an ISO date (YYYY-MM-DD) without control characters.",
+    )
+    language = _validate_text_field(
+        language,
+        field="--language",
+        command="search web",
+        hint="Use an ISO language code without control characters.",
+    )
+    region = _validate_text_field(
+        region,
+        field="--region",
+        command="search web",
+        hint="Use an ISO region code without control characters.",
+    )
+    domain_boost = _validate_query_list(
+        domain_boost,
+        command="search web",
+        field="--domain-boost",
+    )
+    cursor = _validate_text_field(
+        cursor,
+        field="--cursor",
+        command="search web",
+        hint="Pass the continuation cursor returned by a prior search.",
+    )
+    if not research_goal.strip():
+        raise CliError(
+            kind="usage_error",
+            message="--research-goal must be a non-blank string.",
+            hint="Provide the objective that should guide the search.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search web", "field": "--research-goal"},
+        )
+
     if not (cursor and cursor.strip()) and not any(item.strip() for item in query):
         raise CliError(
             kind="usage_error",
@@ -289,6 +497,7 @@ def web_cmd(
                 date_range=date_range,
                 after_date=after_date,
                 before_date=before_date,
+                language=language,
                 region=region,
                 include_undated=include_undated,
                 diagnostics=diagnostics,
@@ -322,6 +531,21 @@ def inspect_cmd(
     """Inspect one search run from the read-only analytics database."""
     from ..services.search_runs import inspect_search_run
 
+    run_key = (
+        _validate_text_field(
+            run_key,
+            field="--run-key",
+            command="search inspect",
+            hint="Pass a run key returned by `search web`.",
+        )
+        or ""
+    )
+    db_path = _validate_path_field(
+        db_path,
+        field="--db-path",
+        command="search inspect",
+    )
+
     try:
         payload = inspect_search_run(run_key, db_path=db_path)
     except (FileNotFoundError, LookupError) as exc:
@@ -350,6 +574,21 @@ def postmortem_cmd(
 ) -> None:
     """Summarize provider and reranker failures for one search run."""
     from ..services.search_runs import postmortem_search_run
+
+    run_key = (
+        _validate_text_field(
+            run_key,
+            field="--run-key",
+            command="search postmortem",
+            hint="Pass a run key returned by `search web`.",
+        )
+        or ""
+    )
+    db_path = _validate_path_field(
+        db_path,
+        field="--db-path",
+        command="search postmortem",
+    )
 
     try:
         payload = postmortem_search_run(run_key, db_path=db_path)
@@ -408,6 +647,69 @@ def academic_cmd(
 ) -> None:
     """Search scholarly sources and return deduplicated papers."""
     from ..services.academic import fetch_academic_search_payload
+
+    query = (
+        _validate_text_field(
+            query,
+            field="--query",
+            command="search academic",
+            hint="Pass a non-blank scholarly query without control characters or credentials.",
+        )
+        or ""
+    )
+    source = _validate_query_list(source, command="search academic", field="--source")
+    source_type = _validate_text_field(
+        source_type,
+        field="--source-type",
+        command="search academic",
+        hint="Use a supported source type without control characters.",
+    )
+    field_of_study = _validate_query_list(
+        field_of_study,
+        command="search academic",
+        field="--field-of-study",
+    )
+    venue = _validate_text_field(
+        venue,
+        field="--venue",
+        command="search academic",
+        hint="Pass a venue without control characters or credentials.",
+    )
+    sort = (
+        _validate_text_field(
+            sort,
+            field="--sort",
+            command="search academic",
+            hint="Use a supported sort value without control characters.",
+        )
+        or "relevance"
+    )
+    cited_by = _validate_text_field(
+        cited_by,
+        field="--cited-by",
+        command="search academic",
+        hint="Pass a paper identifier without control characters or credentials.",
+    )
+    references = _validate_text_field(
+        references,
+        field="--references",
+        command="search academic",
+        hint="Pass a paper identifier without control characters or credentials.",
+    )
+    author_id = _validate_text_field(
+        author_id,
+        field="--author-id",
+        command="search academic",
+        hint="Pass an author identifier without control characters or credentials.",
+    )
+    if not query.strip():
+        raise CliError(
+            kind="usage_error",
+            message="--query must be a non-blank string.",
+            hint="Provide a scholarly search query.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search academic", "field": "--query"},
+        )
 
     if limit < 1:
         raise CliError(
