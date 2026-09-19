@@ -6,8 +6,11 @@ accumulated outcome tuple is re-ranked by the existing cumulative ranking, so
 the final wave's ranking is the final global ranking. Execution metadata and
 the synthesis are attached once, at the end.
 
-LLM plumbing reuses the existing routers: ``build_worker_router()`` for the two
-decision stages and the registered ``summarization`` chain for synthesis.
+LLM plumbing: ``build_adaptive_router()`` (the Gemini-first high-context
+``adaptive_search_llm`` chain) for the two decision stages — decision feedback
+carries the ranked slate with long passages under a 100k-token budget and must
+not share the Groq worker chain's ~7k TPM window. The registered
+``summarization`` chain handles final synthesis.
 """
 
 from __future__ import annotations
@@ -21,8 +24,9 @@ from dataclasses import asdict, replace
 from datetime import date
 from typing import Any
 
+from ..analytics.ids import _canonical_result_id as _cri
 from ..inference.chain import get_chain
-from ..inference.router import LLMRouter, build_worker_router
+from ..inference.router import LLMRouter, build_adaptive_router
 from ..models import ProviderWarning, SearchStopReason
 from ..prompts.adaptive_search import (
     ContinuationDecision,
@@ -49,18 +53,22 @@ from .types import AdaptiveRound, ScoredHit, SearchRunResult
 
 LOGGER = logging.getLogger(__name__)
 
-MAX_SEARCH_WAVES = 3
-MAX_FOLLOWUP_QUERIES = 2
-_DECISION_TIMEOUT_SECONDS = 20.0
+MAX_SEARCH_WAVES = 3  # structural bound: the controller below runs exactly 3 waves, not a loop.
+MAX_FOLLOWUP_QUERIES = 2  # defensive slice: FollowupBatch/ContinuationDecision already cap at 2.
+_DECISION_TIMEOUT_SECONDS = 60.0
 _SYNTHESIS_TIMEOUT_SECONDS = 60.0
-# The summarization chain (Gemini) carries full passages; the worker chain's
-# small fallback models enforce roughly 7k input tokens per minute for the
-# whole org (observed live: 413 at 15x4000-char passages, then 429 with two
-# 6.6k-token decisions inside one minute window), so decision feedback renders
-# short passages to keep both decisions inside one window.
+# Decision feedback runs on the dedicated ``adaptive_search_llm`` chain
+# (Gemini-first, 1M context), not the Groq worker chain whose small fallback
+# models cap the whole org at roughly 7k input tokens per minute. Budget:
+# up to 100k tokens per decision call — 15 ranked hits x 2000-char passages
+# (~7.5k tokens) plus executed searches, signals, and scaffolding, with
+# headroom for the wave-3 accumulated slate. ``_build_feedback`` enforces the
+# byte cap in ``_truncate_feedback`` before serialization.
+_ADAPTIVE_FEEDBACK_BUDGET_CHARS = 400_000
 _SYNTHESIS_PASSAGE_CHARS = 4000
-_DECISION_PASSAGE_CHARS = 400
-_MAX_OTHER_EVIDENCE = 5
+_DECISION_PASSAGE_CHARS = 2000
+_MAX_OTHER_EVIDENCE = 10
+_OTHER_EVIDENCE_PASSAGE_CHARS = 800
 _CITATION_PATTERN = re.compile(r"\[c(\d+)\]")
 
 
@@ -129,7 +137,6 @@ def _append_followup_variant_rows(
     branches: tuple[QueryBranch, ...],
 ) -> None:
     """Append query-variant rows for follow-up branches with global indices."""
-    from ..analytics.ids import _canonical_result_id as _cri
 
     branch_start = len(run.outcomes)
     for local_index, branch in enumerate(branches):
@@ -188,6 +195,13 @@ def _domain_count(candidates: Sequence[ScoredHit]) -> int:
 
 
 def _ranked_evidence_row(hit: ScoredHit, passage_chars: int) -> dict[str, Any]:
+    """One ranked hit with long native passages and pipeline-computed signals.
+
+    ``evidence_consensus`` (provider count), ``freshness_signal``, and rank
+    scores let the gap analyst tell a thin-but-broad slate from a converged
+    one; the raw cross-encoder score is omitted — an unexplained float the
+    model cannot calibrate against.
+    """
     return {
         "rank": hit.final_rank,
         "citation_id": hit.citation_id,
@@ -197,7 +211,9 @@ def _ranked_evidence_row(hit: ScoredHit, passage_chars: int) -> dict[str, Any]:
         "published": hit.hit.published,
         "providers": list(hit.providers or ()),
         "source_kind": hit.hit.source_kind,
-        "cross_encoder_score": hit.cross_encoder_score,
+        "evidence_consensus": hit.evidence_consensus,
+        "freshness_signal": hit.freshness_signal,
+        "final_score": hit.final_score,
         "passages": render_search_hit_text(hit.hit, max_chars=passage_chars),
     }
 
@@ -206,7 +222,12 @@ def _other_ranked_evidence(
     dc: DiagnosticsCollector,
     top_urls: set[str],
 ) -> list[dict[str, Any]]:
-    """Up to five ranked hits below the top slate, labeled as overflow context."""
+    """Ranked hits below the top slate with passages, stage, and scores.
+
+    These near-miss rows are the richest gap signal — candidates the pipeline
+    saw but cut — so each carries its overflow stage, native passages, and
+    pipeline scores instead of a bare title.
+    """
     rows: list[dict[str, Any]] = []
     seen: set[str] = set()
     for stage, item in dc.overflow_ranked:
@@ -216,17 +237,55 @@ def _other_ranked_evidence(
         seen.add(key)
         rows.append(
             {
-                "label": "other_ranked_evidence",
                 "overflow_stage": stage,
                 "url": item.url,
                 "title": item.title,
                 "domain": item.domain,
                 "published": item.published,
+                "source_kind": item.source_kind,
+                "passages": render_search_hit_text(item, max_chars=_OTHER_EVIDENCE_PASSAGE_CHARS),
             }
         )
         if len(rows) >= _MAX_OTHER_EVIDENCE:
             break
     return rows
+
+
+def _truncate_feedback(evidence: dict[str, Any]) -> dict[str, Any]:
+    """Enforce the byte budget with priority: slate > executed set > signals.
+
+    The 100k-token budget (~400k chars) binds the wave-3 accumulated slate,
+    not the typical wave-1 call. Truncation sheds overflow rows first, then
+    per-branch provider-request lists, then ranked passages — the ranked
+    slate itself is never dropped, only shortened.
+    """
+    ranked = evidence["ranked_evidence"]
+    other = evidence["other_ranked_evidence"]
+    while (
+        len(json.dumps(evidence, ensure_ascii=False, default=str)) > _ADAPTIVE_FEEDBACK_BUDGET_CHARS
+    ):
+        if other:
+            other.pop()
+            continue
+        executed = evidence["executed_searches"]
+        longest = max(
+            range(len(executed)),
+            key=lambda i: len(executed[i].get("provider_requests", [])),
+            default=None,
+        )
+        if longest is not None and executed[longest].get("provider_requests"):
+            executed[longest]["provider_requests"].pop()
+            continue
+        longest_passage = max(
+            range(len(ranked)),
+            key=lambda i: len(ranked[i].get("passages", "")),
+            default=None,
+        )
+        if longest_passage is not None and len(ranked[longest_passage].get("passages", "")) > 500:
+            ranked[longest_passage]["passages"] = ranked[longest_passage]["passages"][:500].rstrip()
+            continue
+        break
+    return evidence
 
 
 def _build_feedback(
@@ -309,8 +368,13 @@ def _build_feedback(
             "candidate_count": len(dc.merged_candidates),
             "new_url_count": new_url_count,
             "domain_count": _domain_count(dc.merged_candidates),
+            "overlap_rate": run.rerank_metadata.get("overlap_rate"),
+            "duplicate_lists_dropped": run.rerank_metadata.get("duplicate_lists_dropped"),
+            "rerank_provider": run.rerank_metadata.get("reranker_provider"),
+            "rerank_model": run.rerank_metadata.get("reranker_model"),
         },
     }
+    evidence = _truncate_feedback(evidence)
     feedback_json = json.dumps(evidence, ensure_ascii=False, default=str)
     LOGGER.debug("Adaptive feedback built: %d chars", len(feedback_json))
     return feedback_json
@@ -351,13 +415,20 @@ def _validate_synthesis_text(text: str, valid_ids: set[str]) -> str:
 
 
 async def propose_followups(run: SearchRun, feedback: str) -> FollowupBatch:
-    """Wave-1 decision: targeted gap-closing queries from the worker chain."""
-    generation = await build_worker_router().complete_json(
+    """Wave-1 decision: targeted gap-closing queries from the adaptive chain.
+
+    Runs on ``build_adaptive_router()`` (Gemini-first, 1M context) so the full
+    ranked slate with 2000-char passages fits under the 100k-token budget.
+    ``reasoning_effort="low"`` buys gap analysis; the Google adapter ignores
+    the knob and the Vercel terminal fallback drops it, so the setting is
+    safe across the whole chain.
+    """
+    generation = await build_adaptive_router().complete_json(
         messages=build_followup_messages(feedback),
         temperature=0.0,
         timeout_seconds=_DECISION_TIMEOUT_SECONDS,
         response_model=FollowupBatch,
-        reasoning_effort="none",
+        reasoning_effort="low",
         run_key=run.run_key,
         operation="search.adaptive.followup",
     )
@@ -365,8 +436,12 @@ async def propose_followups(run: SearchRun, feedback: str) -> FollowupBatch:
 
 
 async def decide_continuation(run: SearchRun, feedback: str) -> ContinuationDecision:
-    """Wave-2 decision: finish, or emit the final wave's targeted queries."""
-    generation = await build_worker_router().complete_json(
+    """Wave-2 decision: finish, or emit the final wave's targeted queries.
+
+    Same high-context chain as the wave-1 proposal; the stopping judgment
+    needs the same long-passage slate to tell convergence from thin overlap.
+    """
+    generation = await build_adaptive_router().complete_json(
         messages=build_continuation_messages(feedback),
         temperature=0.0,
         timeout_seconds=_DECISION_TIMEOUT_SECONDS,
@@ -396,7 +471,12 @@ async def synthesize_results(run: SearchRun, result: SearchRunResult) -> str:
         operation="search.adaptive.synthesis",
     )
     draft = SynthesisDraft.model_validate_json(generation.content)
-    valid_ids = {hit.citation_id for hit in result.hits if hit.citation_id is not None}
+    # Mirror the _synthesis_evidence filter (citation + URL): the prompt only
+    # shows URL-bearing hits, so a URL-less id must fail validation rather
+    # than pass as citable.
+    valid_ids = {
+        hit.citation_id for hit in result.hits if hit.citation_id is not None and hit.hit.url
+    }
     return _validate_synthesis_text(draft.text, valid_ids)
 
 
@@ -417,7 +497,12 @@ async def _finalize(
     adaptive_warnings: list[ProviderWarning],
 ) -> SearchRunResult:
     """Attach execution metadata and adaptive warnings; synthesize when grounded."""
-    if not result.hits and stop_reason in {"sufficient_evidence", "max_rounds", "no_new_queries"}:
+    if not result.hits and stop_reason in {
+        "sufficient_evidence",
+        "max_rounds",
+        "no_new_queries",
+        "decision_failed",
+    }:
         stop_reason = "no_results"
     synthesis: str | None = None
     if result.hits and stop_reason != "retrieval_failure":
@@ -617,7 +702,7 @@ async def run_adaptive_search(
         domain_count=_domain_count(dc.merged_candidates),
         provider_failure_count=_provider_failure_count(wave3_outcomes),
         decision="finish",
-        reason="max_rounds",
+        reason="",
     )
     if not _wave_has_provider_response(wave3_outcomes):
         dc.adaptive_rounds.append(replace(round_3, reason="retrieval_failure"))

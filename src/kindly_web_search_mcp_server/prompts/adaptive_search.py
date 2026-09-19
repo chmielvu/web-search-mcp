@@ -1,9 +1,9 @@
 """Adaptive search prompt contract.
 
 This module OWNS the adaptive wave templates, response schemas, and prompt
-version. ``search.adaptive`` consumes them; the decision plumbing reuses the
-existing inference routers (worker chain for the two decision stages,
-``summarization`` chain for final synthesis).
+version. ``search.adaptive`` consumes them; the decision plumbing uses the
+dedicated high-context router (``adaptive_search_llm`` chain) for the two
+decision stages and the ``summarization`` chain for final synthesis.
 
 Prompt shape follows ``prompts/query_rewrite.py``: a short system contract, a
 user template with labeled evidence blocks, hard rule sections, an output
@@ -31,16 +31,21 @@ __all__ = [
     "build_synthesis_messages",
 ]
 
-ADAPTIVE_SEARCH_PROMPT_VERSION = "1"
+ADAPTIVE_SEARCH_PROMPT_VERSION = "2"
 
 NonBlank = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+# Length caps mirror the prompt checklists: targeted queries stay under 400
+# chars, gap/reason phrases stay one short sentence. The schema is the hard
+# enforcement; the prompt wording is the instruction.
+ShortQuery = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=400)]
+ShortPhrase = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=300)]
 
 
 class TargetedQuery(StrictBase):
     """One targeted web query and the evidence gap it closes."""
 
-    query: NonBlank
-    why: NonBlank
+    query: ShortQuery
+    why: ShortPhrase
 
 
 class FollowupBatch(StrictBase):
@@ -54,7 +59,7 @@ class ContinuationDecision(StrictBase):
 
     action: Literal["finish", "search"]
     queries: list[TargetedQuery] = Field(max_length=2)
-    reason: NonBlank
+    reason: ShortPhrase
 
     @model_validator(mode="after")
     def _check_action_consistency(self) -> ContinuationDecision:
@@ -88,14 +93,16 @@ The user content below is one JSON object with labeled fields:
   (temporal window, language, region, undated policy).
 - executed_searches: every executed branch query with the actual request text
   each provider received.
-- adaptive_rounds: prior wave records (queries, decision, reason, pool stats).
-- ranked_evidence: the current top-ranked hits with citation_id and native
-  passages (snippets/excerpts, not full page text).
-- other_ranked_evidence: up to five additional ranked hits below the top slate.
-- provider_signals: expansions, query integrities, and current-wave provider
-  call statuses.
+- ranked_evidence: the current top-ranked hits with citation_id, long native
+  passages (up to ~2000 chars each), evidence_consensus (provider count),
+  freshness_signal, and final_score.
+- other_ranked_evidence: up to ten additional ranked hits below the top slate,
+  each with its overflow_stage, native passages, and source metadata.
+- provider_signals: expansions, query_integrities, and wave_provider_calls
+  (current-wave provider call statuses).
 - pool_counts: cumulative filtered candidates, new canonical URLs versus the
-  previous pool, and unique domains.
+  previous pool, unique domains, overlap_rate, duplicate_lists_dropped, and
+  the rerank provider/model.
 
 {evidence_json}
 </EVIDENCE_OBJECT>
@@ -131,6 +138,7 @@ The user content below is one JSON object with labeled fields:
 1. Return exactly {{"queries": [...]}} and no extra keys or prose.
 2. 1-2 standalone keyword-oriented queries, each under 400 characters.
 3. No Boolean operators (AND/OR/NOT) and no site:/filetype: operators.
+   Quoted exact phrases ("like this") are allowed for targeted gap-closing.
 4. Each query differs materially from every executed search above.
 </OUTPUT_CHECKLIST>
 
@@ -156,13 +164,16 @@ The user content below is one JSON object with labeled fields:
 - executed_searches: every executed branch query with the actual request text
   each provider received.
 - adaptive_rounds: prior wave records (queries, decision, reason, pool stats).
-- ranked_evidence: the current top-ranked hits with citation_id and native
-  passages (snippets/excerpts, not full page text).
-- other_ranked_evidence: up to five additional ranked hits below the top slate.
-- provider_signals: expansions, query integrities, and current-wave provider
-  call statuses.
+- ranked_evidence: the current top-ranked hits with citation_id, long native
+  passages (up to ~2000 chars each), evidence_consensus (provider count),
+  freshness_signal, and final_score.
+- other_ranked_evidence: up to ten additional ranked hits below the top slate,
+  each with its overflow_stage, native passages, and source metadata.
+- provider_signals: expansions, query_integrities, and wave_provider_calls
+  (current-wave provider call statuses).
 - pool_counts: cumulative filtered candidates, new canonical URLs versus the
-  previous pool, and unique domains.
+  previous pool, unique domains, overlap_rate, duplicate_lists_dropped, and
+  the rerank provider/model.
 
 {evidence_json}
 </EVIDENCE_OBJECT>
@@ -192,8 +203,9 @@ The user content below is one JSON object with labeled fields:
 <OUTPUT_CHECKLIST>
 1. Return exactly {{"action": ..., "queries": [...], "reason": ...}} and no extra keys or prose.
 2. action "finish" requires queries == []; action "search" requires 1-2 queries.
-3. Every query under 400 characters, standalone, and materially different from
-   every executed search above.
+3. Every query under 400 characters, standalone, materially different from
+   every executed search above, with no Boolean or site:/filetype: operators
+   (quoted exact phrases allowed).
 </OUTPUT_CHECKLIST>
 
 {{"action": "finish", "queries": [], "reason": "<one sentence>"}}"""

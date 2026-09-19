@@ -549,6 +549,10 @@ class Settings:
         )
     )
     rrf_bm25_weight: float = _env_float("RRF_BM25_WEIGHT", 1.0)
+    # Follow-up wave discount: adaptive FOLLOWUP branches vote at full provider
+    # weight times this factor. The broad wave-1 slate keeps authority while
+    # targeted follow-up lists add recall without dominating fused scores.
+    rrf_followup_weight_factor: float = _env_float("RRF_FOLLOWUP_WEIGHT_FACTOR", 0.5)
 
     # Remote web results index (Qdrant on HF Space)
     # Indexes final search results (dense + BM25 sparse vectors) for future discovery.
@@ -736,6 +740,10 @@ class Settings:
             )
         if self.rrf_bm25_weight < 0.0:
             raise ValueError(f"rrf_bm25_weight must be >= 0, got {self.rrf_bm25_weight!r}.")
+        if not 0.0 < self.rrf_followup_weight_factor <= 1.0:
+            raise ValueError(
+                f"rrf_followup_weight_factor must be in (0.0, 1.0], got {self.rrf_followup_weight_factor!r}."
+            )
         for provider_name, weight in self.rrf_provider_weights.items():
             if weight < 0.0:
                 raise ValueError(

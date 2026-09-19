@@ -21,7 +21,7 @@ from ..settings import settings
 from ..telemetry.spans import get_tracer
 from ..utils.url_canonicalize import canonicalize_url
 from .blocklist import filter_blocked_results
-from .contracts import BranchOutcome, SearchRun
+from .contracts import BranchOutcome, BranchRole, SearchRun
 from .evidence import render_search_hit_text
 from .filters import filter_results_by_window, parse_published_date
 from .merge import memoize_canonicalize, reciprocal_rank_fusion
@@ -33,6 +33,25 @@ logger = logging.getLogger(__name__)
 
 def _candidate_text(result: SearchHit) -> str:
     return render_search_hit_text(result, max_chars=4000)
+
+
+def _normalize_shaped_query(text: str) -> str:
+    """Whitespace-normalized, case-folded key for shaped provider request text."""
+    return " ".join(text.split()).casefold()
+
+
+def _rrf_list_key(adapter: str, shaped_query: str, fallback_query: str) -> tuple[str, str]:
+    """Duplicate-vote key for one retrieval list.
+
+    Keys on the shaped text the provider actually received (``EngineCall.query``,
+    stamped by ``_finalize_call`` from the role-shaped request), not the planner's
+    branch text. Two branches whose rewrites collapse to the same shaped request
+    are one information-free duplicate; one branch text shaped differently per
+    role stays two independent votes. An empty shaped query falls back to the
+    branch text so a malformed call can never poison the keyspace.
+    """
+    shaped = shaped_query.strip() or fallback_query
+    return (adapter, _normalize_shaped_query(shaped))
 
 
 @dataclass(frozen=True, slots=True)
@@ -191,42 +210,51 @@ async def rank_and_finalize(
         # sum itself, which is the signal the multi-rewrite branch fan-out
         # exists to produce.
         #
-        # Duplicate-vote guard: identical (provider, query) pairs -- the same
-        # engine re-issued the same rewritten query text, e.g. when a rewrite
-        # slot collapses back to the normalized query -- return one
-        # information-free duplicate list. Only those exact pairs are dropped;
-        # lists from distinct query texts all vote independently.
+        # Duplicate-vote guard: identical (provider, shaped-request) pairs --
+        # the same engine received the same role-shaped request text, e.g.
+        # when a rewrite slot collapses back to the normalized query. Only
+        # those exact pairs are dropped; lists from distinct shaped texts all
+        # vote independently -- including one branch text shaped differently
+        # per role, or two branch texts collapsed to the same shaped request.
         #
-        # Weight splitting: a provider queried from N distinct branches
-        # contributes N lists whose weights sum to the provider's configured
-        # weight (settings.rrf_provider_weights). This preserves the
-        # per-provider total influence those weights were tuned for while
-        # bounding any single URL's maximum contribution from that provider
-        # at weight / (rrf_k + 1), independent of branch count. Lists are
-        # ordered deterministically by (branch_index, provider_name) so fused
-        # scores are reproducible across runs with identical retrieval output.
+        # Full weight per list: every distinct (provider, shaped-request) list
+        # votes its full provider weight, so agreement across distinct query
+        # texts accumulates through the RRF sum (the RAG-Fusion consensus
+        # property the multi-rewrite branch fan-out exists to produce). The
+        # old weight-splitting (provider weight divided by its list count)
+        # capped each provider's total at weight/(k+1) and let follow-up waves
+        # retroactively dilute the broad wave-1 slate. Follow-up lists instead
+        # carry a wave-role discount (``RRF_FOLLOWUP_WEIGHT_FACTOR``): the
+        # broad wave keeps authority while targeted lists add recall.
+        # Within a branch lists are ordered by provider name; across branches
+        # they follow retrieval completion order, so fused scores are stable
+        # for a fixed completion order but can shift with network jitter.
         rrf_result_lists: list[list[SearchHit]] = []
         rrf_list_weights: list[float] = []
         seen_call_queries: set[tuple[str, str]] = set()
         duplicate_lists_dropped = 0
-        call_lists: list[tuple[str, list[SearchHit]]] = []
+        zero_hit_lists_dropped = 0
+        call_lists: list[tuple[str, list[SearchHit], bool]] = []
         for outcome in outcomes:
+            is_followup = outcome.branch.role == BranchRole.FOLLOWUP
             for call in outcome.calls:
-                call_key = (call.adapter, outcome.branch.query)
+                call_key = _rrf_list_key(call.adapter, call.query, outcome.branch.query)
                 if call_key in seen_call_queries:
                     duplicate_lists_dropped += 1
                     continue
                 seen_call_queries.add(call_key)
                 filtered = filter_blocked_results(list(call.hits))
                 if not filtered:
+                    zero_hit_lists_dropped += 1
                     continue
-                call_lists.append((call.adapter, filtered))
+                call_lists.append((call.adapter, filtered, is_followup))
 
-        lists_per_provider: Counter[str] = Counter(provider_name for provider_name, _ in call_lists)
-        for provider_name, filtered in call_lists:
+        for provider_name, filtered, is_followup in call_lists:
             provider_weight = settings.rrf_provider_weights.get(provider_name, 1.0)
+            if is_followup:
+                provider_weight *= settings.rrf_followup_weight_factor
             rrf_result_lists.append(filtered)
-            rrf_list_weights.append(provider_weight / lists_per_provider[provider_name])
+            rrf_list_weights.append(provider_weight)
 
         merged: list[ScoredHit] = []
         rrf_k = settings.rrf_k
@@ -401,6 +429,7 @@ async def rank_and_finalize(
                 "zero_list_degradation": len(rrf_result_lists) == 0,
                 "single_list_degradation": len(rrf_result_lists) == 1,
                 "duplicate_lists_dropped": duplicate_lists_dropped,
+                "zero_hit_lists_dropped": zero_hit_lists_dropped,
                 "bm25_scores": tuple(bm25_scores),
                 "reranker_provider": rerank_provider,
                 "reranker_model": rerank_model,

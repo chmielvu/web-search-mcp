@@ -9,6 +9,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 
 from ..analytics.ids import _candidate_id, _canonical_result_id
+from ..prompts.adaptive_search import ADAPTIVE_SEARCH_PROMPT_VERSION
 from ..utils.url_canonicalize import extract_domain_from_url
 from .evidence import testimony_payload
 
@@ -145,7 +146,11 @@ async def persist_search_outcome(run):
                     "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
                     "adaptive_rounds": [asdict(record) for record in dc.adaptive_rounds],
                     "adaptive_search": (
-                        {"rounds": r.rounds, "stop_reason": r.stop_reason}
+                        {
+                            "rounds": r.rounds,
+                            "stop_reason": r.stop_reason,
+                            "prompt_version": ADAPTIVE_SEARCH_PROMPT_VERSION,
+                        }
                         if r is not None and r.rounds >= 1 and r.stop_reason is not None
                         else None
                     ),

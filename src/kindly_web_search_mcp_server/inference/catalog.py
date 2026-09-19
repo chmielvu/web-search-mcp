@@ -296,6 +296,16 @@ def _register_all() -> None:
     )
     add_provider(
         "gemini-3.5-flash-lite",
+        "google:second",
+        as_google(
+            model_id=rankllm_model,
+            api_key_env="SECOND_GEMINI_API_KEY",
+            cost_per_1m_input=0.30,
+            cost_per_1m_output=2.50,
+        ),
+    )
+    add_provider(
+        "gemini-3.5-flash-lite",
         "google:rankllm",
         as_google(
             model_id=rankllm_model,
@@ -454,6 +464,31 @@ def _register_all() -> None:
             f"{custom_model}@google",
             "gemini-3.1-flash-lite@google",
             "gemma-4-26b-a4b-it@google",
+        ],
+    )
+
+    # ADAPTIVE SEARCH DECISIONS: high-context Gemini-only chain
+    #   The two adaptive decision stages (follow-up proposal, continuation
+    #   judgment) carry the full ranked slate with long passages — up to a
+    #   100k-token feedback budget. They must not share the Groq worker chain:
+    #   its small fallback models enforce roughly 7k input tokens per minute
+    #   for the whole org (observed live: 413 then 429 inside one minute),
+    #   which forced the old 400-char truncation. Gemini 1M context absorbs
+    #   15 x 2000-char passages (~7.5k tokens) plus scaffolding with headroom.
+    #   The chain tries gemini-3.5-flash-lite on both Gemini keys first
+    #   (@google, then @google:second) for key-level failover before stepping
+    #   down models. Vercel gpt-oss-120b is the terminal fallback only; no
+    #   Groq entries, so adaptive traffic never contends with
+    #   rewrite/classifier TPM.
+    # ─────────────────────────────────────────────────────────────────────
+    register_chain(
+        "adaptive_search_llm",
+        [
+            "gemini-3.5-flash-lite@google",
+            "gemini-3.5-flash-lite@google:second",
+            "gemini-3.1-flash-lite@google:second",
+            "gemini-2.5-flash@google",
+            "gpt-oss-120b@vercel",
         ],
     )
 

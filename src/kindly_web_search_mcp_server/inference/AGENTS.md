@@ -188,14 +188,14 @@ engine.execute_with_fallback(chain, operation, **kwargs) → tries primary → e
 |---|---|---|
 | `worker_llm` | gpt-oss-120b@groq | @groq:second → @huggingface → @vercel |
 | `classifier_llm` | gpt-oss-20b@groq | @groq:second → @vercel |
+| `adaptive_search_llm` | gemini-3.5-flash-lite@google | gemini-3.5-flash-lite@google:second → gemini-3.1-flash-lite@google:second → gemini-2.5-flash@google → gpt-oss-120b@vercel |
 | `cross_encoder_rerank` | voyage-rerank@voyage | voyage-rerank-lite@voyage |
 | `gemini_grounding` | gemini-3.1-flash-lite@google:second | gemini-2.5-flash@google → gemini-2.5-flash-lite@google |
 | `rankllm` | gemini-3.5-flash-lite@google:rankllm | gemini-3.1-flash-lite@google:rankllm → rankllm-openrouter@openrouter |
 | `summarization` | gemini-3.5-flash-lite@google | gemini-3.1-flash-lite@google → gemma-4-26b-a4b-it@google |
 | `embedding` | multilingual-e5-large-instruct@huggingface | — |
 
-Qualified keys: `@google:second` uses `SECOND_GEMINI_API_KEY` and transparently accepts the existing `GEMINI_SECOND_API_KEY` spelling; `@google:rankllm` uses the rankllm timeout; `@groq:second` uses `SECOND_GROQ_API_KEY`.
-
+The `adaptive_search_llm` chain serves the two adaptive web-search decision stages (`search/adaptive.py::propose_followups`, `decide_continuation`) via `build_adaptive_router()`. It is Gemini-first with a 100k-token feedback budget (ranked slate + long passages) and carries no Groq entries, so adaptive traffic never contends with the worker/classifier ~7k TPM window. It tries `gemini-3.5-flash-lite` on both Gemini keys first (`@google`, then `@google:second`) for key-level failover before stepping down models. Vercel gpt-oss-120b is the terminal fallback only. The inference engine honors the caller's `timeout_seconds` per attempt (adaptive decisions: 60s), falling back to each entry's catalog default.
 
 ## Key Design Decisions
 

@@ -232,7 +232,9 @@ def _parse_presentation_text(text: str) -> list[dict[str, str]]:
     return results
 
 
-def _parse_response(data: dict[str, Any]) -> EngineCall:
+
+
+def _parse_response(data: dict[str, Any], query: str) -> EngineCall:
     text = _message_text(data)
     if not text.strip():
         raise _invalid_response("Gemma returned empty assistant content.")
@@ -258,7 +260,7 @@ def _parse_response(data: dict[str, Any]) -> EngineCall:
                 adapter="gemma",
             )
         )
-    return EngineCall(adapter="gemma", query="", hits=tuple(hits))
+    return EngineCall(adapter="gemma", query=query, hits=tuple(hits))
 
 
 async def search_gemma(
@@ -345,7 +347,7 @@ async def search_gemma(
         query,
         num_results,
         request=_request,
-        parse_response=_parse_response,
+        parse_response=lambda data: _parse_response(data, query),
         http_client=http_client,
         timeout_seconds=timeout_seconds,
     )

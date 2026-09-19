@@ -20,6 +20,8 @@ _MODEL_PRICING: dict[str, tuple[float, float]] = {
     "groq:gpt-oss-120b": (0.15, 0.60),
     "groq:gpt-oss-20b": (0.075, 0.30),
     "vercel:gpt-oss-20b": (0.10, 0.40),
+    "vercel:gpt-oss-120b": (0.10, 0.40),
+    "gemini:gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini:gemini-3.1-flash-lite": (0.25, 1.50),
     "gemini:gemini-2.5-flash": (0.30, 2.50),
     "gemini:gemini-2.5-flash-lite": (0.10, 0.40),
@@ -251,3 +253,13 @@ def build_classifier_router() -> LLMRouter:
 
 def build_worker_router() -> LLMRouter:
     return LLMRouter(chain=get_chain("worker_llm"))
+
+
+def build_adaptive_router() -> LLMRouter:
+    """Router for the two adaptive search decision stages.
+
+    Bound to the ``adaptive_search_llm`` chain (Gemini-first, high-context),
+    never the Groq worker chain: decision feedback carries the ranked slate
+    with long passages under a 100k-token budget.
+    """
+    return LLMRouter(chain=get_chain("adaptive_search_llm"))

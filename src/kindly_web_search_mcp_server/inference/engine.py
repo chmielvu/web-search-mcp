@@ -128,6 +128,10 @@ async def execute_with_fallback(
 
     for spec in chain.models:
         t0 = time.perf_counter()
+        # The catalog default is the floor; an explicit caller timeout (e.g.
+        # the adaptive 60s decision budget) widens the per-attempt cap. The
+        # adapters receive the same value, so client and outer cap agree.
+        per_attempt_timeout = kwargs.get("timeout_seconds") or spec.default_timeout
         try:
             with create_llm_operation_span(
                 operation,
@@ -138,13 +142,13 @@ async def execute_with_fallback(
                     if handler is not None:
                         result = await asyncio.wait_for(
                             handler(spec),
-                            timeout=spec.default_timeout,
+                            timeout=per_attempt_timeout,
                         )
                     else:
                         adapter = get_provider(spec.provider)
                         result = await asyncio.wait_for(
                             adapter.execute(spec, **kwargs),
-                            timeout=spec.default_timeout,
+                            timeout=per_attempt_timeout,
                         )
                     if validator is not None:
                         result = validator(result)
