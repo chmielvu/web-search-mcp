@@ -1,4 +1,8 @@
 ## [Unreleased]
+### Changed — Gitignore: `docs/` and `feedback/` untracked as local-only (2026-09-19)
+- `docs/` (98 tracked analysis/report artefacts) and `feedback/` (3 local bug-queue JSON files) removed from tracking via `git rm -r --cached`; both directories are now ignored (`.gitignore`) so future local reports and feedback entries are never re-committed.
+- `.gitnexus/` needed no action: already ignored (`.gitignore`) with zero tracked files.
+
 ### Fixed — Adaptive bug-hunt pass: engine timeout, validator scope, schema caps (2026-09-19)
 - `inference/engine.py`: the outer `asyncio.wait_for` now honors the caller's `timeout_seconds` (falling back to the catalog default), so the adaptive 60s decision budget and 60s synthesis budget are actually reachable instead of being silently clipped to 30s.
 - `search/adaptive.py`: synthesis `valid_ids` now mirrors the `_synthesis_evidence` filter (citation + URL), closing the hole where a URL-less id could pass validation without ever appearing in the prompt evidence; `decision_failed` folds to `no_results` on empty slates; wave-3 `AdaptiveRound.reason` cleared (the run-level `stop_reason="max_rounds"` carries that concept); `_truncate_feedback` shortens the longest ranked passage instead of only the last; `MAX_*` constants documented as structural bounds.

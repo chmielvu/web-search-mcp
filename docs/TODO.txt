@@ -1,7 +1,0 @@
-1. move to fastMCP 4
-2. refine outputs to be clean
-3. replace gemini search with PydanticAI based MAS (still gemini)
-4. add more sophisticated web_search tool internals: reuce junk results, ake the intents do real work
-5. Pull the input queries from DUckDB and analyze them and use the corpora to fine tune/tailor the query rewrite prompts 
-6. make the intent classifier ore accurate 
-7. add classification instea of anual mode setting for quick web search. 

@@ -222,7 +222,10 @@ __marimo__/
 
 # Claude Code project files
 .claude/
+
+# Human-readable docs + local feedback queue (not source)
 docs/
+feedback/
 
 # Local Grok config
 .grok/
