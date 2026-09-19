@@ -62,7 +62,7 @@ def _run_parallel_facet(job: _RerankImprovementJob | _ResultQualityJob) -> int:
                 ("before", "\n".join(before_lines) if before_lines else "(no rows)"),
                 ("after", "\n".join(after_lines) if after_lines else "(no rows)"),
             )
-            raw, duration = _run_prompt(
+            raw, duration, metrics = _run_prompt(
                 connection,
                 model_name=_JUDGE_MODEL,
                 prompt_name="judge_rerank_improvement",
@@ -81,6 +81,7 @@ def _run_parallel_facet(job: _RerankImprovementJob | _ResultQualityJob) -> int:
                 context_columns=rerank_ctx,
                 build_verdict=lambda p: str(p.get("verdict") or ""),
                 build_reasoning=lambda p: str(p.get("reasoning") or ""),
+                flock_metrics=metrics,
             )
             return 1
 
@@ -92,7 +93,7 @@ def _run_parallel_facet(job: _RerankImprovementJob | _ResultQualityJob) -> int:
             ("title", job.title),
             ("snippet", job.snippet),
         )
-        raw, duration = _run_prompt(
+        raw, duration, metrics = _run_prompt(
             connection,
             model_name=_JUDGE_MODEL,
             prompt_name="judge_result_quality",
@@ -118,6 +119,7 @@ def _run_parallel_facet(job: _RerankImprovementJob | _ResultQualityJob) -> int:
             context_columns=rq_ctx,
             build_verdict=_rq_verdict,
             build_reasoning=lambda p: str(p.get("reasoning") or ""),
+            flock_metrics=metrics,
         )
         return 1
     except Exception:

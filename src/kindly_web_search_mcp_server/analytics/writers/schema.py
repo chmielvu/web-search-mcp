@@ -15,6 +15,7 @@ import logging
 import duckdb
 
 from ..embedding_sql import _ensure_embedding_similarity_view
+from ..fts_sql import ensure_fts_loaded
 from .connection import (
     _LOCK,
     _db_path,
@@ -33,18 +34,13 @@ from .fetch_observability_schema import (
     _ensure_content_summary_rungs,
 )
 from .table_names import (
+    _ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME,
+    _ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME,
+    _ADAPTIVE_SEARCH_RUNS_TABLE_NAME,
     _CE_TABLE_NAME,
     _CF_TABLE_NAME,
     _CO_TABLE_NAME,
-    _CSD_TABLE_NAME,
     _CSE_TABLE_NAME,
-    _CSH_TABLE_NAME,
-    _CSHV_TABLE_NAME,
-    _CSP_TABLE_NAME,
-    _CSQV_TABLE_NAME,
-    _CSR_TABLE_NAME,
-    _CSREPO_TABLE_NAME,
-    _CSRERANK_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
     _GSR_TABLE_NAME,
@@ -223,6 +219,81 @@ def _ensure_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
     connection.execute("CREATE INDEX IF NOT EXISTS idx_runs_run_key ON search_runs(run_key)")
     connection.execute(
         "CREATE INDEX IF NOT EXISTS idx_runs_recorded_at ON search_runs(recorded_at)"
+    )
+
+
+def _ensure_adaptive_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
+    """One row per adaptive search run, normalized from the search payload."""
+    _create_table(
+        connection,
+        _ADAPTIVE_SEARCH_RUNS_TABLE_NAME,
+        """
+        recorded_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key         VARCHAR NOT NULL,
+        rounds          INTEGER,
+        stop_reason     VARCHAR,
+        prompt_version  VARCHAR,
+        synthesis       VARCHAR,
+        payload_json    JSON
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_adaptive_search_runs_run_key "
+        "ON adaptive_search_runs(run_key)"
+    )
+
+
+def _ensure_adaptive_search_rounds(connection: duckdb.DuckDBPyConnection) -> None:
+    """One row per AdaptiveRound emitted by the runtime controller."""
+    _create_table(
+        connection,
+        _ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME,
+        """
+        adaptive_round_id       VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at             TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key                 VARCHAR NOT NULL,
+        round_index             INTEGER NOT NULL,
+        branch_start            INTEGER NOT NULL,
+        branch_count            INTEGER NOT NULL,
+        queries                 VARCHAR[],
+        candidate_count         INTEGER NOT NULL,
+        new_url_count           INTEGER NOT NULL,
+        domain_count            INTEGER NOT NULL,
+        provider_failure_count  INTEGER NOT NULL,
+        decision                VARCHAR NOT NULL,
+        reason                  VARCHAR NOT NULL,
+        UNIQUE (run_key, round_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_adaptive_search_rounds_run_key "
+        "ON adaptive_search_rounds(run_key)"
+    )
+
+
+def _ensure_adaptive_search_proposals(connection: duckdb.DuckDBPyConnection) -> None:
+    """Raw adaptive TargetedQuery proposals and their dispatch outcome."""
+    _create_table(
+        connection,
+        _ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME,
+        """
+        proposal_id       VARCHAR NOT NULL PRIMARY KEY,
+        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+        run_key           VARCHAR NOT NULL,
+        decision_round    INTEGER NOT NULL,
+        proposal_index    INTEGER NOT NULL,
+        query             VARCHAR NOT NULL,
+        why               VARCHAR NOT NULL,
+        normalized_query  VARCHAR,
+        accepted          BOOLEAN NOT NULL,
+        branch_index      INTEGER,
+        branch_id         VARCHAR,
+        UNIQUE (run_key, decision_round, proposal_index)
+        """,
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_adaptive_search_proposals_run_key "
+        "ON adaptive_search_proposals(run_key)"
     )
 
 
@@ -854,243 +925,6 @@ def _ensure_gemini_search_sources(connection: duckdb.DuckDBPyConnection) -> None
 
 
 # ---------------------------------------------------------------------------
-# Code Search tables
-# ---------------------------------------------------------------------------
-def _ensure_code_search_runs(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSR_TABLE_NAME,
-        """
-        terminal_event_id          VARCHAR NOT NULL PRIMARY KEY,
-        tool_call_id               VARCHAR NOT NULL,
-        recorded_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
-        trace_id                   VARCHAR,
-        session_id                 VARCHAR,
-        query                      VARCHAR NOT NULL,
-        research_goal              VARCHAR,
-        language                   VARCHAR,
-        path                       VARCHAR,
-        filename                   VARCHAR,
-        extension                  VARCHAR,
-        regexp_requested           BOOLEAN,
-        deep_requested             BOOLEAN,
-        max_results_requested      INTEGER,
-        repo_name                  VARCHAR,
-        library_name               VARCHAR,
-        topic                      VARCHAR,
-        repository_filters         VARCHAR[],
-        planner_original_query     VARCHAR,
-        planner_search_text        VARCHAR,
-        planner_api_query          VARCHAR,
-        planner_mode               VARCHAR,
-        planner_structural_kind    VARCHAR,
-        planner_exa_semantic_query VARCHAR,
-        planner_regex_source       VARCHAR,
-        planner_anchor_terms       VARCHAR[],
-        planner_concept_terms      VARCHAR[],
-        planner_source_tokens      JSON,
-        planner_qualifiers         JSON,
-        planner_warnings           VARCHAR[],
-        planner_backend_channels   VARCHAR[],
-        planner_variants           VARCHAR[],
-        planner_variant_kinds      VARCHAR[],
-        provider_response_count    INTEGER,
-        provider_hit_counts        JSON,
-        request_count              INTEGER,
-        hydration_count            INTEGER,
-        rerank_count               INTEGER,
-        returned_count             INTEGER,
-        repository_count           INTEGER,
-        diagnostic_count           INTEGER,
-        truncated                  BOOLEAN,
-        dropped_count              INTEGER,
-        estimated_output_tokens    INTEGER,
-        duration_ms                DOUBLE,
-        outcome                    VARCHAR,
-        error_type                 VARCHAR,
-        error_message              VARCHAR,
-        payload_json               JSON
-        """,
-    )
-    connection.execute(
-        "CREATE INDEX IF NOT EXISTS idx_csr_tool_call_id ON code_search_runs(tool_call_id)"
-    )
-
-
-def _ensure_code_search_providers(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSP_TABLE_NAME,
-        """
-        terminal_event_id VARCHAR NOT NULL,
-        response_index    INTEGER NOT NULL,
-        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        provider          VARCHAR NOT NULL,
-        hit_count         INTEGER,
-        request_count     INTEGER,
-        outcome           VARCHAR,
-        compiled_queries  VARCHAR[],
-        duration_ms       DOUBLE,
-        error_type        VARCHAR,
-        error_message     VARCHAR,
-        payload_json      JSON,
-        PRIMARY KEY (terminal_event_id, response_index)
-        """,
-    )
-
-
-def _ensure_code_search_diagnostics(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSD_TABLE_NAME,
-        """
-        terminal_event_id   VARCHAR NOT NULL,
-        diagnostic_index    INTEGER NOT NULL,
-        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        provider            VARCHAR,
-        outcome             VARCHAR,
-        failure_kind        VARCHAR,
-        message             VARCHAR,
-        status_code         INTEGER,
-        retry_after_seconds DOUBLE,
-        query               VARCHAR,
-        details             JSON,
-        PRIMARY KEY (terminal_event_id, diagnostic_index)
-        """,
-    )
-
-
-def _ensure_code_search_hits(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSH_TABLE_NAME,
-        """
-        terminal_event_id          VARCHAR NOT NULL,
-        hit_rank                   INTEGER NOT NULL,
-        recorded_at                TIMESTAMPTZ NOT NULL DEFAULT now(),
-        url                        VARCHAR,
-        repository                 VARCHAR,
-        path                       VARCHAR,
-        sha                        VARCHAR,
-        provider                   VARCHAR,
-        query_variant              VARCHAR,
-        search_rank                INTEGER,
-        result_kind                VARCHAR,
-        evidence_role              VARCHAR,
-        title                      VARCHAR,
-        snippet                    VARCHAR,
-        published_date             VARCHAR,
-        final_score                DOUBLE,
-        score_components           JSON,
-        reasons                    VARCHAR[],
-        hydrated                   BOOLEAN,
-        hydrated_source_truncated  BOOLEAN,
-        line_start                 INTEGER,
-        line_end                   INTEGER,
-        commit_oid                 VARCHAR,
-        fragment_count             INTEGER,
-        symbol_count               INTEGER,
-        match_span_count           INTEGER,
-        location_precision         VARCHAR,
-        lines_available            BOOLEAN,
-        revision_available         BOOLEAN,
-        match_data_available       BOOLEAN,
-        source_metadata            JSON,
-        payload_json               JSON,
-        PRIMARY KEY (terminal_event_id, hit_rank)
-        """,
-    )
-
-
-def _ensure_code_search_hit_variants(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSHV_TABLE_NAME,
-        """
-        terminal_event_id  VARCHAR NOT NULL,
-        hit_rank           INTEGER NOT NULL,
-        association_index  INTEGER NOT NULL,
-        variant_index      INTEGER,
-        provider           VARCHAR,
-        query_variant      VARCHAR,
-        search_rank        INTEGER,
-        PRIMARY KEY (terminal_event_id, hit_rank, association_index)
-        """,
-    )
-
-
-def _ensure_code_search_query_variants(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSQV_TABLE_NAME,
-        """
-        terminal_event_id VARCHAR NOT NULL,
-        variant_index     INTEGER NOT NULL,
-        recorded_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-        query_text        VARCHAR NOT NULL,
-        variant_kind      VARCHAR,
-        PRIMARY KEY (terminal_event_id, variant_index)
-        """,
-    )
-
-
-def _ensure_code_search_repositories(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSREPO_TABLE_NAME,
-        """
-        terminal_event_id  VARCHAR NOT NULL,
-        repository_index   INTEGER NOT NULL,
-        recorded_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
-        name_with_owner    VARCHAR,
-        url                VARCHAR,
-        description        VARCHAR,
-        stars              INTEGER,
-        forks              INTEGER,
-        pushed_at          VARCHAR,
-        language           VARCHAR,
-        topics             VARCHAR[],
-        license_spdx_id    VARCHAR,
-        homepage_url       VARCHAR,
-        default_branch     VARCHAR,
-        head_oid           VARCHAR,
-        archived           BOOLEAN,
-        fork               BOOLEAN,
-        discovery_rank     INTEGER,
-        discovery_score    DOUBLE,
-        discovery_queries  VARCHAR[],
-        proof_hits         INTEGER,
-        proof_paths        VARCHAR[],
-        proof_providers    VARCHAR[],
-        verified           BOOLEAN,
-        payload_json       JSON,
-        PRIMARY KEY (terminal_event_id, repository_index)
-        """,
-    )
-
-
-def _ensure_code_search_rerank(connection: duckdb.DuckDBPyConnection) -> None:
-    _create_table(
-        connection,
-        _CSRERANK_TABLE_NAME,
-        """
-        terminal_event_id   VARCHAR NOT NULL PRIMARY KEY,
-        recorded_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-        provider            VARCHAR,
-        model               VARCHAR,
-        input_count         INTEGER,
-        output_count        INTEGER,
-        reranked_count      INTEGER,
-        status              VARCHAR,
-        diagnostic_outcome  VARCHAR,
-        diagnostic_message  VARCHAR,
-        duration_ms         DOUBLE,
-        payload_json        JSON
-        """,
-    )
-
-
-# ---------------------------------------------------------------------------
 # Content Operations and Summary tables
 # ---------------------------------------------------------------------------
 def _ensure_content_operations(connection: duckdb.DuckDBPyConnection) -> None:
@@ -1424,12 +1258,19 @@ def ensure_vss_extension(connection: duckdb.DuckDBPyConnection) -> None:
                 connection.execute("INSTALL vss;")
             _vss_installed = True
         ensure_vss_loaded(connection)
+        # Recreate HNSW indexes with explicit cosine metric for KNN queries.
+        # DROP IF EXISTS ensures the metric upgrade applies idempotently.
+        connection.execute("DROP INDEX IF EXISTS idx_qemb_hnsw;")
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_qemb_hnsw ON query_embeddings USING HNSW (embedding);"
+            "CREATE INDEX idx_qemb_hnsw "
+            "ON query_embeddings USING HNSW (embedding) "
+            "WITH (metric = 'cosine');"
         )
+        connection.execute("DROP INDEX IF EXISTS idx_cemb_hnsw;")
         connection.execute(
-            "CREATE INDEX IF NOT EXISTS idx_cemb_hnsw "
-            "ON candidate_embeddings USING HNSW (embedding);"
+            "CREATE INDEX idx_cemb_hnsw "
+            "ON candidate_embeddings USING HNSW (embedding) "
+            "WITH (metric = 'cosine');"
         )
     except Exception as exc:
         _logger.warning(
@@ -1516,6 +1357,9 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
         connection = duckdb.connect(str(path))
         try:
             _ensure_search_runs(connection)
+            _ensure_adaptive_search_runs(connection)
+            _ensure_adaptive_search_rounds(connection)
+            _ensure_adaptive_search_proposals(connection)
             _ensure_search_branches(connection)
             _ensure_provider_calls(connection)
             _ensure_columns(
@@ -1590,14 +1434,6 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
             _ensure_quick_web_search_citations(connection)
             _ensure_gemini_search_runs(connection)
             _ensure_gemini_search_sources(connection)
-            _ensure_code_search_runs(connection)
-            _ensure_code_search_providers(connection)
-            _ensure_code_search_diagnostics(connection)
-            _ensure_code_search_hits(connection)
-            _ensure_code_search_hit_variants(connection)
-            _ensure_code_search_query_variants(connection)
-            _ensure_code_search_repositories(connection)
-            _ensure_code_search_rerank(connection)
             _ensure_content_operations(connection)
             _ensure_content_fetches(connection)
             _ensure_content_summaries(connection)
@@ -1621,6 +1457,9 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
                 ensure_vss_extension(connection)
             if flockmtl_loaded:
                 ensure_flockmtl_resources(connection)
+            # FTS is optional — silently no-ops when the extension
+            # is unavailable or the target tables are empty.
+            ensure_fts_loaded(connection)
         finally:
             connection.close()
 

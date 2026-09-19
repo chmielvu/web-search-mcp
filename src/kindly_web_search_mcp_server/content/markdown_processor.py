@@ -1053,19 +1053,18 @@ def _check_structures(text: str) -> _StructuralFindings:
             while scan < len(tokens):
                 candidate = tokens[scan]
                 if candidate.type == "fence":
-                    close_match = _FENCE_MARKER_RE.match(candidate.markup)
-                    if close_match:
-                        close_char = close_match.group(1)[0]
-                        close_len = len(close_match.group(1))
-                        if (
-                            close_char == opener_char
-                            and close_len >= opener_len
-                            and not candidate.info
-                        ):
-                            closed = True
-                        else:
-                            collision = True
-                        break
+                    if not candidate.info.strip():
+                        close_match = _FENCE_MARKER_RE.match(candidate.markup)
+                        if close_match:
+                            close_char = close_match.group(1)[0]
+                            close_len = len(close_match.group(1))
+                            if close_char == opener_char and close_len >= opener_len:
+                                closed = True
+                            else:
+                                collision = True
+                            break
+                    scan += 1
+                    continue
                 scan += 1
             if collision:
                 collision_range = _as_line_range(token.map)

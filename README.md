@@ -86,6 +86,43 @@ mcp-server --transport stdio|sse|streamable-http --host 127.0.0.1 --port 8000
 
 `composio_similarlinks` and `youtube_transcript` are registered but hidden from MCP client tool listings by default (see `tools/profiles.py`); the CLI calls them directly.
 
+### Background tasks and progress
+
+`deep_research` and `crawl_web` support optional MCP background execution through
+FastMCP's `io.modelcontextprotocol/tasks` extension. `web_search` and
+`generate_sitemap` are also task-capable. Legacy clients run these tools
+synchronously; modern clients must import `fastmcp_tasks` and negotiate the
+modern protocol to receive a task handle.
+
+| Tool | Task mode | Progress |
+|---|---|---|
+| `deep_research` | Optional, 30-second poll interval | Indeterminate SSE action steps |
+| `crawl_web` | Optional, 30-second poll interval | Finalized traversal outcomes |
+| `web_search` | Optional, 5-second poll interval | Search stages |
+| `generate_sitemap` | Optional, 5-second poll interval | Mapping stages |
+
+Use `call_tool()` when the client only needs the final result, or
+`call_tool_task()` to keep a handle for status polling and cancellation:
+
+```python
+import fastmcp_tasks
+from fastmcp import Client
+from fastmcp_tasks import call_tool_task
+
+async with Client(server, mode="auto") as client:
+    task = await call_tool_task(
+        client,
+        "crawl_web",
+        {"request": {"urls": ["https://example.com"], "max_pages": 1}},
+    )
+    status = await task.status()
+    result = await task.result()
+```
+
+The task backend defaults to `memory://`; configure `FASTMCP_DOCKET_URL` with a
+durable Redis/Valkey backend when tasks must survive process restarts or be
+distributed across workers.
+
 The server also exposes read-only MCP resources (`status://`, `docs://workflow`, `settings://public`, `analytics://`, `cache://stats`) and prompts (`research_methodology`, `query_refinement`, `web_search_workflow`).
 
 ### Tool Profiles

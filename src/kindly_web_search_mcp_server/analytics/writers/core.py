@@ -226,6 +226,34 @@ def insert_llm_call_log(*, db_path: str | None = None, **kwargs: Any) -> None:
     _LLM_CALL_LOG_WRITER.dispatch_insert(db_path=db_path, **kwargs)
 
 
+def insert_adaptive_search_batches(
+    *,
+    adaptive_search_runs: list[dict[str, Any]] | None = None,
+    adaptive_search_rounds: list[dict[str, Any]] | None = None,
+    adaptive_search_proposals: list[dict[str, Any]] | None = None,
+    db_path: str | None = None,
+) -> None:
+    """Persist runtime adaptive-search facts without historical backfill."""
+    from .inserts import (
+        _ADAPTIVE_SEARCH_PROPOSALS_WRITER,
+        _ADAPTIVE_SEARCH_ROUNDS_WRITER,
+        _ADAPTIVE_SEARCH_RUNS_WRITER,
+    )
+
+    if adaptive_search_runs:
+        _ADAPTIVE_SEARCH_RUNS_WRITER.insert_batch(
+            [_serialize_json_fields(row, ("payload_json",)) for row in adaptive_search_runs],
+            db_path=db_path,
+        )
+    if adaptive_search_rounds:
+        _ADAPTIVE_SEARCH_ROUNDS_WRITER.insert_batch(adaptive_search_rounds, db_path=db_path)
+    if adaptive_search_proposals:
+        _ADAPTIVE_SEARCH_PROPOSALS_WRITER.insert_batch(
+            adaptive_search_proposals,
+            db_path=db_path,
+        )
+
+
 def insert_search_outcome_batches(
     *,
     search_runs: list[dict[str, Any]],
@@ -307,77 +335,6 @@ def insert_gemini_search_sources(rows: list[dict[str, Any]], *, db_path: str | N
 
     serialized = [_serialize_json_fields(r, ("source_json",)) for r in rows]
     _GEMINI_SEARCH_SOURCES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
-# ---------------------------------------------------------------------------
-# Code Search insert helpers
-# ---------------------------------------------------------------------------
-def insert_code_search_run(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _CODE_SEARCH_RUNS_WRITER
-
-    values = _serialize_json_fields(
-        kwargs,
-        ("planner_source_tokens", "planner_qualifiers", "provider_hit_counts", "payload_json"),
-    )
-    _CODE_SEARCH_RUNS_WRITER.dispatch_insert(db_path=db_path, **values)
-
-
-def insert_code_search_providers(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
-    from .inserts import _CODE_SEARCH_PROVIDERS_WRITER
-
-    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
-    _CODE_SEARCH_PROVIDERS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
-def insert_code_search_diagnostics(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _CODE_SEARCH_DIAGNOSTICS_WRITER
-
-    serialized = [_serialize_json_fields(r, ("details",)) for r in rows]
-    _CODE_SEARCH_DIAGNOSTICS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
-def insert_code_search_hits(rows: list[dict[str, Any]], *, db_path: str | None = None) -> None:
-    from .inserts import _CODE_SEARCH_HITS_WRITER
-
-    serialized = [
-        _serialize_json_fields(r, ("score_components", "source_metadata", "payload_json"))
-        for r in rows
-    ]
-    _CODE_SEARCH_HITS_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
-def insert_code_search_hit_variants(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _CODE_SEARCH_HIT_VARIANTS_WRITER
-
-    _CODE_SEARCH_HIT_VARIANTS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
-
-
-def insert_code_search_query_variants(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _CODE_SEARCH_QUERY_VARIANTS_WRITER
-
-    _CODE_SEARCH_QUERY_VARIANTS_WRITER.dispatch_insert_batch(rows, db_path=db_path)
-
-
-def insert_code_search_repositories(
-    rows: list[dict[str, Any]], *, db_path: str | None = None
-) -> None:
-    from .inserts import _CODE_SEARCH_REPOSITORIES_WRITER
-
-    serialized = [_serialize_json_fields(r, ("payload_json",)) for r in rows]
-    _CODE_SEARCH_REPOSITORIES_WRITER.dispatch_insert_batch(serialized, db_path=db_path)
-
-
-def insert_code_search_rerank(*, db_path: str | None = None, **kwargs: Any) -> None:
-    from .inserts import _CODE_SEARCH_RERANK_WRITER
-
-    values = _serialize_json_fields(kwargs, ("payload_json",))
-    _CODE_SEARCH_RERANK_WRITER.dispatch_insert(db_path=db_path, **values)
 
 
 # ---------------------------------------------------------------------------
@@ -498,76 +455,6 @@ def insert_gemini_search_batches(
         _GEMINI_SEARCH_SOURCES_WRITER.insert_batch(serialized_sources, db_path=db_path)
 
 
-def insert_code_search_batches(
-    *,
-    code_search_runs: list[dict[str, Any]] | None = None,
-    code_search_providers: list[dict[str, Any]] | None = None,
-    code_search_diagnostics: list[dict[str, Any]] | None = None,
-    code_search_hits: list[dict[str, Any]] | None = None,
-    code_search_hit_variants: list[dict[str, Any]] | None = None,
-    code_search_query_variants: list[dict[str, Any]] | None = None,
-    code_search_repositories: list[dict[str, Any]] | None = None,
-    code_search_rerank: list[dict[str, Any]] | None = None,
-    db_path: str | None = None,
-) -> None:
-    """Persist one code search outcome synchronously across child tables."""
-    from .inserts import (
-        _CODE_SEARCH_DIAGNOSTICS_WRITER,
-        _CODE_SEARCH_HIT_VARIANTS_WRITER,
-        _CODE_SEARCH_HITS_WRITER,
-        _CODE_SEARCH_PROVIDERS_WRITER,
-        _CODE_SEARCH_QUERY_VARIANTS_WRITER,
-        _CODE_SEARCH_REPOSITORIES_WRITER,
-        _CODE_SEARCH_RERANK_WRITER,
-        _CODE_SEARCH_RUNS_WRITER,
-    )
-
-    if code_search_runs:
-        serialized_runs = [
-            _serialize_json_fields(
-                r,
-                (
-                    "planner_source_tokens",
-                    "planner_qualifiers",
-                    "provider_hit_counts",
-                    "payload_json",
-                ),
-            )
-            for r in code_search_runs
-        ]
-        _CODE_SEARCH_RUNS_WRITER.insert_batch(serialized_runs, db_path=db_path)
-    if code_search_providers:
-        serialized_providers = [
-            _serialize_json_fields(r, ("payload_json",)) for r in code_search_providers
-        ]
-        _CODE_SEARCH_PROVIDERS_WRITER.insert_batch(serialized_providers, db_path=db_path)
-    if code_search_diagnostics:
-        serialized_diags = [
-            _serialize_json_fields(r, ("details",)) for r in code_search_diagnostics
-        ]
-        _CODE_SEARCH_DIAGNOSTICS_WRITER.insert_batch(serialized_diags, db_path=db_path)
-    if code_search_hits:
-        serialized_hits = [
-            _serialize_json_fields(r, ("score_components", "source_metadata", "payload_json"))
-            for r in code_search_hits
-        ]
-        _CODE_SEARCH_HITS_WRITER.insert_batch(serialized_hits, db_path=db_path)
-    if code_search_hit_variants:
-        _CODE_SEARCH_HIT_VARIANTS_WRITER.insert_batch(code_search_hit_variants, db_path=db_path)
-    if code_search_query_variants:
-        _CODE_SEARCH_QUERY_VARIANTS_WRITER.insert_batch(code_search_query_variants, db_path=db_path)
-    if code_search_repositories:
-        serialized_repos = [
-            _serialize_json_fields(r, ("payload_json",)) for r in code_search_repositories
-        ]
-        _CODE_SEARCH_REPOSITORIES_WRITER.insert_batch(serialized_repos, db_path=db_path)
-    if code_search_rerank:
-        serialized_rerank = [
-            _serialize_json_fields(r, ("payload_json",)) for r in code_search_rerank
-        ]
-        _CODE_SEARCH_RERANK_WRITER.insert_batch(serialized_rerank, db_path=db_path)
-
-
 def insert_content_operation_batches(
     *,
     content_operations: list[dict[str, Any]] | None = None,
@@ -672,6 +559,18 @@ def insert_funnel_uplift_batches(
             [_with_recorded_at(row) for row in tool_output_items],
             db_path=db_path,
         )
+
+    # FTS indexes do not auto-update on INSERT.  Refresh after all
+    # funnel-uplift writes so BM25 queries see the new rows.
+    if provider_results or query_variants:
+        from ..fts_sql import refresh_fts_indexes
+
+        with _LOCK:
+            conn = duckdb.connect(str(_db_path(db_path)))
+            try:
+                refresh_fts_indexes(conn)
+            finally:
+                conn.close()
 
 
 # ---------------------------------------------------------------------------

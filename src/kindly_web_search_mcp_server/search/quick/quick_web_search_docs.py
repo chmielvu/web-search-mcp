@@ -2,8 +2,7 @@
 
 Ported from ``prototypes/quick_web_search_v2.py`` and wired to
 :mod:`~kindly_web_search_mcp_server.settings` instead of raw environment
-reads. This module replaces ``tools/code_search/docs.py``; the remaining
-code-search modes (code, discovery, issues, huggingface) are untouched.
+reads.
 """
 
 from __future__ import annotations

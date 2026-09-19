@@ -365,7 +365,7 @@ async def deep_research(
         language_code=language_code,
     )
 
-    await progress.set_total(100)
+    # SSE action counts are open-ended, so report indeterminate step progress.
     await progress.set_message(f"Starting Deep Research [{preset_key.upper()}]...")
     if not ctx.is_background_task:
         await ctx.info(
@@ -406,15 +406,18 @@ async def deep_research(
                 progress=progress,
             )
     except ToolError:
+        await progress.set_message("Deep Research failed")
         _record_tool_failure("deep_research")
         raise
     except httpx.TimeoutException as exc:
+        await progress.set_message("Deep Research timed out")
         _record_tool_failure("deep_research")
         raise ToolError(
             f"Deep Research timed out after {settings.deep_research_timeout_seconds:g}s. "
             "Try depth='quick' or check the endpoint."
         ) from exc
     except httpx.HTTPError as exc:
+        await progress.set_message("Deep Research connection failed")
         _record_tool_failure("deep_research")
         raise ToolError(
             f"Deep Research connection error: {exc}. "

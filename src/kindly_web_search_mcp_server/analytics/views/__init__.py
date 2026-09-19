@@ -1,5 +1,7 @@
 """Analytics view bootstrap — dashboard, funnel-uplift, and fetch-observability views.
 
+- :mod:`adaptive_sql` — normalized adaptive web-search run, round,
+  follow-up, and output views.
 - :mod:`dashboard_sql` — 11 human-readable dashboard views over the canonical
   search/runs/candidates/judges tables.
 - :mod:`embedding_sql` — query-to-candidate vector similarity view.
@@ -26,6 +28,7 @@ from ..writers import (
     ensure_store_schema,
     insert_table_freshness,
 )
+from .adaptive_sql import _build_adaptive_view_sql
 from .dashboard_sql import _build_dashboard_view_sql
 from .fetch_observability_sql import _build_fetch_observability_view_sql
 from .funnel_sql import _build_funnel_uplift_view_sql
@@ -54,6 +57,9 @@ def ensure_views(*, db_path: str | None = None) -> None:
 
             # Funnel uplift views
             for statement in _build_funnel_uplift_view_sql("main"):
+                connection.execute(statement)
+            # Adaptive web-search views depend on funnel-uplift views.
+            for statement in _build_adaptive_view_sql("main"):
                 connection.execute(statement)
             # Fetch observability views
             for statement in _build_fetch_observability_view_sql("main"):
@@ -153,6 +159,7 @@ def build_analytics_view_sql(schema: str) -> list[str]:
         *_build_dashboard_view_sql(schema),
         _build_embedding_similarity_view_sql(schema),
         *_build_funnel_uplift_view_sql(schema),
+        *_build_adaptive_view_sql(schema),
         *_build_fetch_observability_view_sql(schema),
     ]
 

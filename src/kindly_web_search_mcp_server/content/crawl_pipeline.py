@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import fnmatch
 import logging
-from collections.abc import Iterable, Mapping
+import time
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from urllib.parse import urljoin, urlsplit
+
+import httpx
 
 from kindly_web_search_mcp_server.models import CrawlWebRequest
 from kindly_web_search_mcp_server.utils.url_canonicalize import (
@@ -15,15 +18,27 @@ from kindly_web_search_mcp_server.utils.url_canonicalize import (
     extract_domain_from_url,
 )
 
+from ..settings import settings
 from .constructor import ContentArtifact, finalize_artifact
 from .fetch_pipeline import (
     evaluate_candidate,
     fetch_content_artifact,
+    fetch_deadline_seconds,
     raw_document_from_crawl_item,
     select_candidate,
 )
 from .http_utils import SafeFetchError, validate_public_url
-from .models import Candidate, ContentError, Diagnostic, FetchOptions
+from .models import (
+    AcquisitionError,
+    Candidate,
+    ContentError,
+    Diagnostic,
+    FetchContext,
+    FetchOptions,
+    ParsedURL,
+    ResolverSpec,
+    ResolverTarget,
+)
 from .remote_clients import (
     Crawl4AIClientError,
     Crawl4AIConfigError,
@@ -32,6 +47,7 @@ from .remote_clients import (
     extract_crawl_markdown_candidates,
     get_crawl4ai_client,
 )
+from .resolver_registry import REGISTRY
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,8 +62,28 @@ class CrawlArtifact:
     depth: int
 
 
-async def crawl_content_artifacts(request: CrawlWebRequest) -> list[CrawlArtifact]:
-    """Traverse validated pages breadth-first and finalize every page artifact."""
+async def _notify_progress(
+    callback: Callable[[int, str], Awaitable[None]] | None,
+    completed: int,
+    message: str,
+) -> None:
+    """Notify the caller after a crawl artifact is finalized."""
+    if callback is not None:
+        await callback(completed, message)
+
+
+async def crawl_content_artifacts(
+    request: CrawlWebRequest,
+    *,
+    on_progress: Callable[[int, str], Awaitable[None]] | None = None,
+) -> list[CrawlArtifact]:
+    """Traverse validated pages breadth-first and finalize every page artifact.
+
+    Args:
+        request: Validated crawl bounds and browser options.
+        on_progress: Optional asynchronous callback invoked after each finalized
+            artifact with the completed count and a human-readable message.
+    """
     client = get_crawl4ai_client()
     if client is None:
         raise Crawl4AIConfigError(
@@ -67,20 +103,37 @@ async def crawl_content_artifacts(request: CrawlWebRequest) -> list[CrawlArtifac
     for url, error in seed_failures:
         artifact = await _finalize_failure(url, error, options=options)
         outcomes.append(CrawlArtifact(artifact=artifact, depth=0))
+        await _notify_progress(
+            on_progress,
+            len(outcomes),
+            f"Finalized page {len(outcomes)} of at most {request.max_pages}.",
+        )
 
     while frontier and len(outcomes) < request.max_pages:
         remaining = request.max_pages - len(outcomes)
         batch = frontier[:remaining]
         del frontier[:remaining]
         batch_urls = [url for url, _ in batch]
+        preflight = await _preflight_batch(batch_urls, request=request, options=options)
+        crawl_pairs = [
+            (url, depth)
+            for (url, depth), candidate in zip(batch, preflight, strict=True)
+            if candidate is None
+        ]
+        crawl_urls = [url for url, _ in crawl_pairs]
+        matched_items: list[dict[str, object]] = []
         try:
-            items = await client.crawl(
-                batch_urls,
-                browser_params=browser_params,
-                crawler_params=crawler_params,
-            )
+            if crawl_urls:
+                items = await client.crawl(
+                    crawl_urls,
+                    browser_params=browser_params,
+                    crawler_params=crawler_params,
+                )
+                matched_items = _match_items(crawl_urls, items)
+            else:
+                matched_items = []
         except Crawl4AIClientError as exc:
-            for url, depth in batch:
+            for url, depth in crawl_pairs:
                 error = ContentError(
                     code="crawl4ai_batch_failed",
                     message=str(exc),
@@ -90,20 +143,52 @@ async def crawl_content_artifacts(request: CrawlWebRequest) -> list[CrawlArtifac
                 artifact = await _finalize_failure(url, error, options=options)
                 artifact = await _fetch_fallback_artifact(url, artifact, options=options)
                 outcomes.append(CrawlArtifact(artifact=artifact, depth=depth))
+                await _notify_progress(
+                    on_progress,
+                    len(outcomes),
+                    f"Finalized page {len(outcomes)} of at most {request.max_pages}.",
+                )
+            preflight_by_url = {
+                url: candidate
+                for url, candidate in zip(batch_urls, preflight, strict=True)
+                if candidate is not None
+            }
+            for url, depth in batch:
+                candidate = preflight_by_url.get(url)
+                if candidate is None:
+                    continue
+                links = await _normalise_candidate_links(candidate, base_url=url)
+                artifact = await finalize_artifact(url, candidate, options=options)
+                outcomes.append(CrawlArtifact(artifact=artifact, depth=depth))
+                await _notify_progress(
+                    on_progress,
+                    len(outcomes),
+                    f"Finalized page {len(outcomes)} of at most {request.max_pages}.",
+                )
             break
 
-        matched_items = _match_items(batch_urls, items)
+        crawl_item_by_url = dict(zip(crawl_urls, matched_items, strict=True))
         for index, (url, depth) in enumerate(batch):
-            item = matched_items[index]
-            links = await _normalise_item_links(item, base_url=url)
-            artifact = await _finalize_page(
-                url,
-                item,
-                links=links,
-                options=options,
-            )
-            artifact = await _fetch_fallback_artifact(url, artifact, options=options)
+            candidate = preflight[index]
+            if candidate is not None:
+                links = await _normalise_candidate_links(candidate, base_url=url)
+                artifact = await finalize_artifact(url, candidate, options=options)
+            else:
+                item = crawl_item_by_url[url]
+                links = await _normalise_item_links(item, base_url=url)
+                artifact = await _finalize_page(
+                    url,
+                    item,
+                    links=links,
+                    options=options,
+                )
+                artifact = await _fetch_fallback_artifact(url, artifact, options=options)
             outcomes.append(CrawlArtifact(artifact=artifact, depth=depth))
+            await _notify_progress(
+                on_progress,
+                len(outcomes),
+                f"Finalized page {len(outcomes)} of at most {request.max_pages}.",
+            )
             if len(outcomes) >= request.max_pages or depth >= request.max_depth:
                 continue
             for link in links:
@@ -318,6 +403,169 @@ def _iter_link_value(value: object) -> Iterable[tuple[str, str]]:
     if isinstance(value, (list, tuple)):
         for nested in value:
             yield from _iter_link_value(nested)
+
+
+async def _normalise_candidate_links(
+    candidate: Candidate,
+    *,
+    base_url: str,
+) -> tuple[dict[str, object], ...]:
+    """Normalize links carried by a resolver preflight candidate."""
+    return await _normalise_item_links({"links": candidate.processed.links}, base_url=base_url)
+
+
+_PREFLIGHT_SKIP_SPECS = frozenset({"wayback"})
+
+
+def _preflight_enabled(request: CrawlWebRequest) -> bool:
+    """Return True when no explicit browser control requires Crawl4AI rendering."""
+    targets = request.targets
+    interaction = request.interaction
+    if targets is not None and targets.css_selector:
+        return False
+    if interaction is None:
+        return True
+    return not (
+        interaction.wait_for
+        or interaction.javascript_before_wait
+        or interaction.javascript
+        or interaction.scan_full_page
+    )
+
+
+def _preflight_match(url: str) -> tuple[ResolverSpec, ResolverTarget] | None:
+    """Return the first explicit resolver claim for a URL, without network I/O."""
+    try:
+        parsed = ParsedURL.parse(url)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    for spec in REGISTRY:
+        if spec.name == "md_twin" or spec.name in _PREFLIGHT_SKIP_SPECS:
+            continue
+        path = str(parsed.parts.path or "").lower()
+        is_llms_doc = path.endswith(("/llms.txt", "/llms-full.txt"))
+        if spec.name == "llms_txt" and not is_llms_doc:
+            continue
+        try:
+            target = spec.match(parsed)
+        except Exception:
+            continue
+        if target is not None:
+            return (spec, target)
+    return None
+
+
+def _preflight_twin_match(url: str) -> tuple[ResolverSpec, ResolverTarget] | None:
+    """Return the md_twin claim for a page-shaped URL, without network I/O."""
+    try:
+        parsed = ParsedURL.parse(url)
+    except (TypeError, ValueError, AttributeError):
+        return None
+    for spec in REGISTRY:
+        if spec.name != "md_twin":
+            continue
+        try:
+            target = spec.match(parsed)
+        except Exception:
+            return None
+        if target is not None:
+            return (spec, target)
+        return None
+    return None
+
+
+def _preflight_candidate_usable(candidate: Candidate) -> bool:
+    """Return True when a resolver candidate may bypass Crawl4AI acquisition."""
+    if candidate.failure is not None or not candidate.processed.quality.accepted:
+        return False
+    if candidate.document.scope != "full" or candidate.document.complete is not True:
+        return False
+    status = candidate.document.http_status
+    return status is None or status < 400
+
+
+async def _preflight_one(
+    url: str,
+    match: tuple[ResolverSpec, ResolverTarget],
+    ctx: FetchContext,
+    options: FetchOptions,
+) -> Candidate | None:
+    """Acquire and evaluate one resolver match; misses return None."""
+    spec, target = match
+    try:
+        timeout = ctx.timeout(maximum=settings.web_fetch_timeout_seconds)
+    except TimeoutError:
+        return None
+    try:
+        async with asyncio.timeout(timeout):
+            document = await spec.fetch(target, ctx)
+    except (AcquisitionError, TimeoutError, httpx.HTTPError, OSError) as exc:
+        LOGGER.debug("Crawl resolver preflight %s failed for %s: %s", spec.name, url, exc)
+        return None
+    try:
+        candidate = await evaluate_candidate(document, attempt_index=0, options=options)
+    except (ValueError, TypeError, RuntimeError) as exc:
+        LOGGER.debug("Crawl resolver preflight evaluation failed for %s: %s", url, exc)
+        return None
+    if _preflight_candidate_usable(candidate):
+        LOGGER.info("Crawl resolver preflight acquired %s via %s", url, spec.name)
+        return candidate
+    return None
+
+
+async def _preflight_batch(
+    urls: Sequence[str],
+    *,
+    request: CrawlWebRequest,
+    options: FetchOptions,
+) -> list[Candidate | None]:
+    """Resolve explicit URL shapes before Crawl4AI; misses return None per URL.
+
+    Explicit resolver claims run first. URLs with no explicit claim get one
+    universal `.md` twin probe as the last preflight step, so documentation
+    sites publishing Markdown twins bypass Crawl4AI without changing the
+    fallback path for misses.
+    """
+    if not urls or not _preflight_enabled(request):
+        return [None for _ in urls]
+    matches = [_preflight_match(url) for url in urls]
+    twins = [
+        _preflight_twin_match(url) if match is None else None
+        for url, match in zip(urls, matches, strict=True)
+    ]
+    if not any(match is not None for match in (*matches, *twins)):
+        return [None for _ in urls]
+    deadline = time.monotonic() + fetch_deadline_seconds()
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(settings.web_fetch_timeout_seconds),
+            follow_redirects=True,
+        ) as http_client:
+            ctx = FetchContext(
+                http_client=http_client,
+                deadline=deadline,
+                max_response_bytes=options.max_response_bytes,
+                processing_mode=options.processing_mode,
+            )
+            semaphore = asyncio.Semaphore(max(1, settings.web_fetch_wave_size))
+
+            async def _guarded(index: int) -> Candidate | None:
+                match = matches[index]
+                if match is not None:
+                    async with semaphore:
+                        candidate = await _preflight_one(urls[index], match, ctx, options)
+                    if candidate is not None:
+                        return candidate
+                twin = twins[index]
+                if twin is None:
+                    return None
+                async with semaphore:
+                    return await _preflight_one(urls[index], twin, ctx, options)
+
+            return list(await asyncio.gather(*(_guarded(index) for index in range(len(urls)))))
+    except (TimeoutError, httpx.HTTPError, OSError) as exc:
+        LOGGER.debug("Crawl resolver preflight batch unavailable: %s", exc)
+        return [None for _ in urls]
 
 
 def _match_items(

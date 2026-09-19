@@ -80,6 +80,7 @@ uv run pytest tests/test_tool_profiles.py
 
 ### Recent Changes (2026-09-18)
 - `deep_research` lives in this package and registers through `TaskConfig(mode="optional")` plus FastMCP 4 `Progress`. Legacy-era clients still run it synchronously.
+- `crawl_web` is registered through `TaskConfig(mode="optional")` with a 30-second poll interval, injects FastMCP `Progress`, and reports each finalized traversal outcome; legacy clients remain synchronous.
 - `fetch` public results omit rumdl lint, empty optionals, complete-body
   `window`, and envelope telemetry (`total_chars_returned`, `wave_size`,
   `waves_completed`, `duration_ms`). Recovery diagnostics stay:

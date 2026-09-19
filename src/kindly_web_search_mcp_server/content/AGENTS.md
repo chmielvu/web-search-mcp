@@ -14,6 +14,7 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
   `remote_clients.py`) return `RawDocument` (or raise `AcquisitionError`);
   no sanitizing, classifying, scoring, or artifact construction inside.
 - **Bounded crawl** (`crawl_pipeline.py`): validates public seeds and discovered links (per-seed `SafeFetchError` → typed failure artifact, other seeds continue), traverses breadth-first within typed domain/glob/page/depth limits, canonicalizes fetch targets with `fold_slug=False` (dedup folding is identity-only, never a request URL), and sends only typed browser/crawler parameters to Crawl4AI. Pages Crawl4AI cannot acquire fall back once to the single-URL ladder (`fetch_content_artifact`) with Crawl4AI skipped.
+  Before each Crawl4AI batch, resolver preflight pure-matches explicit URL shapes against the ordered registry and evaluates at most one claim; only an accepted `scope="full"` + `complete=True` candidate bypasses Crawl4AI. URLs with no explicit claim get one universal `.md` twin probe as the last preflight step (root-form `llms_txt`/`wayback` excluded; explicit browser controls disable preflight).
 - **Shared evaluation** (`markdown_processor.py`): source-range cleanup on
   the original text, rumdl stdin diagnostics (`MD056,MD075,MD070,MD031,MD058`,
   never `--fix`), measured `QualityReport`, index-only mdformat+GFM with a
@@ -119,6 +120,7 @@ Candidate-only acquisition with one shared evaluator and one finalizer:
   ``fetch_deadline_seconds()`` (240s when Unlocker is configured). FastMCP
   ``fetch`` / ``crawl_web`` catalog timeouts are 240s so the wrapper cannot
   kill Unlocker.
+- `crawl_web` is an optional FastMCP background task. Its tool-layer `Progress` reporter is fed by an async callback from `crawl_content_artifacts`, so task and synchronous clients receive the same per-artifact progress updates.
 - Jina Reader circuit breaker: opens after 3 failures in 60s. Single faithful
   profile: `Accept: application/json`, `X-Respond-With: frontmatter`,
   `X-Retain-Links: all`, `X-Retain-Images: all`. Caching stays on by default

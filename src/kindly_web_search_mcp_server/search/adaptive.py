@@ -89,28 +89,76 @@ def _query_key(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+def _normalize_followup_proposals(
+    proposals: list[TargetedQuery],
+    executed_queries: tuple[str, ...],
+) -> tuple[tuple[TargetedQuery, ...], list[dict[str, Any]]]:
+    """Normalize proposals and retain the exact dispatch decisions."""
+    seen: set[str] = {_query_key(text) for text in executed_queries if text}
+    survivors: list[TargetedQuery] = []
+    rows: list[dict[str, Any]] = []
+    for proposal_index, proposal in enumerate(proposals):
+        normalized = normalize_query(proposal.query)
+        accepted = bool(normalized)
+        if accepted:
+            key = _query_key(normalized)
+            if key in seen:
+                accepted = False
+            else:
+                seen.add(key)
+                survivors.append(TargetedQuery(query=normalized, why=proposal.why))
+        rows.append(
+            {
+                "proposal_index": proposal_index,
+                "query": proposal.query,
+                "why": proposal.why,
+                "normalized_query": normalized or None,
+                "accepted": accepted,
+            }
+        )
+    return tuple(survivors), rows
+
+
 def normalize_followup_queries(
     proposals: list[TargetedQuery],
     executed_queries: tuple[str, ...],
 ) -> tuple[TargetedQuery, ...]:
-    """Normalize proposals and drop blanks/duplicates against prior executed texts.
+    """Normalize proposals and drop blanks/duplicates against prior executed texts."""
+    return _normalize_followup_proposals(proposals, executed_queries)[0]
 
-    Deduplication keys compare executed branch texts, actual provider request
-    texts, and the batch itself, so a proposal that merely repeats an earlier
-    search cannot be dispatched again.
-    """
-    seen: set[str] = {_query_key(text) for text in executed_queries if text}
-    survivors: list[TargetedQuery] = []
-    for proposal in proposals:
-        normalized = normalize_query(proposal.query)
-        if not normalized:
-            continue
-        key = _query_key(normalized)
-        if key in seen:
-            continue
-        seen.add(key)
-        survivors.append(TargetedQuery(query=normalized, why=proposal.why))
-    return tuple(survivors)
+
+def _normalize_and_record_followup_queries(
+    run: SearchRun,
+    *,
+    decision_round: int,
+    proposals: list[TargetedQuery],
+    executed_queries: tuple[str, ...],
+) -> tuple[TargetedQuery, ...]:
+    """Record proposal-level dispatch facts while preserving normalization semantics."""
+    survivors, rows = _normalize_followup_proposals(proposals, executed_queries)
+    branch_start = len(run.outcomes)
+    accepted_offset = 0
+    for row in rows:
+        accepted = bool(row["accepted"])
+        proposal_index = int(row["proposal_index"])
+        branch_index = branch_start + accepted_offset if accepted else None
+        row.update(
+            {
+                "proposal_id": _cri(
+                    f"{run.run_key}|adaptive-proposal|{decision_round}|{proposal_index}"
+                ),
+                "run_key": run.run_key,
+                "decision_round": decision_round,
+                "branch_index": branch_index,
+                "branch_id": (
+                    _cri(f"{run.run_key}|{branch_index}") if branch_index is not None else None
+                ),
+            }
+        )
+        if accepted:
+            accepted_offset += 1
+    run.diagnostics.adaptive_search_proposal_rows.extend(rows)
+    return survivors
 
 
 def _build_targeted_branches(
@@ -598,7 +646,12 @@ async def run_adaptive_search(
             stop_reason="decision_failed",
             adaptive_warnings=adaptive_warnings,
         )
-    proposals = normalize_followup_queries(batch.queries, tuple(executed_texts))
+    proposals = _normalize_and_record_followup_queries(
+        run,
+        decision_round=1,
+        proposals=batch.queries,
+        executed_queries=tuple(executed_texts),
+    )
     if not proposals:
         dc.adaptive_rounds.append(replace(round_1, decision="finish", reason="no_new_queries"))
         return await _finalize(
@@ -676,7 +729,12 @@ async def run_adaptive_search(
             stop_reason="sufficient_evidence",
             adaptive_warnings=adaptive_warnings,
         )
-    proposals_3 = normalize_followup_queries(decision.queries, tuple(executed_texts))
+    proposals_3 = _normalize_and_record_followup_queries(
+        run,
+        decision_round=2,
+        proposals=decision.queries,
+        executed_queries=tuple(executed_texts),
+    )
     if not proposals_3:
         dc.adaptive_rounds.append(replace(round_2, decision="finish", reason="no_new_queries"))
         return await _finalize(

@@ -136,6 +136,7 @@ class DiagnosticsCollector:
     query_integrities: list[dict[str, Any]] = field(default_factory=list)
     overflow_ranked: list[tuple[str, SearchHit]] = field(default_factory=list)
     adaptive_rounds: list[AdaptiveRound] = field(default_factory=list)
+    adaptive_search_proposal_rows: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)

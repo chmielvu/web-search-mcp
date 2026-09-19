@@ -120,18 +120,6 @@ def _is_gemini_search_question(question: str) -> bool:
     return "gemini" in question or "grounding" in question
 
 
-def _is_code_search_question(question: str) -> bool:
-    return (
-        "code search" in question
-        or "code_search" in question
-        or "grepapp" in question
-        or "sourcegraph" in question
-        or "github code" in question
-        or "diagnostic" in question
-        or "repository discovery" in question
-    )
-
-
 def _is_content_question(question: str) -> bool:
     return (
         "summary" in question
@@ -164,24 +152,6 @@ def build_analytics_query_plan(
     limit = max(1, min(int(max_rows), 500))
     prefix = _normalize_view_prefix(view_prefix)
     q = question.lower().strip()
-
-    if _is_code_search_question(q):
-        sql = f"""
-            SELECT
-                provider,
-                outcome,
-                COUNT(*) AS total_responses,
-                SUM(hit_count) AS total_hits_returned,
-                ROUND(AVG(hit_count), 2) AS avg_hits_per_response,
-                SUM(request_count) AS total_requests,
-                ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms,
-                COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS error_count
-            FROM {prefix}code_search_providers
-            GROUP BY provider, outcome
-            ORDER BY total_responses DESC, provider
-            LIMIT {limit}
-        """
-        return AnalyticsQueryPlan(sql=sql, view_prefix=prefix, rationale="code_search")
 
     if _is_quick_search_question(q):
         sql = f"""

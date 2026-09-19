@@ -34,15 +34,6 @@ _QWSC_TABLE_NAME = "quick_web_search_citations"
 _GSR_TABLE_NAME = "gemini_search_runs"
 _GSS_TABLE_NAME = "gemini_search_sources"
 
-# Code search tables
-_CSR_TABLE_NAME = "code_search_runs"
-_CSP_TABLE_NAME = "code_search_providers"
-_CSD_TABLE_NAME = "code_search_diagnostics"
-_CSH_TABLE_NAME = "code_search_hits"
-_CSHV_TABLE_NAME = "code_search_hit_variants"
-_CSQV_TABLE_NAME = "code_search_query_variants"
-_CSREPO_TABLE_NAME = "code_search_repositories"
-_CSRERANK_TABLE_NAME = "code_search_rerank"
 
 # Content operations and summary tables
 _CO_TABLE_NAME = "content_operations"
@@ -66,12 +57,20 @@ _QT_TABLE_NAME = "query_transforms"
 _CSE_TABLE_NAME = "candidate_stage_events"
 _TOI_TABLE_NAME = "tool_output_items"
 
+# Adaptive web-search tables
+_ADAPTIVE_SEARCH_RUNS_TABLE_NAME = "adaptive_search_runs"
+_ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME = "adaptive_search_rounds"
+_ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME = "adaptive_search_proposals"
+
 # Result labels foundation
 _RL_TABLE_NAME = "result_labels"
 _RESULT_LABELS_TABLE_NAME = "result_labels"
 
 
 __all__ = [
+    "_ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME",
+    "_ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME",
+    "_ADAPTIVE_SEARCH_RUNS_TABLE_NAME",
     "_ATF_TABLE_NAME",
     "_CBH_TABLE_NAME",
     "_CE_TABLE_NAME",
@@ -80,16 +79,8 @@ __all__ = [
     "_CF_TABLE_NAME",
     "_CO_TABLE_NAME",
     "_CSA_TABLE_NAME",
-    "_CSD_TABLE_NAME",
     "_CSE_TABLE_NAME",
-    "_CSHV_TABLE_NAME",
-    "_CSH_TABLE_NAME",
-    "_CSP_TABLE_NAME",
-    "_CSQV_TABLE_NAME",
-    "_CSREPO_TABLE_NAME",
-    "_CSRERANK_TABLE_NAME",
     "_CSRUG_TABLE_NAME",
-    "_CSR_TABLE_NAME",
     "_CSUM_TABLE_NAME",
     "_FR_TABLE_NAME",
     "_GSR_TABLE_NAME",

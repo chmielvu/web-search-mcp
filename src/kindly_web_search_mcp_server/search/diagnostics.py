@@ -93,7 +93,7 @@ class DiagnosticsMergeCounts(_DiagBase):
 
 
 class DiagnosticsEmbeddings(_DiagBase):
-    model_id: str = "intfloat/multilingual-e5-large-instruct"
+    model_id: str = "snowflake/snowflake-arctic-embed-s"
     query_embedding_dim: int | None = None
     candidate_count: int = 0
 

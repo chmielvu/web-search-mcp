@@ -116,7 +116,7 @@ def judge_search_run(
         # reranker scores (see _build_run_digest + SELECT whitelist).
         digest = _build_run_digest(connection, run_key)
         overview_ctx = _ctx(("run_digest", digest))
-        raw, duration = _run_prompt(
+        raw, duration, metrics = _run_prompt(
             connection,
             model_name=_JUDGE_MODEL,
             prompt_name="judge_run_overview",
@@ -135,6 +135,7 @@ def judge_search_run(
             context_columns=overview_ctx,
             build_verdict=lambda p: str(p.get("verdict") or ""),
             build_reasoning=_format_overview_reasoning,
+            flock_metrics=metrics,
         )
         judgments_written += 1
 
@@ -151,7 +152,7 @@ def judge_search_run(
             ),
             ("rewrites", "\n".join(rewrites) if rewrites else ""),
         )
-        raw, duration = _run_prompt(
+        raw, duration, metrics = _run_prompt(
             connection,
             model_name=_JUDGE_MODEL,
             prompt_name="judge_intent_coherence",
@@ -170,6 +171,7 @@ def judge_search_run(
             context_columns=intent_ctx,
             build_verdict=lambda p: str(p.get("verdict") or ""),
             build_reasoning=lambda p: str(p.get("reasoning") or ""),
+            flock_metrics=metrics,
         )
         judgments_written += 1
 
@@ -185,7 +187,7 @@ def judge_search_run(
                 ("research_goal", research_goal or ""),
                 ("variants", "\n".join(variants_lines)),
             )
-            raw, duration = _run_prompt(
+            raw, duration, metrics = _run_prompt(
                 connection,
                 model_name=_JUDGE_MODEL,
                 prompt_name="judge_rewrite_coverage",
@@ -209,6 +211,7 @@ def judge_search_run(
                 context_columns=coverage_ctx,
                 build_verdict=_coverage_verdict,
                 build_reasoning=lambda p: str(p.get("reasoning") or ""),
+                flock_metrics=metrics,
             )
             judgments_written += 1
         # its own short-lived DuckDB connection (connections are not shared
@@ -339,7 +342,7 @@ def judge_search_run(
                 ("providers", providers_str),
                 ("branch_errors", "\n".join(branch_lines)),
             )
-            raw, duration = _run_prompt(
+            raw, duration, metrics = _run_prompt(
                 connection,
                 model_name=_JUDGE_MODEL,
                 prompt_name="judge_failure_cause",
@@ -362,6 +365,7 @@ def judge_search_run(
                 context_columns=failure_ctx,
                 build_verdict=_failure_verdict,
                 build_reasoning=lambda p: str(p.get("reasoning") or ""),
+                flock_metrics=metrics,
             )
             judgments_written += 1
 

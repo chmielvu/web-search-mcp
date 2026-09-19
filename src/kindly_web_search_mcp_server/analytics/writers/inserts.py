@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from .core import TableWriter
 from .table_names import (
+    _ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME,
+    _ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME,
+    _ADAPTIVE_SEARCH_RUNS_TABLE_NAME,
     _ATF_TABLE_NAME,
     _CBH_TABLE_NAME,
     _CE_TABLE_NAME,
@@ -12,15 +15,7 @@ from .table_names import (
     _CFI_TABLE_NAME,
     _CO_TABLE_NAME,
     _CSA_TABLE_NAME,
-    _CSD_TABLE_NAME,
     _CSE_TABLE_NAME,
-    _CSH_TABLE_NAME,
-    _CSHV_TABLE_NAME,
-    _CSP_TABLE_NAME,
-    _CSQV_TABLE_NAME,
-    _CSR_TABLE_NAME,
-    _CSREPO_TABLE_NAME,
-    _CSRERANK_TABLE_NAME,
     _CSRUG_TABLE_NAME,
     _CSUM_TABLE_NAME,
     _FR_TABLE_NAME,
@@ -85,6 +80,43 @@ _SEARCH_RUN_COLUMNS = [
     "rewrite_error",
     "rewritten_branch_queries",
     "payload_json",
+]
+
+_ADAPTIVE_SEARCH_RUN_COLUMNS = [
+    "run_key",
+    "rounds",
+    "stop_reason",
+    "prompt_version",
+    "synthesis",
+    "payload_json",
+]
+
+_ADAPTIVE_SEARCH_ROUND_COLUMNS = [
+    "adaptive_round_id",
+    "run_key",
+    "round_index",
+    "branch_start",
+    "branch_count",
+    "queries",
+    "candidate_count",
+    "new_url_count",
+    "domain_count",
+    "provider_failure_count",
+    "decision",
+    "reason",
+]
+
+_ADAPTIVE_SEARCH_PROPOSAL_COLUMNS = [
+    "proposal_id",
+    "run_key",
+    "decision_round",
+    "proposal_index",
+    "query",
+    "why",
+    "normalized_query",
+    "accepted",
+    "branch_index",
+    "branch_id",
 ]
 
 _SEARCH_BRANCH_COLUMNS = [
@@ -424,178 +456,6 @@ _GEMINI_SEARCH_SOURCE_COLUMNS = [
     "source_json",
 ]
 
-# ---------------------------------------------------------------------------
-# Code Search column lists
-# ---------------------------------------------------------------------------
-_CODE_SEARCH_RUN_COLUMNS = [
-    "terminal_event_id",
-    "tool_call_id",
-    "trace_id",
-    "session_id",
-    "query",
-    "research_goal",
-    "language",
-    "path",
-    "filename",
-    "extension",
-    "regexp_requested",
-    "deep_requested",
-    "max_results_requested",
-    "repo_name",
-    "library_name",
-    "topic",
-    "repository_filters",
-    "planner_original_query",
-    "planner_search_text",
-    "planner_api_query",
-    "planner_mode",
-    "planner_structural_kind",
-    "planner_exa_semantic_query",
-    "planner_regex_source",
-    "planner_anchor_terms",
-    "planner_concept_terms",
-    "planner_source_tokens",
-    "planner_qualifiers",
-    "planner_warnings",
-    "planner_backend_channels",
-    "planner_variants",
-    "planner_variant_kinds",
-    "provider_response_count",
-    "provider_hit_counts",
-    "request_count",
-    "hydration_count",
-    "rerank_count",
-    "returned_count",
-    "repository_count",
-    "diagnostic_count",
-    "truncated",
-    "dropped_count",
-    "estimated_output_tokens",
-    "duration_ms",
-    "outcome",
-    "error_type",
-    "error_message",
-    "payload_json",
-]
-
-_CODE_SEARCH_PROVIDER_COLUMNS = [
-    "terminal_event_id",
-    "response_index",
-    "provider",
-    "hit_count",
-    "request_count",
-    "outcome",
-    "compiled_queries",
-    "duration_ms",
-    "error_type",
-    "error_message",
-    "payload_json",
-]
-
-_CODE_SEARCH_DIAGNOSTIC_COLUMNS = [
-    "terminal_event_id",
-    "diagnostic_index",
-    "provider",
-    "outcome",
-    "failure_kind",
-    "message",
-    "status_code",
-    "retry_after_seconds",
-    "query",
-    "details",
-]
-
-_CODE_SEARCH_HIT_COLUMNS = [
-    "terminal_event_id",
-    "hit_rank",
-    "url",
-    "repository",
-    "path",
-    "sha",
-    "provider",
-    "query_variant",
-    "search_rank",
-    "result_kind",
-    "evidence_role",
-    "title",
-    "snippet",
-    "published_date",
-    "final_score",
-    "score_components",
-    "reasons",
-    "hydrated",
-    "hydrated_source_truncated",
-    "line_start",
-    "line_end",
-    "commit_oid",
-    "fragment_count",
-    "symbol_count",
-    "match_span_count",
-    "location_precision",
-    "lines_available",
-    "revision_available",
-    "match_data_available",
-    "source_metadata",
-    "payload_json",
-]
-
-_CODE_SEARCH_HIT_VARIANT_COLUMNS = [
-    "terminal_event_id",
-    "hit_rank",
-    "association_index",
-    "variant_index",
-    "provider",
-    "query_variant",
-    "search_rank",
-]
-
-_CODE_SEARCH_QUERY_VARIANT_COLUMNS = [
-    "terminal_event_id",
-    "variant_index",
-    "query_text",
-    "variant_kind",
-]
-
-_CODE_SEARCH_REPOSITORY_COLUMNS = [
-    "terminal_event_id",
-    "repository_index",
-    "name_with_owner",
-    "url",
-    "description",
-    "stars",
-    "forks",
-    "pushed_at",
-    "language",
-    "topics",
-    "license_spdx_id",
-    "homepage_url",
-    "default_branch",
-    "head_oid",
-    "archived",
-    "fork",
-    "discovery_rank",
-    "discovery_score",
-    "discovery_queries",
-    "proof_hits",
-    "proof_paths",
-    "proof_providers",
-    "verified",
-    "payload_json",
-]
-
-_CODE_SEARCH_RERANK_COLUMNS = [
-    "terminal_event_id",
-    "provider",
-    "model",
-    "input_count",
-    "output_count",
-    "reranked_count",
-    "status",
-    "diagnostic_outcome",
-    "diagnostic_message",
-    "duration_ms",
-    "payload_json",
-]
 
 # ---------------------------------------------------------------------------
 # Content Operations and Summary column lists
@@ -760,6 +620,25 @@ _SEARCH_RUN_WRITER = TableWriter(
     columns=_SEARCH_RUN_COLUMNS,
     task_name="analytics.search_run",
 )
+_ADAPTIVE_SEARCH_RUNS_WRITER = TableWriter(
+    table_name=_ADAPTIVE_SEARCH_RUNS_TABLE_NAME,
+    ensure_name="_ensure_adaptive_search_runs",
+    columns=_ADAPTIVE_SEARCH_RUN_COLUMNS,
+    task_name="analytics.adaptive_search_runs",
+)
+_ADAPTIVE_SEARCH_ROUNDS_WRITER = TableWriter(
+    table_name=_ADAPTIVE_SEARCH_ROUNDS_TABLE_NAME,
+    ensure_name="_ensure_adaptive_search_rounds",
+    columns=_ADAPTIVE_SEARCH_ROUND_COLUMNS,
+    task_name="analytics.adaptive_search_rounds",
+)
+_ADAPTIVE_SEARCH_PROPOSALS_WRITER = TableWriter(
+    table_name=_ADAPTIVE_SEARCH_PROPOSALS_TABLE_NAME,
+    ensure_name="_ensure_adaptive_search_proposals",
+    columns=_ADAPTIVE_SEARCH_PROPOSAL_COLUMNS,
+    on_conflict="ON CONFLICT DO NOTHING",
+    task_name="analytics.adaptive_search_proposals",
+)
 _SEARCH_BRANCHES_WRITER = TableWriter(
     table_name=_SB_TABLE_NAME,
     ensure_name="_ensure_search_branches",
@@ -873,62 +752,6 @@ _GEMINI_SEARCH_SOURCES_WRITER = TableWriter(
     columns=_GEMINI_SEARCH_SOURCE_COLUMNS,
     on_conflict="ON CONFLICT DO NOTHING",
     task_name="analytics.gemini_search_sources",
-)
-_CODE_SEARCH_RUNS_WRITER = TableWriter(
-    table_name=_CSR_TABLE_NAME,
-    ensure_name="_ensure_code_search_runs",
-    columns=_CODE_SEARCH_RUN_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_runs",
-)
-_CODE_SEARCH_PROVIDERS_WRITER = TableWriter(
-    table_name=_CSP_TABLE_NAME,
-    ensure_name="_ensure_code_search_providers",
-    columns=_CODE_SEARCH_PROVIDER_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_providers",
-)
-_CODE_SEARCH_DIAGNOSTICS_WRITER = TableWriter(
-    table_name=_CSD_TABLE_NAME,
-    ensure_name="_ensure_code_search_diagnostics",
-    columns=_CODE_SEARCH_DIAGNOSTIC_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_diagnostics",
-)
-_CODE_SEARCH_HITS_WRITER = TableWriter(
-    table_name=_CSH_TABLE_NAME,
-    ensure_name="_ensure_code_search_hits",
-    columns=_CODE_SEARCH_HIT_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_hits",
-)
-_CODE_SEARCH_HIT_VARIANTS_WRITER = TableWriter(
-    table_name=_CSHV_TABLE_NAME,
-    ensure_name="_ensure_code_search_hit_variants",
-    columns=_CODE_SEARCH_HIT_VARIANT_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_hit_variants",
-)
-_CODE_SEARCH_QUERY_VARIANTS_WRITER = TableWriter(
-    table_name=_CSQV_TABLE_NAME,
-    ensure_name="_ensure_code_search_query_variants",
-    columns=_CODE_SEARCH_QUERY_VARIANT_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_query_variants",
-)
-_CODE_SEARCH_REPOSITORIES_WRITER = TableWriter(
-    table_name=_CSREPO_TABLE_NAME,
-    ensure_name="_ensure_code_search_repositories",
-    columns=_CODE_SEARCH_REPOSITORY_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_repositories",
-)
-_CODE_SEARCH_RERANK_WRITER = TableWriter(
-    table_name=_CSRERANK_TABLE_NAME,
-    ensure_name="_ensure_code_search_rerank",
-    columns=_CODE_SEARCH_RERANK_COLUMNS,
-    on_conflict="ON CONFLICT DO NOTHING",
-    task_name="analytics.code_search_rerank",
 )
 _CONTENT_OPERATIONS_WRITER = TableWriter(
     table_name=_CO_TABLE_NAME,

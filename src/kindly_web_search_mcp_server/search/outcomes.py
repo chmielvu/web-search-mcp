@@ -32,6 +32,7 @@ async def persist_search_outcome(run):
         rewritten_slots_payload,
     )
     from ..analytics.writers import (
+        insert_adaptive_search_batches,
         insert_candidate_embeddings,
         insert_final_results,
         insert_provider_calls,
@@ -92,6 +93,15 @@ async def persist_search_outcome(run):
         except Exception as exc:
             LOGGER.warning("query understanding outcome JSONL write failed: %s", exc)
 
+    adaptive_search_metadata = (
+        {
+            "rounds": r.rounds,
+            "stop_reason": r.stop_reason,
+            "prompt_version": ADAPTIVE_SEARCH_PROMPT_VERSION,
+        }
+        if r is not None and r.rounds >= 1 and r.stop_reason is not None
+        else None
+    )
     selected: list[str] = []
     if outcome.plan is not None:
         names: set[str] = set()
@@ -145,15 +155,7 @@ async def persist_search_outcome(run):
                     "phase_timings": dc.phase_timings,
                     "funnel_counts": outcome.rerank_metadata.get("funnel_counts") or {},
                     "adaptive_rounds": [asdict(record) for record in dc.adaptive_rounds],
-                    "adaptive_search": (
-                        {
-                            "rounds": r.rounds,
-                            "stop_reason": r.stop_reason,
-                            "prompt_version": ADAPTIVE_SEARCH_PROMPT_VERSION,
-                        }
-                        if r is not None and r.rounds >= 1 and r.stop_reason is not None
-                        else None
-                    ),
+                    "adaptive_search": adaptive_search_metadata,
                     "synthesis": r.synthesis if r is not None else None,
                     "provider_expansions": list(dc.provider_expansions),
                     "query_integrities": list(dc.query_integrities),
@@ -227,6 +229,41 @@ async def persist_search_outcome(run):
             },
         ),
     )
+    adaptive_search_runs = (
+        [
+            {
+                "run_key": rk,
+                "rounds": adaptive_search_metadata["rounds"],
+                "stop_reason": adaptive_search_metadata["stop_reason"],
+                "prompt_version": adaptive_search_metadata["prompt_version"],
+                "synthesis": r.synthesis if r is not None else None,
+                "payload_json": {
+                    "adaptive_search": adaptive_search_metadata,
+                    "synthesis": r.synthesis if r is not None else None,
+                },
+            }
+        ]
+        if adaptive_search_metadata is not None
+        else []
+    )
+    adaptive_search_rounds = [
+        {
+            "adaptive_round_id": _canonical_result_id(f"{rk}|adaptive-round|{record.index}"),
+            "run_key": rk,
+            "round_index": record.index,
+            "branch_start": record.branch_start,
+            "branch_count": record.branch_count,
+            "queries": list(record.queries),
+            "candidate_count": record.candidate_count,
+            "new_url_count": record.new_url_count,
+            "domain_count": record.domain_count,
+            "provider_failure_count": record.provider_failure_count,
+            "decision": record.decision,
+            "reason": record.reason,
+        }
+        for record in dc.adaptive_rounds
+    ]
+    adaptive_search_proposals = list(dc.adaptive_search_proposal_rows)
     for i, ob in enumerate(outcome.outcomes):
         b = ob.branch
         writes.append(
@@ -347,7 +384,7 @@ async def persist_search_outcome(run):
                 {
                     "run_key": rk,
                     "embedding": v,
-                    "model_id": "intfloat/multilingual-e5-large-instruct",
+                    "model_id": settings.embedding_model,
                     "payload_json": {"dim": len(v)},
                 },
             ),
@@ -363,7 +400,7 @@ async def persist_search_outcome(run):
                     "link": c.get("url", ""),
                     "title": t,
                     "embedding": v,
-                    "model_id": "intfloat/multilingual-e5-large-instruct",
+                    "model_id": settings.embedding_model,
                     "payload_json": {"dim": len(v), "text_preview": (c.get("text") or "")[:200]},
                 },
             ),
@@ -412,6 +449,14 @@ async def persist_search_outcome(run):
                 w.persist(**w.kwargs)
             except Exception as e:
                 LOGGER.debug("persist %s failed: %s", getattr(w.persist, "__name__", w.persist), e)
+        try:
+            insert_adaptive_search_batches(
+                adaptive_search_runs=adaptive_search_runs,
+                adaptive_search_rounds=adaptive_search_rounds,
+                adaptive_search_proposals=adaptive_search_proposals,
+            )
+        except Exception as e:
+            LOGGER.debug("persist adaptive search analytics failed: %s", e)
         try:
             from ..analytics.quality_metrics import compute_search_quality
 

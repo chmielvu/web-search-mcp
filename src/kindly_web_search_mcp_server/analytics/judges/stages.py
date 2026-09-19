@@ -159,37 +159,28 @@ def _run_prompt(
     prompt_name: str,
     context_columns: list[dict[str, object]],
     response_format: dict[str, object] | None = None,
-) -> tuple[str | None, float]:
-    """Run one FlockMTL judge prompt and return (raw_text_or_none, duration_seconds).
+) -> tuple[str | None, float, dict[str, int] | None]:
+    """Run one FlockMTL judge prompt and return (raw_text, duration, metrics).
+
+    ``metrics`` is ``{"input_tokens": N, "output_tokens": N}`` when
+    the FlockMTL ``llm_complete`` path executed, else ``None``.
 
     Two execution paths:
 
       (a) Schema-mode (default for the 6 production facets): when a
-          `response_format` is derived, run the TWO-STAGE INFERENCE CHAIN:
-          Stage 1 — Google Gemini API hosting Gemma (`gemma-4-26b-a4b-it`,
-          native google-genai SDK, plain-text prompt; Gemma has neither
-          reliable OpenAI-compat access nor responseSchema support).
-          Stage 2 — NanoGPT serving `deepseek/deepseek-v4-flash-0731:thinking`
-          WITH strict response_format=json_schema. Each stage retries
-          transient failures (timeouts / 408 / 409 / 425 / 429 / 5xx) with
-          exponential backoff before failing over to the next stage. The
-          Hugging Face router is retired from judge inference (2026-08-22)
-          after monthly-credit depletion caused a silent multi-week outage.
+          response_format is derived, run the two-stage inference chain:
+          Stage 1 — Gemini/Gemma (native google-genai SDK, plain-text
+          prompt).  Stage 2 — NanoGPT/DeepSeek with strict
+          response_format=json_schema.  Each stage retries transient
+          failures with exponential backoff before failing over.
 
-          Structured output is guaranteed on stage 2; stage 1 leans on the
-          prompt's `### Output Format` footer plus the 3-tier
-          `_parse_result` salvage (same contract as ai_summary's
-          Gemma calls).
+      (b) FlockMTL llm_complete last resort: reached only when both
+          stages exhaust.  Its registry/secret point at NanoGPT (see
+          writers/connection.py).
 
-      (b) FlockMTL `llm_complete` last resort: reached only when BOTH
-          stages exhaust. Its registry/secret point at NanoGPT (see
-          `writers/connection.py`), so no judge code path contacts
-          Hugging Face any more.
-
-    Neither chain stage ships a template engine, so `_render_prompt`
-    substitutes each `{{name}}` placeholder in the prompt template with
-    the corresponding `context_columns` `data` value before sending
-    (byte-equivalent to what FlockMTL would render).
+    Neither chain stage ships a template engine, so ``_render_prompt``
+    substitutes each ``{{name}}`` placeholder in the prompt template
+    with the corresponding context_columns data value before sending.
     """
     started = time.perf_counter()
     schema = (
@@ -233,8 +224,9 @@ def _run_prompt(
             # Path (b) fallback — kept short so a total chain outage
             # doesn't poison the row.
 
-    # Path (b) — FlockMTL llm_complete.
+    # Path (b) — FlockMTL llm_complete with metrics capture.
     try:
+        connection.execute("SELECT flock_reset_metrics()")
         row = connection.execute(
             "SELECT llm_complete(?, ?)",
             [
@@ -246,7 +238,25 @@ def _run_prompt(
             ],
         ).fetchone()
         duration = time.perf_counter() - started
-        return (row[0] if row else None, duration)
+        metrics: dict[str, int] | None = None
+        try:
+            raw_metrics = connection.execute("SELECT flock_get_metrics()").fetchone()
+            if raw_metrics and raw_metrics[0]:
+                import json as _json
+
+                parsed = (
+                    _json.loads(raw_metrics[0])
+                    if isinstance(raw_metrics[0], str)
+                    else raw_metrics[0]
+                )
+                if isinstance(parsed, dict) and parsed:
+                    metrics = {
+                        "input_tokens": int(parsed.get("input_tokens") or 0),
+                        "output_tokens": int(parsed.get("output_tokens") or 0),
+                    }
+        except Exception:
+            pass  # metrics are best-effort
+        return (row[0] if row else None, duration, metrics)
     except Exception as exc:
         duration = time.perf_counter() - started
         logger.warning(
@@ -255,7 +265,7 @@ def _run_prompt(
             prompt_name,
             exc,
         )
-        return (None, duration)
+        return (None, duration, None)
 
 
 def _is_retryable_stage_error(exc: BaseException) -> bool:
@@ -470,7 +480,7 @@ def _judge_chain_call(
     prompt_name: str,
     context_columns: list[dict[str, object]],
     response_format: dict[str, object],
-) -> tuple[str | None, float]:
+) -> tuple[str | None, float, None]:
     """Run one judged prompt through the two-stage chain with backoff.
 
     Stage order is fixed (Gemini/Gemma first, NanoGPT/DeepSeek second);
@@ -511,7 +521,7 @@ def _judge_chain_call(
                 continue
             if content:
                 duration = time.perf_counter() - started
-                return (content, duration)
+                return (content, duration, None)
             # Empty completion = stage-level failure: stop retrying this
             # stage and fail over immediately (a retry against the same
             # stage rarely differs; the next provider is the real remedy).

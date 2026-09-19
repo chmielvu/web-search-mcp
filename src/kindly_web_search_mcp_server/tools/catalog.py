@@ -130,11 +130,14 @@ TOOL_CATALOG: dict[str, ToolCatalogEntry] = {
             "status, depth, word and Markdown-structure counts, diagnostics, and deterministic "
             "output_path without page Markdown; detailed also returns content, links, and compact "
             "Crawl4AI capability evidence. Per-page failures return typed error objects with "
-            "resolution and retryable fields."
+            "resolution and retryable fields. The tool supports optional MCP background execution "
+            "and reports traversal progress."
         ),
         read_only=False,
         idempotent=True,
         open_world=True,
+        task=True,
+        task_poll_interval_seconds=30.0,
     ),
     "gemini_search": _entry("gemini_search", "Gemini Search", {"regular", "full"}),
     "grok_search": _entry(

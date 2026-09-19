@@ -459,47 +459,6 @@ def gemini_search_performance(*, days: int = 7, db_path: str | None = None) -> p
     return _run(sql, db_path=db_path)
 
 
-def code_search_provider_yield(*, days: int = 7, db_path: str | None = None) -> pa.Table:
-    """Code search provider yield: responses, hits, requests, and latency."""
-    window = max(1, int(days))
-    sql = f"""
-        SELECT
-            provider,
-            outcome,
-            COUNT(*) AS total_responses,
-            SUM(hit_count) AS total_hits_returned,
-            ROUND(AVG(hit_count), 2) AS avg_hits_per_response,
-            SUM(request_count) AS total_requests,
-            ROUND(AVG(duration_ms) FILTER (WHERE duration_ms IS NOT NULL), 2) AS avg_duration_ms
-        FROM code_search_providers
-        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY provider, outcome
-        ORDER BY total_responses DESC, provider
-    """
-    return _run(sql, db_path=db_path)
-
-
-def code_search_hit_sources(*, days: int = 7, db_path: str | None = None) -> pa.Table:
-    """Code search hits: provider breakdown, evidence roles, hydration, scores."""
-    window = max(1, int(days))
-    sql = f"""
-        SELECT
-            COALESCE(provider, 'unknown') AS provider,
-            COALESCE(result_kind, 'unknown') AS result_kind,
-            COALESCE(evidence_role, 'unknown') AS evidence_role,
-            COUNT(*) AS total_hits,
-            COUNT(*) FILTER (WHERE hydrated = TRUE) AS hydrated_hits,
-            ROUND(AVG(final_score), 4) AS avg_final_score,
-            ROUND(AVG(fragment_count), 2) AS avg_fragments,
-            ROUND(AVG(symbol_count), 2) AS avg_symbols
-        FROM code_search_hits
-        WHERE recorded_at >= CURRENT_TIMESTAMP - INTERVAL '{window} days'
-        GROUP BY provider, result_kind, evidence_role
-        ORDER BY total_hits DESC
-    """
-    return _run(sql, db_path=db_path)
-
-
 def content_fetch_performance(*, days: int = 7, db_path: str | None = None) -> pa.Table:
     """Content fetch performance: backends, source types, length, word counts."""
     window = max(1, int(days))
@@ -557,8 +516,6 @@ _REPORTS: dict[str, Callable[..., pa.Table]] = {
     "tool-call-coverage": tool_call_coverage,
     "quick-search-performance": quick_search_performance,
     "gemini-search-performance": gemini_search_performance,
-    "code-search-provider-yield": code_search_provider_yield,
-    "code-search-hit-sources": code_search_hit_sources,
     "content-fetch-performance": content_fetch_performance,
     "content-summary-output-signals": content_summary_output_signals,
 }

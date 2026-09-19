@@ -475,7 +475,7 @@ def register_quick_web_search(mcp: Any) -> None:
           term. This replaces the removed youtube_search tool.
         - mode="docs": answering a question about a public GitHub-hosted
           library from its official docs (Context7) and repo guide (DeepWiki).
-          This replaces code_search mode="docs".
+          This mode uses official library documentation sources.
 
         WHEN NOT TO USE:
         - Deep cross-provider RRF ranking (use web_search).

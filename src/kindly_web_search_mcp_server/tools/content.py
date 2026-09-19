@@ -10,7 +10,7 @@ import time
 from typing import Annotated, Any, Literal, cast
 from urllib.parse import urlparse
 
-from fastmcp.dependencies import CurrentContext
+from fastmcp.dependencies import CurrentContext, Progress
 from fastmcp.server.context import Context
 from pydantic import Field
 
@@ -1051,6 +1051,7 @@ def _crawl_request_event(request: CrawlWebRequest) -> dict[str, Any]:
 async def crawl_web(
     request: CrawlWebRequest,
     ctx: Context = CurrentContext(),
+    progress: Progress = Progress(),
 ) -> CrawlWebResponse:
     """Crawl bounded public sites through Crawl4AI and return indexed artifacts.
 
@@ -1079,33 +1080,39 @@ async def crawl_web(
     - Summary responses omit page content; detailed responses include it.
     - The response reports status counts, reached depth, duration, and compact
       Crawl4AI capability evidence.
+    BACKGROUND TASKS:
+    - The tool supports optional MCP background execution. Progress is reported
+      for each finalized traversal outcome and remains available to synchronous
+      clients.
     """
     started = time.monotonic()
     detailed = request.response_format == "detailed"
     event = _crawl_request_event(request)
     emit_tool_observability_event(LOGGER, "crawl_web", "request", **event)
-    await ctx.info(
-        f"Crawling {len(request.urls)} seed URL(s) with a maximum of {request.max_pages} page(s)..."
-    )
-    await ctx.report_progress(progress=0, total=100, message="Starting Crawl4AI traversal...")
+    if not ctx.is_background_task:
+        await ctx.info(
+            f"Crawling {len(request.urls)} seed URL(s) with a maximum of {request.max_pages} page(s)..."
+        )
+    await progress.set_total(max(1, request.max_pages))
+    await progress.set_message("Starting Crawl4AI traversal...")
+
+    async def _on_crawl_progress(_completed: int, message: str) -> None:
+        await progress.set_message(message)
+        await progress.increment()
+
     try:
-        outcomes = await crawl_content_artifacts(request)
+        outcomes = await crawl_content_artifacts(request, on_progress=_on_crawl_progress)
     except Exception as exc:
+        await progress.set_message("Crawl failed")
         _record_tool_failure("crawl_web")
         raise_tool_error(exc, provider="crawl4ai")
 
     results: list[CrawlWebResult] = []
     status_counts: dict[str, int] = {}
-    for index, outcome in enumerate(outcomes, start=1):
+    for outcome in outcomes:
         result = _crawl_result_from_artifact(outcome, detailed=detailed)
         results.append(result)
         status_counts[result.status] = status_counts.get(result.status, 0) + 1
-        progress = min(99, round(index * 100 / max(1, request.max_pages)))
-        await ctx.report_progress(
-            progress=progress,
-            total=100,
-            message=f"Finalized page {index} of at most {request.max_pages}.",
-        )
 
     capabilities: dict[str, Any] | None = None
     response_diagnostics: list[dict[str, Any]] = []
@@ -1133,6 +1140,10 @@ async def crawl_web(
         diagnostics=response_diagnostics or None,
         duration_ms=round((time.monotonic() - started) * 1000.0),
     )
+    await progress.set_total(max(1, len(outcomes)))
+    if not outcomes:
+        await progress.increment()
+    await progress.set_message("Crawl complete")
     emit_tool_observability_event(
         LOGGER,
         "crawl_web",
@@ -1155,7 +1166,6 @@ async def crawl_web(
             for result in results
         ],
     )
-    await ctx.report_progress(progress=100, total=100, message="Done")
     _record_tool_success(
         "crawl_web",
         input_url_count=response.total_requested,

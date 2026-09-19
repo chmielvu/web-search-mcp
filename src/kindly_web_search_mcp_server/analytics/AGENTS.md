@@ -96,6 +96,11 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 - Provider diagnostics stay typed in `provider_calls` (`request_query`, `request_url`, `http_status`, `result_class`, `response_meta_json`).
 - `provider_results.payload_json`, `search_candidates.payload_json`, and `final_results.payload_json` store native `SearchHit` testimony (`engine_rank`, `provider_score`, source, highlights, engines, origin adapters, answer kind). `provider_calls.payload_json` stores expansion seeds, query integrity, and typed engine failures. `search_runs.payload_json` also records observed provider expansions and query-integrity rows.
 - `result_labels` is offline-only; `source` distinguishes human, eval, and `llm_judge` annotations, and `discounted_gain` uses zero-based `label / log2(position + 2)`. The table, DDL, and writers (`insert_result_labels`, `upsert_materialized_result_labels`) exist, but nothing populates them yet: the `llm_judge` materializer was removed as dead code, so a producer still has to be wired before the graph-feedback replay sees labels.
+- Adaptive search analytics is additive and runtime-only. `adaptive_search_runs`
+  and `adaptive_search_rounds` normalize fields already emitted inside
+  `search_runs.payload_json`; `adaptive_search_proposals` records only future
+  `TargetedQuery` proposals captured before normalization. Do not backfill
+  existing search history.
 - Per-connection FlockMTL secret re-registration (`_ensure_flockmtl_secret`).
 - Judge executor lifecycle is restartable: shutdown blocks scheduling only while the current executor is draining, then advances its generation and permits a fresh executor.
 

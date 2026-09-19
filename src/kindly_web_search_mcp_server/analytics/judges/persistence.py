@@ -83,6 +83,8 @@ def _insert_judgment(
     context_shown: str | None = None,
     error_message: str | None = None,
     payload_json: str | None = None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> None:
     """Persist one judgment row to `llm_judgments` (extended schema)."""
     # Serialize inserts: parallel facet workers each hold their own
@@ -92,9 +94,10 @@ def _insert_judgment(
             """
             INSERT INTO llm_judgments (
                 run_key, judgment_kind, judgment_target, prompt_name, model_name,
-                verdict, duration_ms, status, error_message, payload_json,
+                verdict, input_tokens, output_tokens, duration_ms, status,
+                error_message, payload_json,
                 facet, reasoning, rubric_version, confidence, context_shown
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 run_key,
@@ -103,6 +106,8 @@ def _insert_judgment(
                 prompt_name,
                 model_name,
                 verdict if verdict is not None else "",
+                input_tokens,
+                output_tokens,
                 round(duration_ms * 1000.0, 2),
                 status,
                 error_message,
@@ -130,6 +135,7 @@ def _store_judgment_row(
     context_columns: list[dict[str, object]],
     build_verdict: Callable[[dict], str],
     build_reasoning: Callable[[dict], str],
+    flock_metrics: dict[str, int] | None = None,
 ) -> None:
     """Store one judgment row (success inserts parsed values; error persists raw truncated text).
 
@@ -161,12 +167,15 @@ def _store_judgment_row(
             confidence_int = conf if isinstance(conf, int) else None
             status = "success"
             error_message = None
+            payload_obj: dict[str, object] = {
+                "facet": judgment_kind,
+                "schema_version": _DEFAULT_RUBRIC_VERSION,
+                "parsed": parsed,
+            }
+            if flock_metrics:
+                payload_obj["flock_metrics"] = flock_metrics
             payload_json = json.dumps(
-                {
-                    "facet": judgment_kind,
-                    "schema_version": _DEFAULT_RUBRIC_VERSION,
-                    "parsed": parsed,
-                },
+                payload_obj,
                 ensure_ascii=False,
                 default=str,
             )
@@ -212,4 +221,6 @@ def _store_judgment_row(
         context_shown=context_shown,
         error_message=error_message,
         payload_json=payload_json,
+        input_tokens=flock_metrics.get("input_tokens") if flock_metrics else None,
+        output_tokens=flock_metrics.get("output_tokens") if flock_metrics else None,
     )
