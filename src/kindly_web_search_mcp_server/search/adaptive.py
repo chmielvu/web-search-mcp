@@ -24,6 +24,8 @@ from dataclasses import asdict, replace
 from datetime import date
 from typing import Any
 
+from pydantic import BaseModel, ValidationError
+
 from ..analytics.ids import _canonical_result_id as _cri
 from ..inference.chain import get_chain
 from ..inference.router import LLMRouter, build_adaptive_router
@@ -57,6 +59,7 @@ MAX_SEARCH_WAVES = 3  # structural bound: the controller below runs exactly 3 wa
 MAX_FOLLOWUP_QUERIES = 2  # defensive slice: FollowupBatch/ContinuationDecision already cap at 2.
 _DECISION_TIMEOUT_SECONDS = 60.0
 _SYNTHESIS_TIMEOUT_SECONDS = 60.0
+_STRUCTURED_OUTPUT_VALIDATION_RETRIES = 1
 # Decision feedback runs on the dedicated ``adaptive_search_llm`` chain
 # (Gemini-first, 1M context), not the Groq worker chain whose small fallback
 # models cap the whole org at roughly 7k input tokens per minute. Budget:
@@ -205,12 +208,12 @@ def _append_followup_variant_rows(
 
 
 def _provider_failure_count(outcomes: tuple[BranchOutcome, ...]) -> int:
-    """Provider-call rows in this wave that did not complete a usable response."""
+    """Provider-call rows that failed, excluding intentional duplicate skips."""
     return sum(
         1
         for outcome in outcomes
         for row in outcome.provider_calls
-        if row.get("status") not in {"success", "partial"}
+        if row.get("status") not in {"success", "partial", "skipped"}
     )
 
 
@@ -221,6 +224,12 @@ def _wave_has_provider_response(outcomes: tuple[BranchOutcome, ...]) -> bool:
         for outcome in outcomes
         for row in outcome.provider_calls
     )
+
+
+def _wave_only_duplicate_skips(outcomes: tuple[BranchOutcome, ...]) -> bool:
+    """True when the wave made no call because every shaped request was a duplicate."""
+    statuses = [row.get("status") for outcome in outcomes for row in outcome.provider_calls]
+    return bool(statuses) and all(status == "skipped" for status in statuses)
 
 
 def _wave_request_texts(outcomes: tuple[BranchOutcome, ...]) -> list[str]:
@@ -376,6 +385,7 @@ def _build_feedback(
             {
                 "branch_role": outcome.branch.role.value,
                 "query": outcome.branch.query,
+                "target_gap": outcome.branch.why or None,
                 "provider_requests": sorted(
                     {
                         row["request_query"]
@@ -428,12 +438,35 @@ def _build_feedback(
     return feedback_json
 
 
-def _synthesis_evidence(result: SearchRunResult) -> dict[str, Any]:
-    """Final slate with citation ids and native passages for the synthesis call."""
+def _synthesis_evidence(
+    run: SearchRun,
+    result: SearchRunResult,
+    *,
+    stop_reason: SearchStopReason,
+) -> dict[str, Any]:
+    """Request context, adaptive state, and the final citable evidence slate."""
+    request = run.request
+    temporal = request.options.temporal
     return {
-        "query": result.query,
+        "request": {
+            "query": request.query,
+            "research_goal": request.research_goal,
+            "reranking_instructions": request.reranking_instructions,
+            "request_filters": {
+                "temporal_start": temporal.start if temporal is not None else None,
+                "temporal_end": temporal.end if temporal is not None else None,
+                "language": request.options.language,
+                "region": request.options.region,
+                "include_undated": request.include_undated,
+            },
+        },
+        "stop_reason": stop_reason,
+        "adaptive_rounds": [
+            asdict(round_record) for round_record in run.diagnostics.adaptive_rounds
+        ],
         "ranked_evidence": [
             {
+                "rank": hit.final_rank,
                 "citation_id": hit.citation_id,
                 "title": hit.hit.title,
                 "url": hit.hit.url,
@@ -441,7 +474,13 @@ def _synthesis_evidence(result: SearchRunResult) -> dict[str, Any]:
                 "published": hit.hit.published,
                 "providers": list(hit.providers or ()),
                 "source_kind": hit.hit.source_kind,
-                "passages": render_search_hit_text(hit.hit, max_chars=_SYNTHESIS_PASSAGE_CHARS),
+                "evidence_consensus": hit.evidence_consensus,
+                "freshness_signal": hit.freshness_signal,
+                "final_score": hit.final_score,
+                "passages": render_search_hit_text(
+                    hit.hit,
+                    max_chars=_SYNTHESIS_PASSAGE_CHARS,
+                ),
             }
             for hit in result.hits
             if hit.citation_id is not None and hit.hit.url
@@ -462,77 +501,145 @@ def _validate_synthesis_text(text: str, valid_ids: set[str]) -> str:
     return text
 
 
-async def propose_followups(run: SearchRun, feedback: str) -> FollowupBatch:
-    """Wave-1 decision: targeted gap-closing queries from the adaptive chain.
+class StructuredModelError(RuntimeError):
+    """Typed failure for a structured LLM stage after bounded recovery."""
 
-    Runs on ``build_adaptive_router()`` (Gemini-first, 1M context) so the full
-    ranked slate with 2000-char passages fits under the 100k-token budget.
-    ``reasoning_effort="low"`` buys gap analysis; the Google adapter ignores
-    the knob and the Vercel terminal fallback drops it, so the setting is
-    safe across the whole chain.
-    """
-    generation = await build_adaptive_router().complete_json(
+    def __init__(self, stage: str, category: str, cause: Exception):
+        self.stage = stage
+        self.category = category
+        self.cause_type = type(cause).__name__
+        detail = str(cause).strip() or repr(cause)
+        super().__init__(f"{stage} {category} failure ({self.cause_type}): {detail[:500]}")
+
+
+async def _complete_validated_model[ModelT: BaseModel](
+    *,
+    router: LLMRouter,
+    messages: list[dict[str, str]],
+    response_model: type[ModelT],
+    reasoning_effort: str | None,
+    timeout_seconds: float,
+    run_key: str,
+    operation: str,
+    stage: str,
+) -> ModelT:
+    """Generate and strictly validate JSON, retrying one malformed model output."""
+    attempt_messages = messages
+    for attempt in range(_STRUCTURED_OUTPUT_VALIDATION_RETRIES + 1):
+        try:
+            generation = await router.complete_json(
+                messages=attempt_messages,
+                temperature=0.0,
+                timeout_seconds=timeout_seconds,
+                response_model=response_model,
+                reasoning_effort=reasoning_effort,
+                run_key=run_key,
+                operation=operation if attempt == 0 else f"{operation}.validation_retry",
+            )
+        except Exception as exc:
+            raise StructuredModelError(stage, "inference", exc) from exc
+
+        try:
+            return response_model.model_validate_json(generation.content)
+        except ValidationError as exc:
+            if attempt >= _STRUCTURED_OUTPUT_VALIDATION_RETRIES:
+                raise StructuredModelError(stage, "validation", exc) from exc
+            validation_detail = json.dumps(
+                exc.errors(include_url=False, include_input=False),
+                ensure_ascii=False,
+                default=str,
+            )[:2000]
+            attempt_messages = [
+                *messages,
+                {"role": "assistant", "content": generation.content[:4000]},
+                {
+                    "role": "user",
+                    "content": (
+                        "The previous JSON failed the required Pydantic schema validation. "
+                        f"Validation errors: {validation_detail}. Return one corrected JSON "
+                        "object only, with no prose or markdown."
+                    ),
+                },
+            ]
+
+    raise RuntimeError("unreachable structured-output validation loop")
+
+
+async def propose_followups(run: SearchRun, feedback: str) -> FollowupBatch:
+    """Wave-1 decision: validated gap-closing queries from the adaptive chain."""
+    return await _complete_validated_model(
+        router=build_adaptive_router(),
         messages=build_followup_messages(feedback),
-        temperature=0.0,
-        timeout_seconds=_DECISION_TIMEOUT_SECONDS,
         response_model=FollowupBatch,
         reasoning_effort="low",
+        timeout_seconds=_DECISION_TIMEOUT_SECONDS,
         run_key=run.run_key,
         operation="search.adaptive.followup",
+        stage="follow-up decision",
     )
-    return FollowupBatch.model_validate_json(generation.content)
 
 
 async def decide_continuation(run: SearchRun, feedback: str) -> ContinuationDecision:
-    """Wave-2 decision: finish, or emit the final wave's targeted queries.
-
-    Same high-context chain as the wave-1 proposal; the stopping judgment
-    needs the same long-passage slate to tell convergence from thin overlap.
-    """
-    generation = await build_adaptive_router().complete_json(
+    """Wave-2 decision: validated finish/search judgment with bounded repair."""
+    return await _complete_validated_model(
+        router=build_adaptive_router(),
         messages=build_continuation_messages(feedback),
-        temperature=0.0,
-        timeout_seconds=_DECISION_TIMEOUT_SECONDS,
         response_model=ContinuationDecision,
         reasoning_effort="none",
+        timeout_seconds=_DECISION_TIMEOUT_SECONDS,
         run_key=run.run_key,
         operation="search.adaptive.decision",
+        stage="continuation decision",
     )
-    return ContinuationDecision.model_validate_json(generation.content)
 
 
-async def synthesize_results(run: SearchRun, result: SearchRunResult) -> str:
-    """Final synthesis over the returned slate only; citation refs validated.
-
-    The summarization chain runs on Google genai adapters, whose
-    ``response_json_schema`` takes a plain schema dict — not a pydantic model
-    class — so the schema is passed as ``model_json_schema()`` and the
-    generated JSON is validated with the production schema.
-    """
-    evidence_json = json.dumps(_synthesis_evidence(result), ensure_ascii=False, default=str)
-    generation = await LLMRouter(chain=get_chain("summarization")).complete_json(
+async def synthesize_results(
+    run: SearchRun,
+    result: SearchRunResult,
+    *,
+    stop_reason: SearchStopReason,
+) -> str:
+    """Synthesize the research goal through a strictly validated output model."""
+    evidence_json = json.dumps(
+        _synthesis_evidence(run, result, stop_reason=stop_reason),
+        ensure_ascii=False,
+        default=str,
+    )
+    draft = await _complete_validated_model(
+        router=LLMRouter(chain=get_chain("summarization")),
         messages=build_synthesis_messages(evidence_json),
-        temperature=0.0,
+        response_model=SynthesisDraft,
+        reasoning_effort=None,
         timeout_seconds=_SYNTHESIS_TIMEOUT_SECONDS,
-        response_model=SynthesisDraft.model_json_schema(),
         run_key=run.run_key,
         operation="search.adaptive.synthesis",
+        stage="synthesis",
     )
-    draft = SynthesisDraft.model_validate_json(generation.content)
-    # Mirror the _synthesis_evidence filter (citation + URL): the prompt only
-    # shows URL-bearing hits, so a URL-less id must fail validation rather
-    # than pass as citable.
     valid_ids = {
         hit.citation_id for hit in result.hits if hit.citation_id is not None and hit.hit.url
     }
     return _validate_synthesis_text(draft.text, valid_ids)
 
 
-def _decision_failed_warning() -> ProviderWarning:
+def _failure_kind(exc: Exception) -> str:
+    """Return the concrete underlying error class for diagnostics."""
+    return exc.cause_type if isinstance(exc, StructuredModelError) else type(exc).__name__
+
+
+def _decision_failed_warning(stage: str, exc: Exception) -> ProviderWarning:
+    detail = str(exc).strip() or repr(exc)
     return ProviderWarning(
         provider="adaptive_search",
-        error="Adaptive search decision failed; returning accumulated ranked evidence.",
+        error=(
+            f"Adaptive {stage} failed ({_failure_kind(exc)}): {detail[:400]}. "
+            "Returning accumulated ranked evidence."
+        ),
         error_type="decision_failed",
+        action=(
+            "Inspect llm_call_log for the named adaptive operation and retry the search "
+            "when the surfaced cause is transient."
+        ),
+        retryable=(isinstance(exc, StructuredModelError) and exc.category == "inference"),
     )
 
 
@@ -544,7 +651,7 @@ async def _finalize(
     stop_reason: SearchStopReason,
     adaptive_warnings: list[ProviderWarning],
 ) -> SearchRunResult:
-    """Attach execution metadata and adaptive warnings; synthesize when grounded."""
+    """Attach execution metadata and synthesize every nonempty cumulative slate."""
     if not result.hits and stop_reason in {
         "sufficient_evidence",
         "max_rounds",
@@ -553,16 +660,28 @@ async def _finalize(
     }:
         stop_reason = "no_results"
     synthesis: str | None = None
-    if result.hits and stop_reason != "retrieval_failure":
+    if result.hits:
         try:
-            synthesis = await synthesize_results(run, result)
+            synthesis = await synthesize_results(run, result, stop_reason=stop_reason)
         except Exception as exc:
-            LOGGER.warning("Adaptive search synthesis failed: %s", exc)
+            LOGGER.warning(
+                "Adaptive search synthesis failed (%s): %s",
+                _failure_kind(exc),
+                exc,
+                exc_info=True,
+            )
             adaptive_warnings.append(
                 ProviderWarning(
                     provider="adaptive_search",
-                    error="Search synthesis failed; ranked results remain available.",
+                    error=(
+                        f"Search synthesis failed ({_failure_kind(exc)}): {str(exc)[:400]}. "
+                        "Ranked results remain available."
+                    ),
                     error_type="synthesis_failed",
+                    action="Inspect llm_call_log for search.adaptive.synthesis.",
+                    retryable=(
+                        isinstance(exc, StructuredModelError) and exc.category == "inference"
+                    ),
                 )
             )
     return replace(
@@ -636,9 +755,15 @@ async def run_adaptive_search(
     try:
         batch = await propose_followups(run, feedback)
     except Exception as exc:
-        LOGGER.warning("Adaptive follow-up decision failed: %s", exc)
-        adaptive_warnings.append(_decision_failed_warning())
-        dc.adaptive_rounds.append(replace(round_1, decision="finish", reason="decision_failed"))
+        LOGGER.warning(
+            "Adaptive follow-up decision failed (%s): %s",
+            _failure_kind(exc),
+            exc,
+            exc_info=True,
+        )
+        adaptive_warnings.append(_decision_failed_warning("follow-up decision", exc))
+        failure_reason = f"decision_failed:{_failure_kind(exc)}"
+        dc.adaptive_rounds.append(replace(round_1, decision="finish", reason=failure_reason))
         return await _finalize(
             run,
             result,
@@ -690,6 +815,15 @@ async def run_adaptive_search(
     )
     prior_urls = current_urls
 
+    if _wave_only_duplicate_skips(wave2_outcomes):
+        dc.adaptive_rounds.append(replace(round_2, reason="duplicate_queries_suppressed"))
+        return await _finalize(
+            run,
+            result,
+            rounds=2,
+            stop_reason="no_new_queries",
+            adaptive_warnings=adaptive_warnings,
+        )
     if not _wave_has_provider_response(wave2_outcomes):
         dc.adaptive_rounds.append(replace(round_2, reason="retrieval_failure"))
         return await _finalize(
@@ -710,9 +844,15 @@ async def run_adaptive_search(
     try:
         decision = await decide_continuation(run, feedback)
     except Exception as exc:
-        LOGGER.warning("Adaptive continuation decision failed: %s", exc)
-        adaptive_warnings.append(_decision_failed_warning())
-        dc.adaptive_rounds.append(replace(round_2, decision="finish", reason="decision_failed"))
+        LOGGER.warning(
+            "Adaptive continuation decision failed (%s): %s",
+            _failure_kind(exc),
+            exc,
+            exc_info=True,
+        )
+        adaptive_warnings.append(_decision_failed_warning("continuation decision", exc))
+        failure_reason = f"decision_failed:{_failure_kind(exc)}"
+        dc.adaptive_rounds.append(replace(round_2, decision="finish", reason=failure_reason))
         return await _finalize(
             run,
             result,
@@ -762,6 +902,15 @@ async def run_adaptive_search(
         decision="finish",
         reason="",
     )
+    if _wave_only_duplicate_skips(wave3_outcomes):
+        dc.adaptive_rounds.append(replace(round_3, reason="duplicate_queries_suppressed"))
+        return await _finalize(
+            run,
+            result,
+            rounds=3,
+            stop_reason="no_new_queries",
+            adaptive_warnings=adaptive_warnings,
+        )
     if not _wave_has_provider_response(wave3_outcomes):
         dc.adaptive_rounds.append(replace(round_3, reason="retrieval_failure"))
         return await _finalize(

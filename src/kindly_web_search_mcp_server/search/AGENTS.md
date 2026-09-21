@@ -1,6 +1,6 @@
 <!-- FOR AI AGENTS - Human readability is a side effect, not a goal -->
 <!-- Managed by agent: keep sections and order; edit content, not structure -->
-<!-- Last updated: 2026-09-17 | Last verified: 2026-09-17 -->
+<!-- Last updated: 2026-09-21 | Last verified: 2026-09-21 -->
 
 # AGENTS.md - Search
 
@@ -15,9 +15,9 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 | `types.py` | Frozen internal provider/run dataclasses: `SearchHit`, `EngineCall`, `ScoredHit`, `SearchRunResult` |
 | `evidence.py` | Shared testimony rendering/serialization for ranking, rerank, indexing, and analytics |
 | `planning.py` | Normalize, understand intent, 5-variant rewrite, select providers, emit branches |
-| `adaptive.py` | Bounded result-conditioned wave controller (`run_adaptive_search`): broad wave 1, LLM-proposed follow-up waves, stop reasons, final synthesis |
+| `adaptive.py` | Bounded result-conditioned wave controller: strict Pydantic decisions, one malformed-output repair, typed surfaced failures, stop reasons, final synthesis |
 | `graph_expansion.py` | Rewrite-only, bounded related-query injection from a SQLite graph artifact; preserves the normalized original seed and six-branch topology |
-| `retrieval.py` | Structured branch/provider fanout with budget management; cumulative per-wave outcomes appended to the live run with global branch indices |
+| `retrieval.py` | Structured branch/provider fanout with budget management and run-scoped per-provider shaped-query suppression; cumulative per-wave outcomes use global branch indices |
 | `ranking.py` | Blocklist, weighted RRF merge, BM25/rerank, final response |
 | `merge.py` | Canonical dedup + weighted RRF (`w/(k+rank)`) |
 | `outcomes.py` | Detached terminal snapshots for async persistence |
@@ -30,8 +30,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 | `quick/` | Quick web search modes: Parallel web, YouTube discovery + channel/uploads enumeration (`quick_web_search_youtube.py`), and library documentation. Web mode rewrites caller queries through the Parallel-tuned LLM rewrite stage (`quick_web_search_rewrite.py`: original, refined, two decomposed angles; fail-open to originals; response `search_queries` carries the executed set) before dispatch |
 | `filters.py` | Temporal/locale normalization (`TemporalWindow`, `LocaleSpec`, wire-token mappers) |
 - Bright Data Google supports web/news freshness and mobile SERP emulation through provider kwargs. Full JSON harvesting keeps only URL-bearing, citable rows and orders mixed SERP sections by native `global_rank` before applying the requested result bound.
-- Bright Data query-ban and verification errors carry a 15-second retry hint but are not retried inside the interactive request budget.
-
+- Bright Data query-ban and verification errors retain the provider's 15-second retry hint but are never retried inline. Other inline retry sleeps are capped at two seconds, and the adapter owns exactly one retry layer.
 ## Contracts
 
 `research_goal` is required and nonblank.
@@ -39,7 +38,7 @@ Shared MCP/CLI web-search pipeline: planning, retrieval, ranking, 15 providers.
 Query rewrite generates 5 variants: one free query, two SERP queries, one semantic Tavily query, and one semantic Exa query. The six ordered `BranchRole` values are `original`, `free`, `serp1`, `serp2`, `semantic_tavily`, and `semantic_exa`.
 `reranking_instructions` passes caller guidance to cross-encoder & LLM rerankers.
 - Planning emits exactly 6 ordered branches with the provider assignments defined in `search/planning.py`.
-- Adaptive execution (`search/adaptive.py::run_adaptive_search`): the six-branch broad wave is retrieved unchanged, then an LLM proposes 1-2 `BranchRole.FOLLOWUP` queries from the ranked evidence (dedicated high-context `adaptive_search_llm` chain via `build_adaptive_router()`, strict `FollowupBatch`, `reasoning_effort="low"` on the proposal stage), wave two is dispatched to the first-encounter union of wave-one providers with `embedding_task=None` (Qdrant embeds the targeted text itself), a second LLM decides finish/one-final-wave, and the run always ends with one summarization-chain synthesis whose `[cN]` citations are validated against the final slate. Follow-up RRF lists vote at `rrf_followup_weight_factor` (0.5). Stop reasons: `sufficient_evidence`, `max_rounds`, `no_new_queries`, `no_results`, `retrieval_failure`, `decision_failed`; ceiling is `MAX_SEARCH_WAVES = 3`. `retrieve_branches` takes an explicit `branches` argument, appends outcomes to `run.outcomes`, and records `branch_index` (global, `branch_start + local`) in query-transform/provider rows; `persist_search_outcome` joins query transforms by that explicit index, never by role.
+- Adaptive execution (`search/adaptive.py::run_adaptive_search`) preserves the six-branch broad first wave, then asks the Gemini-first `adaptive_search_llm` for 1-2 evidence-gap queries and dispatches each as `BranchRole.FOLLOWUP` to the first-encounter union of wave-one providers. Follow-up and continuation outputs are strict Pydantic models; malformed JSON receives one schema-error-guided correction attempt. Exhausted inference/validation failures expose their concrete exception class and detail through the existing warning contract. Decision feedback retains each follow-up branch's `target_gap`; the continuation stage finishes only when every material `research_goal` requirement has direct evidence. The final summarization-chain call receives request filters, adaptive rounds, stop reason, rank/consensus/freshness signals, and the citable passage slate. Every nonempty cumulative slate is synthesized, including partial-wave `retrieval_failure` exits; failures still retain ranked results and warnings. Follow-up RRF lists vote at `rrf_followup_weight_factor` (0.5). Stop reasons and the three-wave ceiling remain unchanged.
 - After every wave `rank_and_finalize` re-ranks the FULL accumulated outcome tuple (it clears its ranking-owned `overflow_ranked`/`candidate_embeddings`/`rerank_metadata` state and accumulates `phase_timings`), so the last wave's cumulative ranking is the final global ranking. Final indexing and terminal persistence happen once, outside the wave loop.
 - Adaptive analytics rows are runtime-only: `search/outcomes.py` writes
   `adaptive_search_runs`, `adaptive_search_rounds`, and
@@ -47,6 +46,13 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
   `search_runs.payload_json` rows.
 - Provider assignment: only `branch.provider_names` are dispatched.
 - Specialized provider queries are dialect-shaped at the retrieve boundary; `provider_calls` stores both planner `branch_query` and adapter `request_query` plus endpoint/status/result-class diagnostics.
+- Adaptive decision prompt v4 prevents repeats at their source: a compact exact
+  history of branch and provider request texts appears beside the terminal task,
+  which requires an unused search move with a concrete retrieval discriminator.
+  Retrieval still suppresses an identical shaped request for the same provider
+  anywhere in one search run as a last-resort concurrency and shaping invariant.
+  Skips are diagnostic `status="skipped"` rows, never provider failures or RRF
+  votes; an all-duplicate follow-up wave terminates as `no_new_queries`.
 - Blocklist filtering precedes merge, BM25, dense scoring, analytics, and output.
 - Graph expansion is consumed only when rewrite is enabled and its feature flag is on. Effective seeds are stable-deduplicated, start with the normalized original query, remain capped at four, and carry SQLite generation/fingerprint/age/support/drop-reason metadata. It never adds provider branches or graph ranking features.
 - Pagination is global; providers receive retrieval depth, never result offset.
@@ -126,13 +132,15 @@ Bright Data exposes only the Google SERP provider under the catalog name `bright
 Downstream planner, rewrite, query understanding, and judge calls inherit
 attribution through ContextVar lookups in `LLMRouter._complete`.
 
-## Testing
+## Verification
+
+The repository test suite is frozen. Unless the user explicitly requests tests,
+verify search changes with throwaway runtime smoke scripts plus:
 
 ```bash
-uv run pytest tests/test_provider_registry.py tests/test_bm25_rerank.py tests/test_search_service.py
-uv run pytest tests/test_search_orchestrator.py tests/test_search_contracts.py
-uv run pytest tests/test_search_ranking.py tests/test_search_planning_why.py
-uv run pytest tests/test_search_provider_data.py tests/test_search_index_roundtrip.py
+uv run --no-sync ruff check src/
+uv run --no-sync ruff format --check src/
+uv run --no-sync ty check src
 ```
 
 ## Grok Native Search Boundary

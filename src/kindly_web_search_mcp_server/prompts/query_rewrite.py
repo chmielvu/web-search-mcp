@@ -4,6 +4,13 @@ This module OWNS the rewrite templates, output schema, and prompt version.
 ``search.planning`` consumes them; nothing imports private names from
 planning anymore.
 
+The five generated slots are a retrieval portfolio, not five rewrites: the
+pipeline searches the original normalized query as its own branch, so every
+slot must add retrieval signal. Decomposition follows the ReDI finding that
+sub-queries plus interpretation beat single-query expansion, and the
+stage-aware decomposition finding that each independent retrieval query must
+keep enough global context to stay discriminative on its own.
+
 Intent-specific angle blocks are adapted from:
 - ``C:/Users/Jan/Downloads/prompts.py`` ``query_writer_instructions``
   (topic analysis, recency, anti-assumption, few-shot subtopics)
@@ -29,14 +36,16 @@ __all__ = [
     "select_rewrite_prompt",
 ]
 
-REWRITE_PROMPT_VERSION = "10"
+REWRITE_PROMPT_VERSION = "11"
 
 REWRITE_SYSTEM = (
     "You are a production web-search query planner. Return exactly one JSON object "
     "with exactly five non-empty string keys: free, serp1, serp2, semantic_tavily, "
-    "semantic_exa. You generate the five retrieval angles. Treat the user query and "
-    "enrichment evidence as the source of query content; treat the research goal as "
-    "metadata only."
+    "semantic_exa. The original query is searched separately by the pipeline, so the "
+    "five outputs are a retrieval portfolio: one refined overview plus four "
+    "decomposed, deepening retrieval jobs. Query and enrichment evidence supply the "
+    "vocabulary; the research goal specifies the coverage requirements that the "
+    "portfolio must allocate. No output may merely restate the original query."
 )
 
 # Shared slot syntax + grounding. Angle strategy is injected via {intent_angles}.
@@ -47,7 +56,7 @@ Current Year: {current_year}
 Time Sensitivity: {time_sensitivity}
 Query: "{query}"
 Input Seed Queries: {seed_queries}
-Research Goal (metadata only): "{research_goal}"
+Research Goal (required coverage): "{research_goal}"
 </CURRENT_CONTEXT>
 
 <ENRICHMENT_EVIDENCE>
@@ -59,13 +68,16 @@ Preserve Exactly: {preserved_terms}
 </ENRICHMENT_EVIDENCE>
 
 <SOURCE_OF_TRUTH>
-- Substantive query terms come only from Query, Input Seed Queries, Support Terms,
-  Autosuggest Suggestions, Compared Entities, or Preserve Exactly.
+- Query, Input Seed Queries, Research Goal, and enrichment evidence define the
+  information need. Vocabulary may come from any of them; convert goal
+  requirements into search terms.
 - HARD INCLUSION: every non-empty Preserve Exactly term must occur literally in
   free, semantic_tavily, and semantic_exa. serp1 and serp2 include only the
   Preserve Exactly terms that belong to that slot's facet.
-- HARD GOAL SEPARATION: never copy, paraphrase, append, or reorder a multi-word phrase
-  from Research Goal. Restate the request using Query and enrichment terms.
+- HARD GOAL USE: the Research Goal lists the material coverage requirements.
+  Allocate distinct requirements across slots as short search terms (2-4 words
+  each). Never paste a clause, sentence, or the whole goal into a slot, and
+  never turn a goal assumption into an asserted fact.
 - Preserve technical compounds, named entities, products, protocols, APIs, models,
   error tokens, and quoted phrases exactly. Never invent facts, versions, benchmarks,
   or named sources.
@@ -92,6 +104,20 @@ When recency matters, prefer "current" / "{current_year}" over invented names.
 
 {intent_angles}
 
+<PORTFOLIO_CONTRACT>
+The original normalized query is a sixth branch that the pipeline already searches.
+Every generated slot must therefore add retrieval signal beyond restating it:
+- free: the refined overview — the whole topic with the strongest grounded vocabulary.
+- serp1: atomic subproblem A — one decisive requirement, named with the artifact,
+  mechanism, value, or evidence type that could answer it.
+- serp2: atomic subproblem B — a different requirement and evidence class. Swapping
+  one entity while repeating the same facet is a mirror, not a decomposition.
+- semantic_tavily: one connective question (cause, change, or trade-off) that links
+  facts the synthesis needs — not an overview paraphrase.
+- semantic_exa: a description of the authoritative page or primary-source class most
+  likely to resolve the hardest remaining requirement.
+</PORTFOLIO_CONTRACT>
+
 <FREE_QUERY_RULES>
 free: one provider-neutral keyword query of 6-14 high-signal words or short phrases.
 Use no operators or quotes. Add only grounded retrieval terms and add the year only
@@ -105,8 +131,10 @@ Do not use site:, filetype:, inurl:, intitle:, OR, AND, or NOT.
 Quotes only around a multi-word proper name if the name would otherwise split.
 If TIME_SENSITIVITY is recent or current, you MAY append the current year once;
 do not invent a year.
-serp1 and serp2 must cover different facets of Query.
-For a comparison, put option A in serp1 and option B (or A vs B) in serp2.
+serp1 and serp2 must each commit to a different requirement or evidence class.
+For a comparison, per-entity primary evidence is valid: pair each slot with one
+entity and one requirement, or one requirement across both entities; never restate
+the full requirement list in both slots with only the entity swapped.
 Preserve Exactly terms belong in the slot whose facet uses them;
 do not force every preserved term into both slots.
 </SERP_QUERY_RULES>
@@ -219,8 +247,8 @@ Query: "Compare the economic impact of renewable energy adoption in Germany vs F
 Compared Entities: ["Germany", "France"]
 {{
   "free": "Germany France renewable energy economic impact job creation GDP 2020",
-  "serp1": "Germany renewable energy economic impact job creation statistics 2020",
-  "serp2": "France renewable energy economic impact job creation statistics 2020",
+  "serp1": "Germany renewable energy job creation statistics 2020",
+  "serp2": "France renewable energy GDP growth 2020",
   "semantic_tavily": "which country saw stronger renewable energy job creation Germany or France since 2020",
   "semantic_exa": "Germany France renewable energy GDP growth comparison official statistics 2020"
 }}

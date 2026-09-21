@@ -82,6 +82,28 @@ def _provider_action_hint(
     return None
 
 
+def _provider_query_key(provider: str, query: str) -> tuple[str, str]:
+    """Canonical per-provider request key for run-scoped duplicate suppression."""
+    return provider, " ".join(query.split()).casefold()
+
+
+def _executed_provider_query_keys(run: SearchRun) -> set[tuple[str, str]]:
+    """Recover actual provider requests already dispatched in this search run."""
+    keys: set[tuple[str, str]] = set()
+    for outcome in run.outcomes:
+        for row in outcome.provider_calls:
+            provider = row.get("provider")
+            request_query = row.get("request_query")
+            if (
+                row.get("status") != "skipped"
+                and isinstance(provider, str)
+                and isinstance(request_query, str)
+                and request_query.strip()
+            ):
+                keys.add(_provider_query_key(provider, request_query))
+    return keys
+
+
 async def _call_provider(
     run: SearchRun,
     branch: QueryBranch,
@@ -90,6 +112,7 @@ async def _call_provider(
     *,
     branch_index: int,
     retrieve_deadline: float,
+    seen_provider_queries: set[tuple[str, str]],
 ) -> tuple[str, EngineCall | BaseException, ProviderRequestMetadata, str]:
     definition = get_provider_definition(provider_name)
     adapter = get_provider_adapter(provider_name)
@@ -147,6 +170,24 @@ async def _call_provider(
             "metadata_json": transform_metadata,
         }
     )
+    provider_query_key = _provider_query_key(provider_name, query_for_call)
+    if provider_query_key in seen_provider_queries:
+        return (
+            provider_name,
+            EngineCall(adapter=provider_name, query=query_for_call),
+            ProviderRequestMetadata(
+                provider=provider_name,
+                result_class="skipped",
+                error_type="duplicate_query",
+                error_summary="duplicate provider query suppressed",
+                response_meta={"duplicate_query_suppressed": True},
+                retryable=False,
+            ),
+            query_for_call,
+        )
+    # No await occurs between the membership check and add, so concurrent
+    # provider tasks cannot race an identical shaped request into the same run.
+    seen_provider_queries.add(provider_query_key)
     try:
         result = await asyncio.wait_for(
             adapter(
@@ -401,7 +442,9 @@ def _record_provider_result(
         {
             "provider": name,
             "status": (
-                "incomplete"
+                "skipped"
+                if metadata.result_class == "skipped"
+                else "incomplete"
                 if metadata.result_class == "incomplete"
                 else "error"
                 if (metadata.result_class == "error" or value.failure is not None)
@@ -453,6 +496,7 @@ async def retrieve_branches(
     retrieve_started = time.monotonic()
     retrieve_budget_seconds = settings.search_retrieve_budget_seconds
     retrieve_deadline = time.monotonic() + retrieve_budget_seconds
+    seen_provider_queries = _executed_provider_query_keys(run)
 
     with tracer.start_as_current_span("search.retrieve") as span:
         span.set_attribute("search.run_key", run.run_key)
@@ -510,6 +554,7 @@ async def retrieve_branches(
                         embedding_task,
                         branch_index=branch_start + i,
                         retrieve_deadline=retrieve_deadline,
+                        seen_provider_queries=seen_provider_queries,
                     )
                     return (
                         provider_name,
@@ -690,6 +735,16 @@ async def retrieve_branches(
         run.diagnostics.enrichment["retrieve_budget_seconds"] = retrieve_budget_seconds
         run.diagnostics.enrichment["retrieve_budget_exceeded"] = (
             run.diagnostics.enrichment.get("retrieve_budget_exceeded") or retrieve_budget_exceeded
+        )
+        duplicate_query_skips = sum(
+            1
+            for outcome in outcomes
+            for call in outcome.provider_calls
+            if call.get("status") == "skipped" and call.get("error_type") == "duplicate_query"
+        )
+        run.diagnostics.enrichment["duplicate_provider_queries_suppressed"] = (
+            run.diagnostics.enrichment.get("duplicate_provider_queries_suppressed", 0)
+            + duplicate_query_skips
         )
         span.set_attribute("search.provider_outcome_count", len(outcomes))
         span.set_attribute("search.retrieve_budget_exceeded", retrieve_budget_exceeded)

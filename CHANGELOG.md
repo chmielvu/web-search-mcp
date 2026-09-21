@@ -1,4 +1,71 @@
 ## [Unreleased]
+### Changed — Query rewrite prompt v11: retrieval portfolio over paraphrase variants (2026-09-21)
+- `prompts/query_rewrite.py` v11 reframes the five rewrite slots as a retrieval
+  portfolio: the pipeline already searches the original normalized query as its own
+  branch, so `free` is a refined overview, `serp1`/`serp2` are atomic subproblems
+  each committed to a different requirement or evidence class, `semantic_tavily`
+  asks a connective cause/change/trade-off question, and `semantic_exa` describes
+  the authoritative page or primary-source class. The research goal is now the
+  coverage specification (`HARD GOAL USE` replaces `HARD GOAL SEPARATION`):
+  its material requirements are allocated across slots as short search terms while
+  pasting a goal clause, sentence, or assumption-as-fact stays forbidden.
+- The comparison SERP rule now requires entity×requirement pairing (per-entity
+  primary evidence is valid, but restating the full requirement list in both slots
+  with only the entity swapped is a mirror), and the Germany/France few-shot was
+  updated to demonstrate the pairing. `REWRITE_PROMPT_VERSION` is 11 (rewrite
+  cache keys and JSONL telemetry pick it up automatically); the `RewrittenQueries`
+  schema, six-branch planner topology, and public MCP contract are unchanged.
+- Verified live on the worker chain (frozen tests untouched): three fixed dev cases
+  (poor regional-history query, vague technical query, broad comparison) moved from
+  paraphrase/near-mirror baselines to requirement-driven portfolios, and two
+  holdout cases (recency-sensitive regulation, underspecified general) confirmed
+  the pattern generalizes with preserved-term inclusion intact.
+- Adaptive follow-up, continuation, and synthesis outputs now pass through their
+  strict Pydantic models inside a bounded recovery path. One malformed JSON
+  result receives a schema-error-guided correction attempt; exhausted inference
+  or validation failures expose the concrete exception class and message in the
+  existing warning and adaptive-round diagnostics instead of collapsing to an
+  opaque `decision_failed`.
+- Adaptive decision prompt contract v4 now puts a compact exact history of
+  branch queries and provider request texts beside the terminal task. Follow-up
+  waves must choose an unused search move with a concrete retrieval
+  discriminator; rephrasing, word reordering, and generic qualifier additions
+  no longer qualify as novelty.
+- Retrieval retains identical shaped-query suppression for the same provider as
+  a last-resort concurrency and provider-shaping invariant across branches and
+  adaptive waves. Suppressed calls are diagnostic `skipped` rows, do not count
+  as provider failures or RRF votes, and an all-duplicate follow-up wave
+  terminates as `no_new_queries`.
+- Bright Data no longer nests the shared provider retry loop inside its own
+  page retry loop. Per-query bans are surfaced on the first attempt, other
+  inline retry sleeps are capped at two seconds, and exactly one adapter-owned
+  retry can occur within the retrieve deadline.
+- Fastembed now retries transient `httpx.TransportError` disconnects under the
+  existing embedding retry count, with sleeps capped at two seconds, before
+  surfacing the concrete exhausted transport error. Tavily and Qdrant provider
+  availability classifications are unchanged.
+- Public MCP input/output schemas are unchanged. The frozen repository tests
+  were not inspected or run.
+
+### Changed — Adaptive search coverage decisions and goal-conditioned synthesis (2026-09-21)
+- `prompts/adaptive_search.py` prompt contract v3 decomposes the research goal
+  into material evidence requirements, makes continuation choose another wave
+  whenever a concrete requirement lacks direct support, preserves exact request
+  terms while permitting useful technical aliases, and asks for complementary
+  gap-closing queries rather than paraphrases. Internal schema descriptions now
+  expose those semantics to Gemini without changing the JSON shape.
+- Decision feedback carries each follow-up branch's `target_gap`. Final synthesis
+  now sees the original query, required research goal, request filters, adaptive
+  rounds, stop reason, and rank/consensus/freshness signals alongside the citable
+  passages; the public MCP response schema is unchanged.
+- Partial later-wave retrieval failure no longer suppresses synthesis of usable
+  cumulative evidence. Any nonempty ranked slate reaches the summarization chain
+  while `retrieval_failure` remains the reported stop reason.
+- Live fixed-slice prompt evaluation on `gemini-3.5-flash-lite@google` corrected
+  the observed premature-finish case (missing exact default and precedence rule)
+  from `finish` to a targeted `search` decision while retaining the covered-case
+  `finish` decision. Frozen repository tests were not inspected or run.
+
 ### Removed — `include_domains` dropped from the quick_web_search agent-facing schema (2026-09-21)
 - Rationale: `include_domains` is a hard retrieval allowlist that significantly
   narrows the corpus, and agent-supplied values reliably degrade result quality.

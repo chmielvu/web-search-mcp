@@ -928,6 +928,7 @@ _INLINE_RETRY_BAN_CODES = frozenset({"failed_query_rejected", "repeat_query_reje
 # Per-query rejections and challenge pages must not be retried for at least
 # 15 seconds per the docs; the missing header falls back to that floor.
 _MIN_QUERY_RETRY_SECONDS = 15.0
+_MAX_INLINE_RETRY_DELAY_SECONDS = 2.0
 
 
 def _engine_failure(exc: ProviderRequestError) -> EngineFailure:
@@ -995,10 +996,11 @@ def _banned_response_code(error: ProviderRequestError) -> str | None:
 
 
 def _retry_delay(error: ProviderRequestError, remaining_seconds: float) -> float | None:
-    """Return the upstream retry delay when the remaining request budget allows it.
+    """Return a short retry delay that fits both the provider and wave budgets.
 
-    Returns ``None`` for codes that the docs ban from inline retries: callers
-    must surface the typed failure instead of sleeping the 15-second floor.
+    Per-query bans are never retried inline. Other provider delays above two
+    seconds are surfaced to the caller rather than consuming an interactive
+    search wave on a likely-stale retry.
     """
     if _banned_response_code(error) is not None:
         return None
@@ -1014,7 +1016,7 @@ def _retry_delay(error: ProviderRequestError, remaining_seconds: float) -> float
             delay = float(raw_delay)
         except ValueError:
             delay = 0.1
-    if delay < 0:
+    if delay < 0 or delay > _MAX_INLINE_RETRY_DELAY_SECONDS:
         return None
     return delay if delay < remaining_seconds else None
 
@@ -1058,6 +1060,7 @@ async def _run_page[TResponse](
                 parse_response=parse_response,
                 http_client=http_client,
                 timeout_seconds=remaining,
+                max_retries=0,
             )
         except ProviderRequestError as exc:
             metadata = exc.metadata

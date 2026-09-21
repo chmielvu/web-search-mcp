@@ -24,6 +24,7 @@ from ..settings import settings
 
 EMBEDDING_DIM = 384
 LOGGER = logging.getLogger(__name__)
+_MAX_RETRY_DELAY_SECONDS = 2.0
 
 
 class EmbeddingDimensionError(ValueError):
@@ -129,7 +130,7 @@ async def embed_texts(
     resolved_dim = expected_dim or settings.embedding_dim or EMBEDDING_DIM
     resolved_timeout = timeout if timeout is not None else settings.embedding_timeout_seconds
     resolved_retries = max_retries if max_retries is not None else settings.embedding_max_retries
-    retry_delay = settings.embedding_retry_delay_seconds
+    retry_delay = min(settings.embedding_retry_delay_seconds, _MAX_RETRY_DELAY_SECONDS)
 
     endpoint = f"{resolved_base_url}/embed"
     payload = {"texts": texts}
@@ -163,11 +164,38 @@ async def embed_texts(
                 raise EmbeddingTimeoutError(
                     f"fastembed embedding request timed out ({resolved_retries + 1} attempts)"
                 ) from e
-        except Exception as e:
-            LOGGER.error(f"fastembed embedding API request failed: {type(e).__name__}: {e}")
+        except httpx.TransportError as exc:
+            if attempt < resolved_retries:
+                LOGGER.warning(
+                    "fastembed transport failure %s on attempt %d/%d; retrying in %.1fs",
+                    type(exc).__name__,
+                    attempt + 1,
+                    resolved_retries + 1,
+                    retry_delay,
+                )
+                await asyncio.sleep(retry_delay)
+            else:
+                LOGGER.error(
+                    "fastembed transport failed after %d attempts: %s: %s",
+                    resolved_retries + 1,
+                    type(exc).__name__,
+                    exc,
+                    exc_info=True,
+                )
+                raise EmbeddingAPIError(
+                    "fastembed embedding transport failed after "
+                    f"{resolved_retries + 1} attempts: {type(exc).__name__}: {exc}"
+                ) from exc
+        except Exception as exc:
+            LOGGER.error(
+                "fastembed embedding API request failed: %s: %s",
+                type(exc).__name__,
+                exc,
+                exc_info=True,
+            )
             raise EmbeddingAPIError(
-                f"fastembed embedding API request failed: {type(e).__name__}: {e}"
-            ) from e
+                f"fastembed embedding API request failed: {type(exc).__name__}: {exc}"
+            ) from exc
 
     if raw_data is None:
         raise EmbeddingAPIError("embedding request produced no response")
