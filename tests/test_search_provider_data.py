@@ -16,6 +16,12 @@ from kindly_web_search_mcp_server.search.evidence import render_search_hit_text
 from kindly_web_search_mcp_server.search.filters import TemporalWindow
 from kindly_web_search_mcp_server.search.merge import reciprocal_rank_fusion
 from kindly_web_search_mcp_server.search.options import SearchOptions
+from kindly_web_search_mcp_server.search.provider_registry import failover_candidates
+from kindly_web_search_mcp_server.search.providers.base import (
+    ProviderRequestError,
+    ProviderRequestMetadata,
+    is_quota_exhausted_status,
+)
 from kindly_web_search_mcp_server.search.providers.brightdata import (
     BrightDataError,
     _engine_failure,
@@ -25,7 +31,10 @@ from kindly_web_search_mcp_server.search.providers.exa import search_exa
 from kindly_web_search_mcp_server.search.providers.searxng import search_searxng
 from kindly_web_search_mcp_server.search.providers.tavily import search_tavily
 from kindly_web_search_mcp_server.search.ranking import _collect_expansion_evidence
-from kindly_web_search_mcp_server.search.retrieval import _record_provider_result
+from kindly_web_search_mcp_server.search.retrieval import (
+    _is_quota_exhausted,
+    _record_provider_result,
+)
 from kindly_web_search_mcp_server.search.types import (
     EngineCall,
     QueryIntegrity,
@@ -439,6 +448,38 @@ def test_expansion_evidence_requires_independent_call_support() -> None:
         ("single expansion", 1),
     ]
     assert signals[0].adapters == ("one", "two")
+
+
+def test_quota_statuses_detect_plan_exhaustion() -> None:
+    """402/432/433 are quota exhaustion; 401/404/429/500 are not."""
+    assert is_quota_exhausted_status(402)
+    assert is_quota_exhausted_status(432)
+    assert is_quota_exhausted_status(433)
+    assert not is_quota_exhausted_status(401)
+    assert not is_quota_exhausted_status(404)
+    assert not is_quota_exhausted_status(429)
+    assert not is_quota_exhausted_status(500)
+    assert not is_quota_exhausted_status(None)
+
+
+def test_failover_candidates_follow_semantic_baskets() -> None:
+    """Basket siblings exclude self and unavailable providers."""
+    assert failover_candidates("tavily", ("tavily", "langsearch")) == ("langsearch",)
+    assert failover_candidates("langsearch", ("tavily", "langsearch")) == ("tavily",)
+    assert failover_candidates("tavily", ("tavily",)) == ()
+    assert failover_candidates("exa", ("tavily", "langsearch", "exa")) == ()
+    assert failover_candidates("brightdata", ("brightdata", "serper")) == ("serper",)
+
+
+def test_quota_predicate_ignores_success_and_non_quota() -> None:
+    """Only failed calls with quota status/type are failover-eligible."""
+    quota = ProviderRequestMetadata(
+        provider="tavily", http_status=432, error_type="quota_exhausted"
+    )
+    assert _is_quota_exhausted(ProviderRequestError("plan limit", metadata=quota), quota)
+    assert not _is_quota_exhausted(EngineCall(adapter="tavily", query="query"), quota)
+    other = ProviderRequestMetadata(provider="tavily", http_status=400, error_type="http_status")
+    assert not _is_quota_exhausted(ProviderRequestError("bad request", metadata=other), other)
 
 
 def test_guidance_derives_provider_count_from_public_hits(

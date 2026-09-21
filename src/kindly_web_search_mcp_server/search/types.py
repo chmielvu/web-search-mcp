@@ -17,6 +17,7 @@ SourceKind = Literal["forum", "video", "social", "official", "news", "docs", "ot
 FailureKind = Literal[
     "parse_error",
     "rate_limited",
+    "quota_exhausted",
     "bot_challenge",
     "permission_denied",
     "budget_exhausted",

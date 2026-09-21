@@ -60,6 +60,20 @@ def get_provider_request_metadata() -> ProviderRequestMetadata | None:
     return _provider_metadata_context.get()
 
 
+# Quota/plan-exhaustion statuses: the account's credit or plan usage is spent
+# and the same request will fail on immediate retry against the same provider.
+# These are failover-eligible: the routing layer may yield to the next
+# provider in the branch's basket instead of retrying the depleted one.
+#   402 Payment Required: generic paywall (inference engine already treats
+#       402 as provider-local chain advance).
+#   432 Tavily "Key limit or Plan Limit exceeded": plan usage spent
+#       ("This request exceeds your plan's set usage limit. Please upgrade
+#       your plan or contact support@tavily.com").
+#   433 Tavily "PayGo limit exceeded": pay-as-you-go cap spent
+#       ("You can increase your limit on the Tavily dashboard").
+QUOTA_EXHAUSTED_HTTP_STATUSES = frozenset({402, 432, 433})
+
+
 def _with_metadata(
     metadata: ProviderRequestMetadata,
     **updates: object,
@@ -80,11 +94,18 @@ def _with_metadata(
     return ProviderRequestMetadata(**values)
 
 
+def is_quota_exhausted_status(status_code: int | None) -> bool:
+    """Return True when an HTTP status signals plan/quota exhaustion."""
+    return status_code in QUOTA_EXHAUSTED_HTTP_STATUSES
+
+
 def _classify_http_status(status_code: int) -> str:
     if status_code in {401, 403, 407}:
         return "auth"
     if status_code == 429:
         return "rate_limit"
+    if is_quota_exhausted_status(status_code):
+        return "quota_exhausted"
     if status_code >= 500:
         return "upstream"
     return "http_status"

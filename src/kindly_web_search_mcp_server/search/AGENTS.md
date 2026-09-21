@@ -45,7 +45,7 @@ Query rewrite generates 5 variants: one free query, two SERP queries, one semant
   `adaptive_search_proposals`; schema installation MUST NOT backfill existing
   `search_runs.payload_json` rows.
 - Provider assignment: only `branch.provider_names` are dispatched.
-- Specialized provider queries are dialect-shaped at the retrieve boundary; `provider_calls` stores both planner `branch_query` and adapter `request_query` plus endpoint/status/result-class diagnostics.
+- Quota/plan exhaustion (`provider_calls.error_type="quota_exhausted"`, HTTP 402/432/433 — Tavily documents 432 as plan-limit and 433 as PayGo-limit exhaustion) fails over to the next unattempted provider in the same branch basket via the data-driven `_FAILOVER_BASKETS` in `provider_registry.py` (currently `("tavily", "langsearch")` and the paid-Google triple). The depleted provider's own error row is recorded first, then the alternate is dispatched and recorded on the same branch; outcome assembly is unchanged and `attempted_provider_names` includes the failover.
 - Adaptive decision prompt v4 prevents repeats at their source: a compact exact
   history of branch and provider request texts appears beside the terminal task,
   which requires an unused search move with a concrete retrieval discriminator.

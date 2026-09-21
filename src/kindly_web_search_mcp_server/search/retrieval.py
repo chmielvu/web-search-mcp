@@ -18,8 +18,17 @@ from ..utils.url_canonicalize import canonicalize_url
 from .contracts import BranchOutcome, BranchRole, QueryBranch, SearchRun
 from .diagnostics import branch_outcome_preview
 from .evidence import testimony_payload
-from .provider_registry import get_provider_adapter, get_provider_definition
-from .providers.base import ProviderRequestMetadata, get_provider_request_metadata
+from .provider_registry import (
+    failover_candidates,
+    get_provider_adapter,
+    get_provider_definition,
+    select_provider_names,
+)
+from .providers.base import (
+    ProviderRequestMetadata,
+    get_provider_request_metadata,
+    is_quota_exhausted_status,
+)
 from .types import EngineCall, SearchHit
 
 
@@ -61,6 +70,11 @@ def _provider_action_hint(
             f"Provider {provider} is rate limited; wait {wait} before retrying "
             "or reduce query frequency."
         )
+    if error_type == "quota_exhausted":
+        return (
+            f"Provider {provider} exhausted its plan/quota; requests fail over "
+            "to the next provider in the branch basket."
+        )
     if error_type in {"auth", "http_401", "http_403", "forbidden", "unauthorized"}:
         return f"Provider {provider} rejected credentials; verify the API key/token configuration."
     if error_type in {"timeout", "upstream", "network", "http_408", "http_425"} or (
@@ -85,6 +99,111 @@ def _provider_action_hint(
 def _provider_query_key(provider: str, query: str) -> tuple[str, str]:
     """Canonical per-provider request key for run-scoped duplicate suppression."""
     return provider, " ".join(query.split()).casefold()
+
+
+def _is_quota_exhausted(
+    value: EngineCall | BaseException | None, metadata: ProviderRequestMetadata
+) -> bool:
+    """True when a provider call failed because its plan/quota is exhausted.
+
+    A quota failure against one provider is a routing signal, not a request
+    defect: the same request may still succeed against another provider in
+    the branch's basket. ``metadata.http_status`` is the primary signal
+    (402/432/433); the classified ``quota_exhausted`` error type covers
+    providers that normalize the status into their own metadata first.
+    """
+    if value is None or isinstance(value, EngineCall):
+        return False
+    return metadata.error_type == "quota_exhausted" or (
+        metadata.http_status is not None and is_quota_exhausted_status(metadata.http_status)
+    )
+
+
+async def _execute_next_basket_alternate(
+    run: SearchRun,
+    branch: QueryBranch,
+    exhausted_provider: str,
+    embedding_task: Awaitable[Sequence[float]] | None,
+    *,
+    branch_index: int,
+    retrieve_deadline: float,
+    seen_provider_queries: set[tuple[str, str]],
+    branch_attempted: list[str],
+    branch_engine_calls: list[EngineCall],
+    branch_provider_result_rows: list[dict[str, Any]],
+    warnings_by_name: dict[str, ProviderWarning],
+    calls: list[dict[str, Any]],
+    visited: set[str],
+) -> None:
+    """Dispatch the next basket alternate after a quota-exhausted failure.
+
+    The nested provider's own basket alternates come first: when the branch
+    lists several providers, the exhausted one's unattempted siblings take
+    priority, and only then the generic basket is consulted. In the common
+    case (branch names one exhausted provider) these coincide, so a
+    ``semantic_tavily`` branch assigned only ``tavily`` still reaches
+    ``langsearch`` from the generic ``("tavily", "langsearch")`` basket.
+    Only unvisited alternates are tried, so the walk terminates: each
+    recursion consumes one provider from the caller-supplied candidates.
+    ``visited`` must already contain every dispatched provider, including
+    the exhausted one; the helper appends each alternate it dispatches.
+    """
+    seen = visited
+    attempted = {row.get("provider") for row in calls} | set(branch_attempted)
+    ordered = [name for name in branch.provider_names if name not in attempted]
+    ordered.extend(
+        name
+        for name in failover_candidates(exhausted_provider, select_provider_names())
+        if name not in attempted and name not in ordered
+    )
+    alternates = [name for name in ordered if name not in seen]
+    if not alternates:
+        return
+    failover_name = alternates[0]
+    failover_started = time.monotonic()
+    failover_name, value, metadata, request_query = await _call_provider(
+        run,
+        branch,
+        failover_name,
+        embedding_task,
+        branch_index=branch_index,
+        retrieve_deadline=retrieve_deadline,
+        seen_provider_queries=seen_provider_queries,
+    )
+    latency_ms = (time.monotonic() - failover_started) * 1000.0
+    branch_attempted.append(failover_name)
+    _record_provider_result(
+        branch=branch,
+        branch_index=branch_index,
+        name=failover_name,
+        value=value,
+        latency_ms=latency_ms,
+        warnings_by_name=warnings_by_name,
+        provider_calls=calls,
+        branch_engine_calls=branch_engine_calls,
+        provider_result_rows=branch_provider_result_rows,
+        run_key=run.run_key,
+        request_query=request_query,
+        metadata=metadata,
+    )
+    if not _is_quota_exhausted(value, metadata):
+        return
+    seen.add(failover_name)
+    await _execute_next_basket_alternate(
+        run,
+        branch,
+        failover_name,
+        embedding_task,
+        branch_index=branch_index,
+        retrieve_deadline=retrieve_deadline,
+        seen_provider_queries=seen_provider_queries,
+        branch_attempted=branch_attempted,
+        branch_engine_calls=branch_engine_calls,
+        branch_provider_result_rows=branch_provider_result_rows,
+        warnings_by_name=warnings_by_name,
+        calls=calls,
+        visited=seen,
+    )
 
 
 def _executed_provider_query_keys(run: SearchRun) -> set[tuple[str, str]]:
@@ -369,6 +488,7 @@ def _record_provider_result(
     if value.failure is not None:
         failure_kind_map = {
             "rate_limited": "rate_limit",
+            "quota_exhausted": "quota_exhausted",
             "timeout": "timeout",
             "bot_challenge": "bot_challenge",
             "permission_denied": "auth",
@@ -531,7 +651,6 @@ async def retrieve_branches(
             branch_attempted.append(attempted)
             branch_warnings.append({})
             branch_calls.append([])
-
             for name in assigned_names:
 
                 async def _invoke(
@@ -678,6 +797,22 @@ async def retrieve_branches(
                     request_query=request_query,
                     metadata=metadata,
                 )
+                if _is_quota_exhausted(value, metadata):
+                    await _execute_next_basket_alternate(
+                        run,
+                        branch,
+                        provider_name,
+                        embedding_task,
+                        branch_index=branch_index,
+                        retrieve_deadline=retrieve_deadline,
+                        seen_provider_queries=seen_provider_queries,
+                        branch_attempted=branch_attempted[local_index],
+                        branch_engine_calls=branch_engine_calls[local_index],
+                        branch_provider_result_rows=branch_provider_result_rows[local_index],
+                        warnings_by_name=warnings_by_name,
+                        calls=calls,
+                        visited={provider_name} | set(branch_attempted[local_index]),
+                    )
         except asyncio.CancelledError:
             await cancel_and_drain_tasks(tasks)
             raise

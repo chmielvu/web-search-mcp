@@ -1,4 +1,36 @@
 ## [Unreleased]
+### Fixed — Quota-exhausted providers fail over within the branch basket (2026-09-21)
+- Root cause: Tavily plan/pay-as-you-go exhaustion returns HTTP 432
+  ("Key limit or Plan Limit exceeded") or 433 ("PayGo limit exceeded")
+  per the Tavily search OpenAPI contract. The shared classifier folded
+  both into generic `http_status` with `retryable=False`, so the depleted
+  provider's branch recorded an error row and the wave lost that basket
+  even when a sibling (e.g. Langsearch) was configured. Production
+  `provider_calls` show 51 Tavily 432 errors (2026-09-19 → 2026-09-21).
+- `search/providers/base.py`: new `QUOTA_EXHAUSTED_HTTP_STATUSES =
+  {402, 432, 433}` with `is_quota_exhausted_status()`; `_classify_http_status`
+  now emits `quota_exhausted` for those statuses. Quota statuses stay out
+  of `_RETRYABLE_HTTP_STATUSES`, so `run_provider` never burns retries on
+  a depleted provider. 429 keeps the existing rate-limit path; other 4xx/5xx
+  classifications are unchanged.
+- `search/provider_registry.py`: new data-driven `_FAILOVER_BASKETS`
+  (`("tavily", "langsearch")`, paid-Google triple) with public
+  `failover_candidates()` returning ordered, reachable-only alternates —
+  no provider-name branching in the retrieval layer.
+- `search/retrieval.py`: quota failures dispatch the next unattempted
+  basket sibling on the same branch (`_execute_next_basket_alternate`,
+  branch basket first, then the generic basket; visited-set recursion
+  terminates at basket size). Both the depleted provider's error row and
+  the alternate's row are recorded with unchanged outcome assembly; the
+  warning contract gains a `quota_exhausted` action hint; `types.py`
+  `FailureKind` gains a `quota_exhausted` arm with matching map entry.
+- Verified: `ruff check src/`, targeted `ruff format --check`, and full
+  `ty check src` clean; `tests/test_search_provider_data.py` 14/14 pass
+  (3 new quota/basket regression tests); live mock harness proves a
+  Tavily 432 with the documented plan-limit payload classifies as
+  `quota_exhausted`/`retryable=False` and the `semantic_tavily` branch
+  records Langsearch hits, while a 400 alternate dispatches exactly once
+  with no recursion.
 ### Changed — Query rewrite prompt v11: retrieval portfolio over paraphrase variants (2026-09-21)
 - `prompts/query_rewrite.py` v11 reframes the five rewrite slots as a retrieval
   portfolio: the pipeline already searches the original normalized query as its own

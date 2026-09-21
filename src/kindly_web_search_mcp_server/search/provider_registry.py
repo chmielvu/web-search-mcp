@@ -28,6 +28,7 @@ __all__ = [
     "ProviderDiagnosis",
     "brightdata_provider_call_timeout_seconds",
     "diagnose_providers",
+    "failover_candidates",
     "get_provider_adapter",
     "get_provider_definition",
     "provider_is_reachable",
@@ -41,6 +42,28 @@ _GOOGLE_RR_CURSOR = 0
 _SEMANTIC_TAVILY_ORDER = ("tavily", "langsearch")
 _SEMANTIC_TAVILY_RR_LOCK = threading.Lock()
 _SEMANTIC_TAVILY_RR_CURSOR = 0
+
+# Generic failover baskets: ordered providers serving the same retrieval role,
+# so a quota-exhausted provider yields to its next available sibling. Kept
+# data-driven — the retrieval layer branches on basket membership, never on
+# provider names.
+_FAILOVER_BASKETS: tuple[tuple[str, ...], ...] = (
+    ("tavily", "langsearch"),
+    ("brightdata", "serper", "search_router"),
+)
+
+
+def failover_candidates(provider_name: str, available_names: Sequence[str]) -> tuple[str, ...]:
+    """Ordered alternates sharing the provider's basket, excluding itself.
+
+    Only names present in ``available_names`` are returned, so unconfigured
+    providers are never selected. Empty when the provider has no basket.
+    """
+    available = set(available_names)
+    for basket in _FAILOVER_BASKETS:
+        if provider_name in basket:
+            return tuple(name for name in basket if name != provider_name and name in available)
+    return ()
 
 
 class ProviderAdapter(Protocol):
