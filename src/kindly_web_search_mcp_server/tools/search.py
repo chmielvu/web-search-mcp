@@ -131,8 +131,19 @@ async def web_search(
         str | None,
         Field(
             description=(
-                "response.cursor from this tool. Pages leftover links from that run; "
-                "does not re-search. Cursor pages return title and url only."
+                "Opaque page token from response.cursor. Pages leftover links "
+                "from that run; does not re-search. Cursor pages return title "
+                "and url only; pass response.run_key alongside cursor."
+            )
+        ),
+    ] = None,
+    run_key: Annotated[
+        str | None,
+        Field(
+            description=(
+                "response.run_key from the search that produced the cursor. "
+                "Required together with cursor; identifies the retained run "
+                "whose leftover links to page."
             )
         ),
     ] = None,
@@ -167,11 +178,7 @@ async def web_search(
     from ..search.contracts import SearchRun, WebSearchRequest
     from ..search.service import execute_web_search
     from ..utils.http_client import get_http_client
-    from ..utils.public_output import (
-        decode_web_search_overflow_cursor,
-        page_overflow_cursor,
-        to_public_web_search_from_run,
-    )
+    from ..utils.public_output import page_overflow_cursor, to_public_web_search_from_run
 
     started = time.monotonic()
     tool_call_id = str(uuid.uuid4())
@@ -187,7 +194,9 @@ async def web_search(
     )
     if cursor and cursor.strip():
         try:
-            public = page_overflow_cursor(decode_web_search_overflow_cursor(cursor.strip()))
+            if not (run_key and run_key.strip()):
+                raise ValueError("run_key is required together with cursor.")
+            public = page_overflow_cursor(run_key.strip(), cursor.strip())
         except ValueError as exc:
             _record_tool_failure("web_search")
             emit_tool_observability_event(

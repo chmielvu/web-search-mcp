@@ -15,7 +15,7 @@ import logging
 import duckdb
 
 from ..embedding_sql import _ensure_embedding_similarity_view
-from ..fts_sql import ensure_fts_loaded
+from ..fts_sql import ensure_fts_loaded, repair_fts_wal
 from .connection import (
     _LOCK,
     _db_path,
@@ -1328,6 +1328,12 @@ def ensure_store_schema(*, db_path: str | None = None) -> None:
 
     path = _db_path(db_path)
     path.parent.mkdir(parents=True, exist_ok=True)
+
+    # A WAL containing FTS index DDL cannot be replayed after an unclean
+    # shutdown, which makes every open of the database fail.  Archive it
+    # (bytes preserved) and rebuild the indexes before anything opens
+    # the file.
+    repair_fts_wal(str(path))
 
     # FlockMTL INSTALL + LOAD is a network operation that writes only to
     # DuckDB's local extension cache (~/.duckdb/), not the user database.

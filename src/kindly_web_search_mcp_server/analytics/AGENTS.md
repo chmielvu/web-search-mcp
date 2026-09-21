@@ -18,6 +18,7 @@ DuckDB-backed analytics, quality metrics, LLM judge pipeline, and reports.
 | `writers/inserts.py` | Typed SQL insert statements for pipeline entities |
 | `writers/table_names.py` | Canonical DuckDB table name definitions |
 | `writers/connection.py` | `_db_path` + `_LOCK` + FlockMTL resources |
+| `fts_sql.py` | FTS bootstrap + BM25 read queries; `refresh_fts_indexes` (rebuild + checkpoint) and `repair_fts_wal` (poisoned-WAL recovery) |
 | `judges/` | FlockMTL LLM-as-Judge orchestrator (6 facets): `run.py` (`judge_search_run`, `schedule_judge_search_run`), `executor.py` (daemon pool lifecycle), `stages.py` (stage calling + parsing), `digest.py` (run digest), `jobs.py` (parallel-facet primitives), `persistence.py` (judgment rows) |
 | `judge_runner.py` | Fire-and-forget judge evaluation |
 | `quality_metrics.py` | Run-level quality scoring |
@@ -88,6 +89,7 @@ Six fixed roles stored as `branch_role` on `search_branches` and `provider_calls
 ## Rules
 
 - DuckDB is disposable; recreated from fresh DDL.
+- FTS index DDL must never sit in an uncheckpointed WAL: DuckDB 1.5.x cannot replay a WAL containing FTS rebuild DDL after an unclean shutdown (replay fails with a `fts_main_*` dependency error and every open fails). `refresh_fts_indexes` therefore runs `CHECKPOINT` (with vss loaded so persisted HNSW indexes can serialize) immediately after rebuilding, and `ensure_store_schema` calls `repair_fts_wal` on startup, which archives an unreplayable WAL (bytes preserved as `<db>.wal.unreplayable-<timestamp>`) and rebuilds the indexes. Do not reintroduce FTS rebuilds without a trailing checkpoint.
 - All persistence is non-blocking via `dispatch_duckdb_write` (single-worker executor).
 - Hot-path collection is in-memory only.
 - Judge evaluation never blocks the response path.

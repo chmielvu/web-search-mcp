@@ -46,7 +46,17 @@ async def execute_google(
     genai_config = config or genai_types.GenerateContentConfig()
     if response_format is not None:
         genai_config.response_mime_type = "application/json"
-        genai_config.response_json_schema = response_format
+        # The SDK serializes GenerateContentConfig with pydantic, which
+        # cannot serialize a model *class* (ModelMetaclass) — passing one
+        # raises PydanticSerializationError inside generate_content. The
+        # synthesis path already passes a plain dict; normalize every
+        # response_format to its JSON-schema dict here so all callers
+        # (adaptive followup/continuation included) send a valid schema.
+        schema = response_format
+        model_dump = getattr(response_format, "model_json_schema", None)
+        if callable(model_dump):
+            schema = model_dump()
+        genai_config.response_json_schema = schema
 
     if tools:
         for tool in tools:

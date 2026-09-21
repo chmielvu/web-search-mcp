@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import time
 from typing import Any
 
 from ..models import (
@@ -25,7 +26,7 @@ from ..search.ranking import _build_freshness_signal
 from ..search.types import ScoredHit, SearchHit
 from .text_clean import clean_text_for_llm
 
-_OVERFLOW_CURSOR_VERSION = 2
+_PAGE_TTL_SECONDS = 24 * 60 * 60
 _FETCH_NEXT_LIMIT = 5
 
 # --- Snippet normalization (merged from snippet_normalizer.py) ---
@@ -91,33 +92,32 @@ _OVERFLOW_FETCH_WHY = (
 )
 
 
-def encode_web_search_overflow_cursor(payload: dict[str, Any]) -> str:
-    return base64.urlsafe_b64encode(
-        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-    ).decode("ascii")
+def encode_cursor(offset: int) -> str:
+    """Encode a page offset as an opaque base64url cursor (PraisonAI/FastMCP shape).
+
+    The cursor carries position only — never result data. Leftover items live
+    server-side in the page store keyed by run; the caller pairs this token
+    with the run it came from.
+    """
+    return base64.urlsafe_b64encode(str(offset).encode()).decode().rstrip("=")
 
 
-def decode_web_search_overflow_cursor(cursor: str) -> dict[str, Any]:
+def decode_cursor(cursor: str) -> int:
+    """Decode an offset cursor; raise ValueError when malformed or tampered with."""
     try:
-        decoded = json.loads(base64.urlsafe_b64decode(cursor.encode("ascii")))
+        padded = cursor + "=" * (-len(cursor) % 4)
+        offset = int(base64.urlsafe_b64decode(padded.encode()).decode())
     except Exception as exc:
         raise ValueError(
             "Invalid web_search cursor. Call web_search without cursor to start a new search, "
             "then pass response.cursor to page leftover links from that run."
         ) from exc
-    if not isinstance(decoded, dict):
+    if isinstance(offset, bool) or offset < 0:
         raise ValueError(
-            "Invalid web_search cursor. Call web_search without cursor to start a new search."
+            "Invalid web_search cursor. Call web_search without cursor to start a new search, "
+            "then pass response.cursor to page leftover links from that run."
         )
-    if decoded.get("v") != _OVERFLOW_CURSOR_VERSION or decoded.get("kind") != "web_search_overflow":
-        raise ValueError(
-            "Unsupported web_search cursor version. Call web_search without cursor to start a new search."
-        )
-    if "items" not in decoded or not isinstance(decoded["items"], list):
-        raise ValueError(
-            "Invalid web_search cursor. Call web_search without cursor to start a new search."
-        )
-    return decoded
+    return offset
 
 
 def to_public_hit(result: ScoredHit, citation_id: str) -> WebSearchHit:
@@ -146,6 +146,110 @@ def _compact_overflow(
     return compact
 
 
+def _pages_connection(write: bool = False) -> Any:
+    """Open jobs.sqlite with the shared WAL/busy-timeout discipline."""
+    import sqlite3
+
+    from ..cli.services.jobs import jobs_db_path
+
+    path = jobs_db_path()
+    uri = f"file:{path}" if write else f"file:{path}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=10.0)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA busy_timeout=5000")
+    if write:
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS search_pages (
+                run_key TEXT PRIMARY KEY,
+                query TEXT NOT NULL DEFAULT '',
+                items_json TEXT NOT NULL,
+                warnings_json TEXT NOT NULL DEFAULT '[]',
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_search_pages_expires ON search_pages(expires_at);
+            """
+        )
+    return connection
+
+
+def store_overflow_page(
+    run_key: str,
+    query: str,
+    overflow: list[dict[str, str]],
+    warnings: list[ProviderWarning] | None,
+) -> None:
+    """Persist one run's leftover list for offset-cursor paging (24h TTL)."""
+    now = int(time.time())
+    connection = _pages_connection(write=True)
+    try:
+        connection.execute("DELETE FROM search_pages WHERE expires_at <= ?", (now,))
+        connection.execute(
+            "INSERT INTO search_pages (run_key, query, items_json, warnings_json, created_at, expires_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)"
+            " ON CONFLICT(run_key) DO UPDATE SET query=excluded.query,"
+            " items_json=excluded.items_json, warnings_json=excluded.warnings_json,"
+            " created_at=excluded.created_at, expires_at=excluded.expires_at",
+            (
+                run_key,
+                query,
+                json.dumps(overflow, ensure_ascii=False, separators=(",", ":")),
+                json.dumps(
+                    [w.model_dump(exclude_none=True) for w in warnings] if warnings else [],
+                    ensure_ascii=False,
+                    separators=(",", ":"),
+                ),
+                now,
+                now + _PAGE_TTL_SECONDS,
+            ),
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+
+def load_overflow_page(run_key: str) -> tuple[str, list[dict[str, str]], list[dict[str, Any]]]:
+    """Load a run's leftover list; ValueError when expired or never stored."""
+    connection = _pages_connection()
+    try:
+        row = connection.execute(
+            "SELECT query, items_json, warnings_json FROM search_pages WHERE run_key = ?",
+            (run_key,),
+        ).fetchone()
+    finally:
+        connection.close()
+    if row is None:
+        raise ValueError(
+            "web_search cursor expired: the run is no longer retained. "
+            "Call web_search without cursor to start a new search."
+        )
+    try:
+        items = json.loads(row["items_json"])
+        warnings = json.loads(row["warnings_json"])
+    except (ValueError, TypeError) as exc:
+        raise ValueError(
+            "web_search cursor expired: the run is no longer retained. "
+            "Call web_search without cursor to start a new search."
+        ) from exc
+    if not isinstance(items, list):
+        raise ValueError(
+            "web_search cursor expired: the run is no longer retained. "
+            "Call web_search without cursor to start a new search."
+        )
+    clean = [
+        {"title": item["title"], "url": item["url"]}
+        for item in items
+        if isinstance(item, dict)
+        and isinstance(item.get("title"), str)
+        and isinstance(item.get("url"), str)
+        and item["url"]
+    ]
+    return str(row["query"] or ""), clean, warnings if isinstance(warnings, list) else []
+
+
 def to_public_web_search(
     *,
     query: str,
@@ -154,6 +258,7 @@ def to_public_web_search(
     warnings: list[ProviderWarning] | None,
     synthesis: str | None,
     search: WebSearchExecution,
+    run_key: str | None = None,
 ) -> WebSearchPublicResponse:
     public_hits: list[WebSearchHit | WebSearchOverflowHit] = []
     for index, result in enumerate(hits, start=1):
@@ -164,18 +269,12 @@ def to_public_web_search(
     overflow = _compact_overflow(overflow_items)
     cursor: str | None = None
     remaining: int | None = None
-    if overflow:
+    # Server-side paging (PraisonAI/FastMCP shape): leftovers persist under
+    # the run key; the token is just the base64 offset of the next page.
+    if overflow and run_key:
         remaining = len(overflow)
-        cursor = encode_web_search_overflow_cursor(
-            {
-                "v": _OVERFLOW_CURSOR_VERSION,
-                "kind": "web_search_overflow",
-                "query": query,
-                "citation_base": len(public_hits),
-                "items": overflow,
-                "warnings": [w.model_dump(exclude_none=True) for w in warnings] if warnings else [],
-            }
-        )
+        store_overflow_page(run_key, query, overflow, warnings)
+        cursor = encode_cursor(len(public_hits))
 
     return WebSearchPublicResponse(
         query=query,
@@ -207,22 +306,31 @@ def to_public_web_search_from_run(run: SearchRun) -> WebSearchPublicResponse:
         warnings=list(response.warnings) if response.warnings else None,
         synthesis=response.synthesis,
         search=WebSearchExecution(rounds=response.rounds, stop_reason=response.stop_reason),
+        run_key=run.run_key,
     )
 
 
-def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
-    items = decoded["items"]
+def page_overflow_cursor(run_key: str, cursor: str) -> WebSearchPublicResponse:
+    """Page leftover links for ``run_key`` at the given offset cursor."""
+    offset = decode_cursor(cursor)
+    stored_query, stored_items, stored_warnings = load_overflow_page(run_key)
+    if offset >= len(stored_items):
+        raise ValueError(
+            "Invalid web_search cursor. Call web_search without cursor to start a new search, "
+            "then pass response.cursor to page leftover links from that run."
+        )
+    items = stored_items[offset:]
     page = items[:FINAL_RESULT_LIMIT]
     rest = items[FINAL_RESULT_LIMIT:]
     if not page:
         raise ValueError(
             "web_search cursor has no remaining results. Call web_search without cursor to start a new search."
         )
-    citation_base = int(decoded.get("citation_base") or 0)
+    citation_base = offset
     overflow_hits: list[WebSearchHit | WebSearchOverflowHit] = []
     for index, item in enumerate(page, start=1):
-        title = item.get("title") if isinstance(item, dict) else None
-        url = item.get("url") if isinstance(item, dict) else None
+        title = item.get("title")
+        url = item.get("url")
         if not isinstance(title, str) or not isinstance(url, str) or not url:
             continue
         overflow_hits.append(
@@ -236,30 +344,16 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
         raise ValueError(
             "web_search cursor has no remaining results. Call web_search without cursor to start a new search."
         )
-    query = str(decoded.get("query") or "")
     rebuilt_warnings = [
-        ProviderWarning.model_validate(item)
-        for item in (decoded.get("warnings") or [])
-        if isinstance(item, dict)
+        ProviderWarning.model_validate(item) for item in stored_warnings if isinstance(item, dict)
     ]
-    cursor = None
+    next_cursor = None
     remaining = None
     if rest:
         remaining = len(rest)
-        cursor = encode_web_search_overflow_cursor(
-            {
-                "v": _OVERFLOW_CURSOR_VERSION,
-                "kind": "web_search_overflow",
-                "query": query,
-                "citation_base": citation_base + len(page),
-                "items": rest,
-                "warnings": [w.model_dump(exclude_none=True) for w in rebuilt_warnings]
-                if rebuilt_warnings
-                else [],
-            }
-        )
+        next_cursor = encode_cursor(offset + len(page))
     return WebSearchPublicResponse(
-        query=query,
+        query=stored_query,
         results=overflow_hits,
         warnings=rebuilt_warnings or None,
         next=fetch_next(
@@ -269,5 +363,5 @@ def page_overflow_cursor(decoded: dict[str, Any]) -> WebSearchPublicResponse:
             limit=_FETCH_NEXT_LIMIT,
         ),
         remaining=remaining,
-        cursor=cursor,
+        cursor=next_cursor,
     )

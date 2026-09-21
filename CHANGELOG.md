@@ -1,4 +1,152 @@
 ## [Unreleased]
+### Removed — `include_domains` dropped from the quick_web_search agent-facing schema (2026-09-21)
+- Rationale: `include_domains` is a hard retrieval allowlist that significantly
+  narrows the corpus, and agent-supplied values reliably degrade result quality.
+  The MCP tool signature, tool docstring, and both observability events no longer
+  carry the parameter.
+- `_quick_web_search_impl` / `_build_advanced_settings` keep the parameter as a
+  server-side capability; the CLI `search quick --include-domain` flag still
+  reaches it via `fetch_quick_web_search_payload` and continues to work.
+- Analytics: the `quick_search` producer field and the DuckDB
+  `quick_search_events.include_domains` column are retained (tolerant
+  `fields.get`), so historical rows stay queryable and new rows store NULL.
+- Schema change to a public MCP tool contract → major version bump required at
+  the next release.
+
+### Added — Parallel-tuned LLM query rewrite stage for quick_web_search web mode (2026-09-21)
+- `search/quick/quick_web_search_rewrite.py` (new): rewrites caller queries into four
+  Parallel Search API queries before dispatch — the caller's primary query kept
+  verbatim, a refined extension, and two decomposed angle queries chosen for
+  retrieval yield. Runs on the shared `worker_llm` inference router
+  (`complete_json`, strict `ParallelRewrittenQueries`, `reasoning_effort="none"`,
+  20 s timeout), deduplicates case-insensitively, and clips every query to the
+  API's 200-character bound. Any failure falls open to the original queries with a
+  warning log; the tool never blocks on the stage.
+- `prompts/query_rewrite_parallel.py` (new): prompt family for the Parallel rewrite.
+  `PARALLEL_REWRITE_SYSTEM` / `PARALLEL_REWRITE_USER` slot rules follow the Parallel
+  Search API request contract (roughly 3-6-word keyword queries, no operators, key
+  entity in every query, materially different angles); `PARALLEL_REWRITE_PROMPT_VERSION = "1"`.
+  The pipeline five-slot rewrite contract in `prompts/query_rewrite.py` is untouched.
+- `search/quick/quick_web_search.py`: the web path dispatches the rewritten query set
+  and returns it in `response.search_queries` (the executed set; input queries on
+  fail-open); rewrite model/latency logged. Tool input schema unchanged; impl and
+  tool docstrings document the rewrite behavior.
+- Live check: the worker chain fell through a 401 groq entry to `qwen/qwen3.8-27b`
+  and produced the four-slot shape for a FastMCP query in ~2.3 s (770 in / 54 out
+  tokens).
+
+### Fixed — FTS WAL poison: read-only opens failed on replay after unclean shutdown (2026-09-21)
+- Root cause: DuckDB 1.5.x cannot replay a WAL that contains full-text index
+  rebuild DDL (the `fts_main_<table>` schema drop/recreate emitted by
+  `PRAGMA create_fts_index(..., overwrite = 1)`) when the writing process
+  died before a checkpoint. Replay fails with `Dependency Error ... table
+  "terms" depends on schema "fts_main_query_variants"` and *every* later
+  open of `duckdb_data/analytics/search_events.duckdb` (read-only or
+  read-write, any client) fails until the WAL is removed. The refresh path
+  (`insert_funnel_uplift_batches` → `refresh_fts_indexes`) recorded exactly
+  that DDL; the Sep 20 kill of the server left a 5 MB unreplayable WAL.
+  Same signature independently documented upstream (norrietaylor/distillery#349,
+  DuckDB 1.5.2); the DuckDB docs state WAL recovery "is not yet properly
+  implemented" for custom extension indexes (vss#persistence note).
+- `analytics/fts_sql.py::refresh_fts_indexes`: runs `CHECKPOINT` on the
+  refresh connection immediately after a successful rebuild, with the
+  `vss` extension loaded first (a checkpoint serializing the persisted
+  HNSW `candidate_embeddings`/`query_embeddings` indexes fails with
+  "unknown index type 'HNSW'" otherwise) — the WAL now drains within
+  milliseconds of the DDL instead of living until process exit. Refresh
+  failures log at WARNING instead of DEBUG.
+- `analytics/fts_sql.py::repair_fts_wal` (new): probes a read-only open;
+  on the FTS replay-failure signature archives the WAL to
+  `<db>.wal.unreplayable-<UTC timestamp>` (bytes preserved for manual
+  analysis; DuckDB cannot replay them in any version tried), then rebuilds
+  both FTS indexes fresh and checkpoints. Re-raises unrelated replay
+  errors unchanged.
+- `analytics/writers/schema.py::ensure_store_schema`: calls
+  `repair_fts_wal` before the first connect, so server startup self-heals
+  instead of failing.
+- Live database repaired in place: poisoned WAL archived as
+  `duckdb_data/analytics/search_events.duckdb.wal.unreplayable-20260921T074100Z`
+  (uncheckpointed delta inside it is unrecoverable by DuckDB itself),
+  indexes rebuilt fresh (both were stale: provider_results carried an
+  older FTS layout without `stats`, query_variants lagged 8 rows), file
+  checkpointed. `duckdb -readonly` and Python read-only opens verified;
+  BM25 queries return scored rows; counts 43,654 / 3,061 intact.
+- Known limitation (upstream): crash windows between FTS DDL and the
+  checkpoint are now milliseconds, not zero — a kill inside that window
+  can still produce an unreplayable WAL; startup self-recovery restores
+  service and preserves the WAL bytes.
+
+### Added — server-side quick_web_search mode routing (`mode="auto"`) (2026-09-21)
+- `ml/tf_idf_router.py` (new): offline mode router for `quick_web_search`.
+  Weighted lexical rules plus field votes (`query` → youtube,
+  `question`/`repo_url` → docs, `search_queries`/`objective` → web) decide
+  when their combined weight reaches 2; otherwise TF-IDF (word 1-2 grams, no
+  stop-word list) + `LogisticRegression(C=1.0)` over bundled seeds curated
+  from the real query corpus (`duckdb_data/training/query_understanding.jsonl`)
+  and the tool schema's youtube/docs field shapes decides, abstaining to
+  `web` below a confidence floor. Rules run per field so signals cannot
+  co-occur across fields; search-operator syntax (`site:`, `inurl:`, …) is a
+  decisive web signal; `confidence` always reports the model softmax score
+  for the executed label. Inference is local and network-free; sklearn
+  (`>=1.5,<2`, new dependency) is required. Router ID:
+  `ml.tf_idf_router:tfidf-logreg:v2`.
+- `search/quick/quick_web_search.py`: `mode` accepts `"auto"` (new default)
+  alongside `web`/`youtube`/`docs`. In auto mode the request text
+  (objective/search_queries/query/question) is classified server-side and
+  the resolved mode drives dispatch; missing mode-specific arguments are
+  synthesized from the request text (video term for youtube, question for
+  docs, query+objective for web). `requested_mode` and the full routing
+  decision (label, scores, source, matched rules) ride on the
+  request/response/error observability events as `routing`.
+- `cli/commands/search.py`: `search quick --mode auto` is the new default
+  and routes through the same router; auto-routed invocations fall back to
+  `--objective`/`--research-goal` for mode-specific required arguments
+  instead of failing the usage-error contract.
+- `pyproject.toml`: added `scikit-learn>=1.5,<2`.
+
+### Fixed — BrightData structured mode per SERP REST OpenAPI; short opaque cursors (2026-09-19)
+- `search/providers/brightdata.py`: `resolve_payload_base` sends
+  `"format": "json"` per the SERP REST OpenAPI `PostBody` schema
+  (`api-reference/rest-api/serp/serp-api`): `format` is the only
+  request-body mode switch, enum `{raw, json}` — `raw` returns HTML as a
+  string, `json` returns structured data. The parser consumes
+  `general`/`organic`/`spelling`, so `raw` could never feed it; every
+  `format: raw` response died at `response.json()` with "not valid JSON".
+- Verified live: followup branches on run `64b3f613` returned BrightData
+  `success` rows (previously `incomplete`/parse errors), and run `be417e9c`
+  completed waves 1→2 with `sufficient_evidence`.
+- `_run_page` now honors the docs' 15-second ban for per-query rejections
+  and challenge pages (`failed_query_rejected`, `repeat_query_rejected`,
+  `verifying`): when the computed inline-retry delay does not fit the page
+  deadline, the typed failure (with `retry_after`) surfaces immediately
+  instead of burning the whole branch budget on a doomed retry.
+- `utils/public_output.py`: overflow cursors are now short opaque v3 tokens
+  (`{"v":3,"kind","run_key","offset"}`, ~130 chars) rehydrated from the
+  retained run row — replacing the 20–27 KB base64 blobs that embedded the
+  full leftover list. Legacy v2 data-carrying tokens still decode.
+- `cli/services/search_web.py`: the next-page cursor is emitted only with
+  `--fields cursor` (page 1 unchanged); `--research-goal` is optional when
+  `--cursor` is passed.
+- Verified live: same-process page 1 → page 2 via short token (15 results,
+  c16+, 132-char next cursor). Cross-process note: `jobs.sqlite` retention
+  rows persist under per-command `source` values (e.g. `search web`), so the
+  rehydration lookup matches `source LIKE 'search web%'`, not `= 'search web'`.
+### Fixed — Adaptive decision schema class rejected by Gemini SDK (2026-09-19)
+- `inference/adapters/genai.py`: normalize any pydantic model-class
+  `response_format` to its `model_json_schema()` dict before assigning
+  `response_json_schema`. The SDK serializes `GenerateContentConfig` with
+  pydantic, which cannot serialize a model class (`ModelMetaclass`) — the
+  wave-1 `propose_followups` and wave-2 `decide_continuation` calls raised
+  `PydanticSerializationError` inside `generate_content`, exhausting the
+  `adaptive_search_llm` chain on every entry and forcing
+  `stop_reason="decision_failed"` after wave 1.
+- Verified live: `search web` run `5392736d-8f39-44e8-be53-312884b51dca`
+  executed waves 1→2 (`search.rounds=2`, `stop_reason="sufficient_evidence"`;
+  followup/decision/synthesis all `google/gemini-3.5-flash-lite` success in
+  `llm_call_log`) with 8 branches and 168 merged candidates.
+- `cli/output.py`: `_suggested_next` now emits a runnable
+  `search web --cursor …` command when the payload carries an overflow
+  cursor, so leftover ranked results are one copy-paste away.
 ### Changed — Agent-native CLI control surface (2026-09-19)
 - Removed the unused global `--yes` flag and added explicit `--human` and
   `--agent` output modes while retaining JSON as the default.

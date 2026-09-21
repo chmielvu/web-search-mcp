@@ -14,6 +14,7 @@ Prompt templates, builders, and registry for all subsystems.
 | `builders.py` | Prompt-building helpers |
 | `query_understanding.py` | Query understanding prompts |
 | `query_rewrite.py` | Owner of rewrite templates, named-slot schema (`RewrittenQueries`), `REWRITE_PROMPT_VERSION`, and per-intent `REWRITE_INTENT_ANGLES` / `select_rewrite_prompt` |
+| `query_rewrite_parallel.py` | Owner of the Parallel Search API rewrite prompt family (`PARALLEL_REWRITE_SYSTEM` / `PARALLEL_REWRITE_USER`, `PARALLEL_REWRITE_PROMPT_VERSION`, `ParallelRewrittenQueries` four-slot schema: original/refined/decomposed_1/decomposed_2); consumed by `search.quick.quick_web_search_rewrite` |
 | `adaptive_search.py` | Owner of adaptive wave templates, strict response schemas (`TargetedQuery`, `FollowupBatch`, `ContinuationDecision`, `SynthesisDraft`), and `ADAPTIVE_SEARCH_PROMPT_VERSION`; consumed by `search.adaptive` |
 | `rerank.py` | Reranking prompts |
 | `rerank_llm.py` / `rerank_llm.yaml` | LLM rerank prompts and config |

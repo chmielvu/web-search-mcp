@@ -91,9 +91,12 @@ def _validate_path_field(
 @search_app.command("quick")
 def quick_cmd(
     mode: Annotated[
-        Literal["web", "youtube", "docs"],
-        typer.Option("--mode", help="Discovery mode: web, youtube, or docs."),
-    ] = "web",
+        Literal["auto", "web", "youtube", "docs"],
+        typer.Option(
+            "--mode",
+            help="Informational hint only; the server routes the request itself.",
+        ),
+    ] = "auto",
     search_query: Annotated[
         list[str] | None,
         typer.Option(
@@ -144,19 +147,36 @@ def quick_cmd(
     disable_cache_fallback: Annotated[bool, typer.Option("--disable-cache-fallback")] = False,
 ) -> None:
     """Run the quick discovery path (web, YouTube, or library docs)."""
+    from ...ml import route_quick_mode
     from ..services.quick_search import (
         fetch_quick_docs_payload,
         fetch_quick_web_search_payload,
         fetch_quick_youtube_payload,
     )
 
+    # The classifier runs on EVERY invocation: --mode is informational only
+    # (recorded for analytics); the routed mode always drives execution.
+    route = route_quick_mode(
+        objective=objective or research_goal,
+        search_queries=search_query or [],
+        query=" ".join(query) if query else None,
+        question=question,
+        repo_url=repo_url,
+        requested_mode=mode,
+    )
+    mode = route.label
+
     if mode == "youtube":
         term = (query or [None])[0]
         if not term or not term.strip():
+            # Routed to video discovery: fall back to the objective/goal text.
+            term = objective or research_goal
+        if not term or not term.strip():
             raise CliError(
                 kind="usage_error",
-                message="--query must be provided in youtube mode.",
-                hint="Pass --query 'search terms' with --mode youtube.",
+                message="Video discovery needs a search term.",
+                hint="Pass --query 'search terms' (or --objective) so the router "
+                "can pick a surface.",
                 exit_code=ExitCode.USAGE_ERROR,
                 context={"command": "search quick"},
             )
@@ -187,10 +207,14 @@ def quick_cmd(
                 exit_code=ExitCode.PROVIDER_ERROR,
                 context={"command": "search quick", "exception_type": type(exc).__name__},
             ) from exc
+        payload["routing"] = route.to_dict()
         emit_json(payload, command="search quick")
         return
 
     if mode == "docs":
+        if not question or not question.strip():
+            # Routed to documentation: fall back to the objective/goal text.
+            question = objective or research_goal
         if not repo_url or not repo_url.strip():
             raise CliError(
                 kind="usage_error",
@@ -238,6 +262,7 @@ def quick_cmd(
                 exit_code=ExitCode.PROVIDER_ERROR,
                 context={"command": "search quick", "exception_type": type(exc).__name__},
             ) from exc
+        payload["routing"] = route.to_dict()
         emit_json(payload, command="search quick")
         return
 
@@ -253,6 +278,24 @@ def quick_cmd(
         )
         or ""
     )
+    routing_text = " ".join(
+        part
+        for part in (
+            objective or research_goal,
+            " ".join(search_query or []),
+            " ".join(query or []),
+            question,
+        )
+        if part
+    ).strip()
+    # Routed to broad web search: synthesize the web-mode inputs from the
+    # routing text instead of failing on the interactive CLI contract.
+    if not queries:
+        queries = _validate_query_list(
+            [routing_text], command="search quick", field="--search-query"
+        )
+    if not goal:
+        goal = routing_text
     if not queries:
         raise CliError(
             kind="usage_error",
@@ -335,6 +378,7 @@ def quick_cmd(
                 "exception_type": type(exc).__name__,
             },
         ) from exc
+    payload["routing"] = route.to_dict()
     emit_json(payload, command="search quick")
 
 
@@ -357,9 +401,11 @@ def web_cmd(
         ),
     ] = True,
     research_goal: Annotated[
-        str,
-        typer.Option("--research-goal", help="Required search objective."),
-    ] = ...,  # ty: ignore[invalid-parameter-default] - Typer's required-option form  # pyright: ignore[reportArgumentType]
+        str | None,
+        typer.Option(
+            "--research-goal", help="Required search objective (not needed with --cursor)."
+        ),
+    ] = None,
     reranking_instructions: Annotated[
         str | None,
         typer.Option(
@@ -405,7 +451,11 @@ def web_cmd(
     ] = False,
     cursor: Annotated[
         str | None,
-        typer.Option("--cursor", help="Leftover continuation cursor from this run."),
+        typer.Option("--cursor", help="Opaque page token from response.cursor."),
+    ] = None,
+    run_key: Annotated[
+        str | None,
+        typer.Option("--run-key", help="response.run_key from the run that produced --cursor."),
     ] = None,
 ) -> None:
     """Run the bounded adaptive multi-provider web search pipeline."""
@@ -466,9 +516,24 @@ def web_cmd(
         cursor,
         field="--cursor",
         command="search web",
-        hint="Pass the continuation cursor returned by a prior search.",
+        hint="Pass the opaque page token from response.cursor.",
     )
-    if not research_goal.strip():
+    run_key = _validate_text_field(
+        run_key,
+        field="--run-key",
+        command="search web",
+        hint="Pass response.run_key from the run that produced --cursor.",
+    )
+    has_cursor = bool(cursor and cursor.strip())
+    if has_cursor and not (run_key and run_key.strip()):
+        raise CliError(
+            kind="usage_error",
+            message="--run-key is required together with --cursor.",
+            hint="Pass response.run_key from the run that produced the cursor.",
+            exit_code=ExitCode.USAGE_ERROR,
+            context={"command": "search web", "field": "--run-key"},
+        )
+    if not has_cursor and (research_goal is None or not research_goal.strip()):
         raise CliError(
             kind="usage_error",
             message="--research-goal must be a non-blank string.",
@@ -477,7 +542,7 @@ def web_cmd(
             context={"command": "search web", "field": "--research-goal"},
         )
 
-    if not (cursor and cursor.strip()) and not any(item.strip() for item in query):
+    if not has_cursor and not any(item.strip() for item in query):
         raise CliError(
             kind="usage_error",
             message="Provide --query or --cursor.",
@@ -491,17 +556,16 @@ def web_cmd(
             fetch_web_search_payload(
                 query,
                 rewrite=rewrite,
-                research_goal=research_goal,
+                research_goal=research_goal or "",
                 reranking_instructions=reranking_instructions,
                 domain_boost=domain_boost,
                 date_range=date_range,
                 after_date=after_date,
                 before_date=before_date,
                 language=language,
-                region=region,
-                include_undated=include_undated,
                 diagnostics=diagnostics,
                 cursor=cursor,
+                run_key=run_key,
             )
         )
     except ValueError as exc:

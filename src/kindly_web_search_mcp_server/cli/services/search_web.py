@@ -27,15 +27,16 @@ async def fetch_web_search_payload(
     include_undated: bool | None = None,
     diagnostics: bool = False,
     cursor: str | None = None,
+    run_key: str | None = None,
 ) -> dict[str, Any]:
     if cursor and str(cursor).strip():
-        from ...utils.public_output import (
-            decode_web_search_overflow_cursor,
-            page_overflow_cursor,
-        )
+        if not (run_key and str(run_key).strip()):
+            raise ValueError("run_key is required together with cursor.")
+        from ...utils.public_output import page_overflow_cursor
 
-        public = page_overflow_cursor(decode_web_search_overflow_cursor(str(cursor).strip()))
-        return public.model_dump(exclude_none=True)
+        public = page_overflow_cursor(str(run_key).strip(), str(cursor).strip())
+        dumped = public.model_dump(exclude_none=True)
+        return dumped
 
     if isinstance(query, list):
         cleaned_queries = tuple(q.strip() for q in query if q and q.strip())[:4]

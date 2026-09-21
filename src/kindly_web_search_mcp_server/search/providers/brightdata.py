@@ -130,9 +130,13 @@ def get_brightdata_zone() -> str:
 
 def resolve_payload_base() -> dict[str, object]:
     zone = get_brightdata_zone()
+    # Per the SERP REST OpenAPI (PostBody, api-reference/rest-api/serp),
+    # `format` is the ONLY request-body switch and takes enum {raw, json}:
+    # raw returns HTML as string, json returns structured data. The parser
+    # consumes general/organic/spelling, so the request must be "json".
     payload: dict[str, object] = {
         "zone": zone,
-        "format": "raw",
+        "format": "json",
     }
     extra = settings.brightdata_payload_extra
     if extra:
@@ -1067,7 +1071,11 @@ async def _run_page[TResponse](
                 return _empty_call(provider_name, query, _engine_failure(exc))
             remaining = deadline - time.monotonic()
             delay = _retry_delay(exc, remaining)
-            if delay is None:
+            # The docs ban re-attempting per-query rejections and challenge
+            # pages for 15s; when the computed delay does not fit the page
+            # deadline, surface the typed failure with its retry_after hint
+            # instead of burning the whole branch budget on one doomed retry.
+            if delay is None or delay > remaining:
                 return _empty_call(provider_name, query, _engine_failure(exc))
             await asyncio.sleep(delay)
     return _empty_call(provider_name, query)
@@ -1195,11 +1203,6 @@ async def search_brightdata(
             body = {
                 **payload_base,
                 "url": google_url,
-                # Per the SERP API docs, API requests enable mismatch delivery
-                # through the body rather than a target-URL parameter; with
-                # this on, truncated/corrected queries arrive as data and the
-                # parse validates them itself via general/spelling fields.
-                "data_options": {"return_mismatch": True},
             }
             response = await client.post(
                 _REST_ENDPOINT,

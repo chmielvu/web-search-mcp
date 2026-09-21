@@ -1,7 +1,8 @@
 # ml/
 
-Hosted ML gateway clients. Each module is an async HTTP client for one VPS
-service, reached over the SSH tunnel; all share the singleton-client pattern.
+Hosted ML gateway clients plus one offline local classifier. Gateway modules
+are async HTTP clients for one VPS service, reached over the SSH tunnel; all
+share the singleton-client pattern.
 
 ## Key Files
 
@@ -9,11 +10,14 @@ service, reached over the SSH tunnel; all share the singleton-client pattern.
 |---|---|
 | `embeddings.py` | fastembed-snowflake client (`snowflake/snowflake-arctic-embed-s`, 384-d) on VPS port 8001. `POST /embed` `{texts}` → `{embeddings, model, dimension}`. |
 | `gliner_client.py` | Unified-ml GLiNER2 gateway client (VPS port 8000, server v2). `/classify` (GLiNER2.5 intent classification) + `/ner` for query understanding, `/batch-extract` for transcript batches, `/extract-graph` for typed short-transcript relation graphs, and `/extract` for opt-in content. Singleton via `get_gliner_client`. |
+| `tf_idf_router.py` | Offline `quick_web_search` mode router v2 (TF-IDF + LogisticRegression over real-corpus seeds, weighted lexical rules, field-aware votes). `route_quick_mode()` takes the request fields (`search_queries`/`objective`/`query`/`question`/`repo_url`) keyword-only and classifies into `web`/`youtube`/`docs`; field votes plus per-field weighted rules decide at combined weight ≥ 2, otherwise the model decides and abstains to `web` below its confidence floor. No network; sklearn is the only dependency. |
 
 ## Rules
 
 - The application never imports `gliner2` or `torch`; inference is performed
   by the configured VPS gateway.
+- The mode router (`tf_idf_router.py`) is the one local inference exception:
+  it uses scikit-learn only, never touches the gateways, and runs offline.
 - Query understanding calls `/classify` + `/ner` (no `/v2/query-understanding`
   — that route is not on the container). Entity spans must match exact source
   offsets. Fail open to deterministic `general` only when classify/ner both fail.

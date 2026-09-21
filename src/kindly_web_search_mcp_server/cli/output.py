@@ -59,6 +59,25 @@ def _suggested_next(data: Any) -> list[str]:
             )
         )
 
+    # Web-search overflow: leftover ranked links sit behind the short opaque
+    # ``cursor`` (offset token; leftovers persist server-side under the run).
+    if data.get("cursor") and data.get("remaining"):
+        remaining = data["remaining"]
+        args = [
+            "uv",
+            "run",
+            "web-search-cli",
+            "search",
+            "web",
+            "--cursor",
+            str(data["cursor"]),
+        ]
+        if data.get("run_key"):
+            args += ["--run-key", str(data["run_key"])]
+        suggestions.append(
+            shlex.join(args) + f"  # {remaining} more ranked result(s) behind the cursor"
+        )
+
     for continuation in data.get("next", [])[:3]:
         if not isinstance(continuation, dict):
             continue

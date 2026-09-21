@@ -24,6 +24,7 @@ from ...models import WebSearchNext, fetch_next, make_next
 from ...settings import settings
 from ...tools.catalog import tool_kwargs
 from .quick_web_search_docs import fetch_docs_outcome
+from .quick_web_search_rewrite import rewrite_queries_for_parallel
 from .quick_web_search_youtube import fetch_youtube_outcome
 
 LOGGER = logging.getLogger(__name__)
@@ -264,6 +265,9 @@ async def _quick_web_search_impl(
     Args:
         search_queries: Concise keyword queries, 3-6 words each. At least
             one required; 2-3 recommended for best results (max 5).
+            Queries are rewritten server-side into four Parallel-tuned
+            queries (original, refined, two decomposed angles) before
+            dispatch; rewrite failure falls back to the originals.
         objective: Natural-language goal driving the search.
         max_results: Upper bound on results to return (default: 10).
         max_chars_total: Upper bound on total characters across all excerpts.
@@ -310,6 +314,18 @@ async def _quick_web_search_impl(
             "Parallel SDK is unavailable; install the 'parallel-web' dependency."
         ) from exc
 
+    rewritten_queries, rewrite_meta = await rewrite_queries_for_parallel(
+        search_queries, objective
+    )
+    if "error" not in rewrite_meta:
+        LOGGER.info(
+            "quick_web_search rewrote %d input queries into %d (%.0f ms, model=%s)",
+            len(search_queries),
+            len(rewritten_queries),
+            rewrite_meta["latency_ms"],
+            rewrite_meta["model"],
+        )
+
     advanced_settings = _build_advanced_settings(
         max_results=max_results,
         include_domains=include_domains,
@@ -323,7 +339,7 @@ async def _quick_web_search_impl(
     )
 
     search_kwargs: dict[str, Any] = {
-        "search_queries": search_queries,
+        "search_queries": rewritten_queries,
         "objective": objective,
         "mode": "advanced",
     }
@@ -365,7 +381,7 @@ async def _quick_web_search_impl(
         confidence="medium",
     )
     return QuickWebSearchResponse(
-        search_queries=search_queries,
+        search_queries=rewritten_queries,
         citations=citations,
         total_citations=len(citations),
         search_id=result.search_id or "",
@@ -385,9 +401,12 @@ def register_quick_web_search(mcp: Any) -> None:
     @mcp.tool(**tool_kwargs("quick_web_search"))
     async def quick_web_search(
         mode: Annotated[
-            Literal["web", "youtube", "docs"],
-            Field(description="Discovery mode: 'web' (default), 'youtube', or 'docs'."),
-        ] = "web",
+            Literal["auto", "web", "youtube", "docs"],
+            Field(
+                description="Informational hint only; the server routes the "
+                "request itself. Values: 'auto' (default), 'web', 'youtube', 'docs'."
+            ),
+        ] = "auto",
         search_queries: Annotated[
             list[str] | None,
             Field(
@@ -439,9 +458,6 @@ def register_quick_web_search(mcp: Any) -> None:
             str | None,
             Field(description="Identifier for chaining search+extract calls in one task."),
         ] = None,
-        include_domains: Annotated[
-            list[str] | None, Field(description="Restrict results to these domains only.")
-        ] = None,
         exclude_domains: Annotated[
             list[str] | None, Field(description="Exclude these domains from results.")
         ] = None,
@@ -465,24 +481,26 @@ def register_quick_web_search(mcp: Any) -> None:
     ) -> QuickWebSearchResponse:
         """Fast first-pass discovery across the web, YouTube, or library docs.
 
-        One tool, three modes selected by `mode`. Every mode returns the same
-        citations[] shape so downstream chaining is uniform.
+        One tool, three modes. Every mode returns the same citations[] shape
+        so downstream chaining is uniform. The `mode` argument is INFORMATIONAL
+        ONLY: the server always classifies the request itself with an offline
+        TF-IDF router and executes the routed mode. Do not try to steer the
+        mode — just pass the request text in the most natural fields.
 
         WHEN TO USE:
-        - mode="web" (default): initial reconnaissance for a complex, broad,
-          or unfamiliar topic; fanning 3-6 word keyword queries for coverage.
+        - Always acceptable as the first-pass discovery tool; the server
+          picks web/youtube/docs from the request text.
+        - mode="web": broad reconnaissance; fanning 3-6 word keyword queries.
         - mode="youtube": finding videos (tutorials, talks, demos) by search
           term. This replaces the removed youtube_search tool.
         - mode="docs": answering a question about a public GitHub-hosted
           library from its official docs (Context7) and repo guide (DeepWiki).
-          This mode uses official library documentation sources.
 
         WHEN NOT TO USE:
         - Deep cross-provider RRF ranking (use web_search).
         - Grounded answer synthesis (use gemini_search).
-        - Source-code implementations live outside this server; use mode="docs" here for library documentation.
-        - Video transcripts (use youtube_transcript; find the video with
-          mode="youtube" first).
+        - Source-code implementations live outside this server; docs-mode questions belong here.
+        - Video transcripts (use youtube_transcript; find the video first).
         - Full page text (use fetch on citation URLs).
         RETURNS:
         - citations[]: each with title, url, snippet, publish_date, and excerpts[].
@@ -495,19 +513,24 @@ def register_quick_web_search(mcp: Any) -> None:
         - youtube: call youtube_transcript on the top video URL.
         - docs: call fetch on the backing source URLs.
 
-        PARAM RULES BY MODE (violations raise actionable errors):
-        - web: search_queries (1-5 non-blank) and objective are required.
-        - youtube: query is required; num_results 1-20 (default 5).
-        - docs: repo_url (https://github.com/owner/repo) and question required.
+        ARGUMENT GUIDANCE (mode itself is ignored for execution):
+        - Broad lookup/reconnaissance: use search_queries (1-5) + objective.
+          Web-mode queries are rewritten server-side before dispatch; pass
+          them in natural wording without operators.
+        - Video discovery: use query.
+        - Library documentation: use repo_url + question.
+        Missing mode-specific arguments are synthesized from the request text.
 
         Args:
-            mode: Discovery mode: 'web' (default), 'youtube', or 'docs'.
-            search_queries: Concise keyword queries, 3-6 words each (web only).
-            objective: Natural-language goal driving the search (web only).
-            query: Video search term (youtube only).
-            num_results: Videos to return, 1-20, default 5 (youtube only).
-            repo_url: Public GitHub repository URL (docs only).
-            question: Documentation question (docs only).
+            mode: Informational hint only (recorded in analytics); the server
+                routes the request itself. Values: 'auto', 'web', 'youtube',
+                'docs'.
+            search_queries: Concise keyword queries, 3-6 words each (broad lookups).
+            objective: Natural-language goal driving the search.
+            query: Video search term (video discovery).
+            num_results: Videos to return, 1-20, default 5 (video discovery).
+            repo_url: Public GitHub repository URL (documentation lookups).
+            question: Documentation question (documentation lookups).
             context7_library_id: Explicit Context7 library ID override (docs only).
             max_results: Upper bound on results (web: 1-20, default 10).
             max_chars_total: Cap on total excerpt characters across all results.
@@ -515,7 +538,6 @@ def register_quick_web_search(mcp: Any) -> None:
             client_model: Model consuming results; enables provider-side
                 optimizations.
             session_id: ID for chaining search+extract calls in one task.
-            include_domains: Restrict results to these domains only.
             exclude_domains: Block these domains.
             after_date: Only include content published on/after this date
                 (YYYY-MM-DD).
@@ -527,6 +549,32 @@ def register_quick_web_search(mcp: Any) -> None:
         """
         started = time.monotonic()
         tool_call_id = str(uuid4())
+        requested_mode = mode
+        routing_text = " ".join(
+            part
+            for part in (
+                objective,
+                " ".join(search_queries) if search_queries else None,
+                query,
+                question,
+            )
+            if part
+        ).strip()
+        # The classifier runs on EVERY call regardless of what the caller
+        # requested: the executed mode is always the router's prediction and
+        # requested_mode is informational only (analytics + provenance).
+        from ...ml import route_quick_mode
+
+        route = route_quick_mode(
+            objective=objective,
+            search_queries=search_queries,
+            query=query,
+            question=question,
+            repo_url=repo_url,
+            requested_mode=requested_mode,
+        )
+        mode = route.label
+        routing = route.to_dict()
         provider = {"web": "parallel", "youtube": "youtube", "docs": "documentation"}[mode]
         emit_tool_observability_event(
             LOGGER,
@@ -534,6 +582,8 @@ def register_quick_web_search(mcp: Any) -> None:
             "request",
             tool_call_id=tool_call_id,
             mode=mode,
+            requested_mode=requested_mode,
+            routing=routing,
             search_queries=search_queries,
             objective=objective,
             query=query,
@@ -542,13 +592,14 @@ def register_quick_web_search(mcp: Any) -> None:
             session_id=session_id,
             max_results=max_results,
             num_results=num_results,
-            include_domains=include_domains,
             exclude_domains=exclude_domains,
             client_model=client_model,
         )
-        await ctx.info(f"Quick web search (mode={mode})...")
+        await ctx.info(f"Quick web search (requested mode={requested_mode}, routed mode={mode})...")
         try:
             if mode == "youtube":
+                if not (query and query.strip()) and routing_text:
+                    query = routing_text
                 response = await _quick_youtube_impl(
                     query=query,
                     num_results=num_results,
@@ -556,6 +607,8 @@ def register_quick_web_search(mcp: Any) -> None:
                     timeout_seconds=timeout_seconds,
                 )
             elif mode == "docs":
+                if not (question and question.strip()) and routing_text:
+                    question = routing_text
                 response = await _quick_docs_impl(
                     repo_url=repo_url,
                     question=question,
@@ -565,6 +618,10 @@ def register_quick_web_search(mcp: Any) -> None:
                     timeout_seconds=timeout_seconds,
                 )
             else:
+                if not search_queries:
+                    search_queries = [routing_text] if routing_text else []
+                if not (objective and objective.strip()):
+                    objective = routing_text
                 response = await _quick_web_search_impl(
                     search_queries or [],
                     objective or "",
@@ -573,7 +630,6 @@ def register_quick_web_search(mcp: Any) -> None:
                     max_chars_per_result=max_chars_per_result,
                     client_model=client_model,
                     session_id=session_id,
-                    include_domains=include_domains,
                     exclude_domains=exclude_domains,
                     after_date=after_date,
                     location=location,
@@ -588,6 +644,8 @@ def register_quick_web_search(mcp: Any) -> None:
                 "error",
                 tool_call_id=tool_call_id,
                 mode=mode,
+                requested_mode=requested_mode,
+                routing=routing,
                 search_queries=search_queries,
                 objective=objective,
                 error_type=type(exc).__name__,
@@ -602,6 +660,8 @@ def register_quick_web_search(mcp: Any) -> None:
             "response",
             tool_call_id=tool_call_id,
             mode=mode,
+            requested_mode=requested_mode,
+            routing=routing,
             search_id=getattr(response, "search_id", None),
             provider_session_id=getattr(response, "provider_session_id", None),
             session_id=session_id,
@@ -611,7 +671,6 @@ def register_quick_web_search(mcp: Any) -> None:
             max_chars_total=max_chars_total,
             max_chars_per_result=max_chars_per_result,
             client_model=client_model,
-            include_domains=include_domains,
             exclude_domains=exclude_domains,
             after_date=after_date,
             location=location,

@@ -142,7 +142,7 @@ earch_branches`, `provider_calls`, `final_results`, `llm_call_log`, `llm_judgmen
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **web-search-mcp** (8531 symbols, 15006 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **web-search-mcp** (8669 symbols, 15253 relationships, 300 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > Index stale? Run `node .gitnexus/run.cjs analyze` from the project root — it auto-selects an available runner. No `.gitnexus/run.cjs` yet? `npx gitnexus analyze` (npm 11 crash → `npm i -g gitnexus`; #1939).
 
@@ -261,8 +261,6 @@ Rules for agents:
 
 - **Do not add new diagnostics.** When you touch a file, fix the `ty` errors it already has.
 - Suppress narrowly at the site with `# ty: ignore[rule-name]` and a stated reason; never relax a rule globally to make a file pass. Note that mypy-style codes do not match ty's rule names — `# type: ignore[arg-type]` suppresses nothing here, because ty looks for `invalid-argument-type`. Prefer fixing the producer (type the helper parameter or local variable as the literal it feeds) over suppressing at the consumer.
-- **The backlog is cleared:** as of 2026-09-16 `uv run ty check src` is clean, so the CI step is **blocking** (no `continue-on-error`). The remaining `# ty: ignore[...]` comments are all library-stub gaps (telethon, `ddgs`, google-genai, anyio, the OpenAI-compatible client shape) and each carries its reason inline.
-- `[tool.pyright]` stays in `pyproject.toml` for editor integrations (Pylance); `ty` is what the command line and CI enforce.
 
 ### Naming
 

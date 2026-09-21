@@ -232,8 +232,6 @@ def _parse_presentation_text(text: str) -> list[dict[str, str]]:
     return results
 
 
-
-
 def _parse_response(data: dict[str, Any], query: str) -> EngineCall:
     text = _message_text(data)
     if not text.strip():
