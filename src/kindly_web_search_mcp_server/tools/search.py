@@ -22,6 +22,7 @@ from ..telemetry import (
     create_chain_span,
     record_search_request,
 )
+from ..utils.input_optimization import strip_site_operators
 from ._helpers import (
     _record_tool_failure,
     _record_tool_success,
@@ -248,6 +249,22 @@ async def web_search(
             duration_ms=(time.monotonic() - started) * 1000,
         )
         raise_tool_error(exc, provider="web_search")
+
+    # Strip legacy search-engine operators (site:, after:, before:, filetype:)
+    # from all seed queries before they reach providers.  Domain/date filters
+    # should use API parameters (domain_boost, after_date, etc.) instead.
+    stripped_ops: list[str] = []
+    cleaned_seeds: list[str] = []
+    for sq in seed_queries:
+        cleaned, ops = strip_site_operators(sq)
+        stripped_ops.extend(ops)
+        if cleaned:
+            cleaned_seeds.append(cleaned)
+    if stripped_ops:
+        LOGGER.debug("Stripped operators from web_search queries: %s", stripped_ops)
+    if cleaned_seeds:
+        seed_queries = tuple(cleaned_seeds)
+        primary_query = cleaned_seeds[0]
 
     # Resolve temporal/locale filters once; absolute bounds win over bucket.
     filter_warnings: list[str] = []

@@ -13,6 +13,7 @@ from ..analytics.producers import emit_tool_observability_event
 from ..cache import get_query_cache, provider_cache_key
 from ..errors import raise_tool_error
 from ..models import AcademicSearchResponse, fetch_next
+from ..utils.input_optimization import strip_site_operators
 from ..utils.text_clean import clean_query as normalize_query
 from ._helpers import _academic_search_flight, _record_tool_failure, _record_tool_success
 
@@ -155,6 +156,13 @@ async def academic_search(
             ),
             provider="academic_search",
         )
+
+    # Strip legacy search-engine operators (site:, after:, before:, filetype:)
+    # before the query reaches academic providers.  Provider-specific domain
+    # filters should use API parameters instead.
+    query, _stripped_ops = strip_site_operators(query)
+    if _stripped_ops:
+        LOGGER.debug("Stripped operators from academic query: %s", _stripped_ops)
 
     await ctx.report_progress(progress=5, total=100, message="Checking cache...")
     await ctx.info(f"Academic search: {query[:80]}...")

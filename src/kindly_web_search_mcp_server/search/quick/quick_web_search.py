@@ -23,6 +23,7 @@ from ...errors import raise_tool_error
 from ...models import WebSearchNext, fetch_next, make_next
 from ...settings import settings
 from ...tools.catalog import tool_kwargs
+from ...utils.input_optimization import strip_site_operators
 from .quick_web_search_docs import fetch_docs_outcome
 from .quick_web_search_rewrite import rewrite_queries_for_parallel
 from .quick_web_search_youtube import fetch_youtube_outcome
@@ -314,9 +315,7 @@ async def _quick_web_search_impl(
             "Parallel SDK is unavailable; install the 'parallel-web' dependency."
         ) from exc
 
-    rewritten_queries, rewrite_meta = await rewrite_queries_for_parallel(
-        search_queries, objective
-    )
+    rewritten_queries, rewrite_meta = await rewrite_queries_for_parallel(search_queries, objective)
     if "error" not in rewrite_meta:
         LOGGER.info(
             "quick_web_search rewrote %d input queries into %d (%.0f ms, model=%s)",
@@ -622,6 +621,19 @@ def register_quick_web_search(mcp: Any) -> None:
                     search_queries = [routing_text] if routing_text else []
                 if not (objective and objective.strip()):
                     objective = routing_text
+                # Strip legacy search-engine operators (site:, after:, etc.)
+                # before queries reach the Parallel Search API.
+                cleaned: list[str] = []
+                all_ops: list[str] = []
+                for sq in search_queries:
+                    c, ops = strip_site_operators(sq)
+                    all_ops.extend(ops)
+                    if c:
+                        cleaned.append(c)
+                if all_ops:
+                    LOGGER.debug("Stripped operators from quick queries: %s", all_ops)
+                if cleaned:
+                    search_queries = cleaned
                 response = await _quick_web_search_impl(
                     search_queries or [],
                     objective or "",
